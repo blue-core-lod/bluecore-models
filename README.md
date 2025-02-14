@@ -1,0 +1,38 @@
+# Blue Core Data Models
+
+
+## Run Postgres with Docker
+
+## Database Management
+The [SQLAlchemy](https://www.sqlalchemy.org/) Object Relational Mapper (ORM) is used to create
+the Bluecore database models. 
+
+```mermaid
+erDiagram
+    ResourceBase ||--o{ Instance : "has"
+    ResourceBase ||--o{ Work : "has"
+    ResourceBase ||--o{ OtherResource : "has"
+    ResourceBase ||--o{ ResourceBibframeClass : "has classes"
+    ResourceBase ||--o{ Version : "has versions"
+    ResourceBase ||--o{ BibframeOtherResources : "has other resources"
+
+    Work ||--o{ Instance : "has"
+    
+    BibframeClass ||--o{ ResourceBibframeClass : "classifies"
+    
+    OtherResource ||--o{ BibframeOtherResources : "links to"
+```
+
+### Database Migrations with Alembic
+The [Alembic](https://alembic.sqlalchemy.org/en/latest/) database migration package is used
+to manage database changes with the Bluecore Data models.
+
+To create a new migration, ensure that the Postgres database is available and then run:
+- `uv run alembic revision --autogenerate -m "{short message describin change}`
+
+A new migration script will be created in the `bluecore_store_migration` directory. Be sure
+to add the new script to the repository with `git`.
+
+#### Applying Migrations
+To apply all of the migrations, run the following command:
+- `uv run alembic upgrade head`
