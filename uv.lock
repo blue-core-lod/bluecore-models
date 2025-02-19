@@ -14,6 +14,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "pytest-mock-resources" },
     { name = "ruff" },
 ]
 
@@ -27,6 +28,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-mock-resources", specifier = ">=2.12.1" },
     { name = "ruff", specifier = ">=0.9.6" },
 ]
 
@@ -216,6 +218,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/05/35/30e0d83068951d90a01852cb1cef56e5d8a09d20c7f511634cc2f7e0372a/pytest-8.3.4.tar.gz", hash = "sha256:965370d062bce11e73868e0335abac31b4d3de0e82f4007408d242b4f8610761", size = 1445919 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/11/92/76a1c94d3afee238333bc0a42b82935dd8f9cf8ce9e336ff87ee14d9e1cf/pytest-8.3.4-py3-none-any.whl", hash = "sha256:50e16d954148559c9a74109af1eaf0c945ba2d8f30f0a3d3335edde19788b6f6", size = 343083 },
+]
+
+[[package]]
+name = "pytest-mock-resources"
+version = "2.12.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+    { name = "sqlalchemy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bf/b1/2b030bc44b302b612fd00ee4ee374f0eb7356739b1e4932ead880b348dc5/pytest_mock_resources-2.12.1.tar.gz", hash = "sha256:f95c231e5dd957b5f48caf60141a43f57bbe7182d6e4d09a806a78e8d060f9b3", size = 42982 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/74/e0fa7cd27e0f4275f74e988116b5f3736ea803b96d7e09581422bc0a6dad/pytest_mock_resources-2.12.1-py3-none-any.whl", hash = "sha256:788d9b72d9155d3cd49c281da26527e23ca3511136b1594bbc7ee95ef19be236", size = 58793 },
 ]
 
 [[package]]
