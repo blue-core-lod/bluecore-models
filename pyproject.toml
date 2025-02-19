@@ -1,5 +1,5 @@
 [project]
-name = "32-09-blue-core-data-models"
+name = "blue-core-data-models"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
