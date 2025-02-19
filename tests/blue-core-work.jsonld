@@ -1,0 +1,358 @@
+[
+  {
+    "@id": "https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Monograph",
+      "http://id.loc.gov/ontologies/bibframe/Text",
+      "http://id.loc.gov/ontologies/bibframe/Work"
+    ],
+    "http://id.loc.gov/ontologies/bflc/aap": [
+      {
+        "@value": "Yun, Yŏ-ch'ang (Economist) Chaesaeng enŏji kumae chedo mit chiwŏn chŏngch'aek kaesŏn kwaje"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bflc/aap-normalized": [
+      {
+        "@value": "yunyŏch'ang(economist)chaesaengenŏjikumaechedomitchiwŏnchŏngch'aekkaesŏnkwaje"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/accompaniedBy": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb1"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/adminMetadata": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb2"
+      },
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb3"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/classification": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb4"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/content": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/contentTypes/txt"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/contribution": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb5"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/geographicCoverage": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/geographicAreas/a-ko"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/hasInstance": [
+      {
+        "@id": "https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/illustrativeContent": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/millus/ill"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/language": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/languages/kor"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/note": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb6"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/relation": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb7"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/subject": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb10"
+      },
+      {
+        "@id": "http://id.loc.gov/authorities/subjects/sh2009124928"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/supplementaryContent": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/msupplcont/bibliography"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/tableOfContents": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb14"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/title": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb15"
+      },
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb16"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Work",
+      "http://id.loc.gov/vocabulary/resourceComponents/sum"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/language": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/languages/eng"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb2",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/AdminMetadata"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/agent": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlc"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/date": [
+      {
+        "@type": "http://www.w3.org/2001/XMLSchema#date",
+        "@value": "2024-07-23"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/status": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/n"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb3",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/AdminMetadata"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/agent": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/date": [
+      {
+        "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "@value": "2024-10-03T02:34:38.142224-04:00"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/generationProcess": [
+      {
+        "@id": "https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.8.0"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/status": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/c"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb4",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/ClassificationLcc"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/assigner": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlc"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/classificationPortion": [
+      {
+        "@value": "TJ807.9.K6"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/itemPortion": [
+      {
+        "@value": "Y864 2023"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/status": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/uba"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb5",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Contribution",
+      "http://id.loc.gov/ontologies/bibframe/PrimaryContribution"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/agent": [
+      {
+        "@id": "http://id.loc.gov/rwo/agents/n2022035473"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/role": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/relators/aut"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb6",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Note",
+      "http://id.loc.gov/vocabulary/mnotetype/lang"
+    ],
+    "http://www.w3.org/2000/01/rdf-schema#label": [
+      {
+        "@value": "In Korean, with abstract also in English."
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb7",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Relation"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/associatedResource": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb8"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/relationship": [
+      {
+        "@id": "http://id.loc.gov/ontologies/bibframe/hasSeries"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/seriesEnumeration": [
+      {
+        "@value": "2023-04"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb8",
+    "@type": [
+      "http://id.loc.gov/ontologies/bflc/Uncontrolled",
+      "http://id.loc.gov/ontologies/bibframe/Series"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/status": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/t"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/title": [
+      {
+        "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb9"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb9",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Title"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/mainTitle": [
+      {
+        "@value": "Chŏngch'aek yŏn'gu sirijŭ ;"
+      },
+      {
+        "@language": "ko-hang",
+        "@value": "정책 연구 시리즈"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb10",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Topic",
+      "http://www.loc.gov/mads/rdf/v1#ComplexSubject"
+    ],
+    "http://id.loc.gov/ontologies/bflc/aap-normalized": [
+      {
+        "@value": "renewableenergysourcesgovernmentpolicykorea(south)"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/source": [
+      {
+        "@id": "http://id.loc.gov/authorities/subjects"
+      }
+    ],
+    "http://www.loc.gov/mads/rdf/v1#authoritativeLabel": [
+      {
+        "@value": "Renewable energy sources--Government policy--Korea (South)"
+      }
+    ],
+    "http://www.loc.gov/mads/rdf/v1#componentList": [
+      {
+        "@list": [
+          {
+            "@id": "http://id.loc.gov/authorities/subjects/sh85112837"
+          },
+          {
+            "@id": "http://id.loc.gov/authorities/subjects/sh99005269"
+          },
+          {
+            "@id": "http://id.loc.gov/rwo/agents/n79126802-781"
+          }
+        ]
+      }
+    ],
+    "http://www.loc.gov/mads/rdf/v1#isMemberOfMADSScheme": [
+      {
+        "@id": "http://id.loc.gov/authorities/subjects"
+      }
+    ],
+    "http://www.w3.org/2000/01/rdf-schema#label": [
+      {
+        "@value": "Renewable energy sources--Government policy--Korea (South)"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb14",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/TableOfContents"
+    ],
+    "http://www.w3.org/2000/01/rdf-schema#label": [
+      {
+        "@language": "ko-hang",
+        "@value": "1. 서론 -- 2. 국내 재생 에너지 거래 시장 개요 및 현황 -- 3. 모형 분석 -- 4. 결론 및 정책 시사점."
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb15",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Title"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/mainTitle": [
+      {
+        "@value": "Chaesaeng enŏji kumae chedo mit chiwŏn chŏngch'aek kaesŏn kwaje"
+      },
+      {
+        "@language": "ko-hang",
+        "@value": "재생 에너지 구매 제도 및 지원 정책 개선 과제"
+      }
+    ]
+  },
+  {
+    "@id": "_:n1a40eb44923f48d49a1ee0e27ad9832fb16",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/ParallelTitle"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/mainTitle": [
+      {
+        "@value": "Renewable energy policy in Korea"
+      }
+    ]
+  }
+]
