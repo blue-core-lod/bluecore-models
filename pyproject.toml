@@ -21,3 +21,8 @@ dev = [
 pythonpath = [
     "src"
 ]
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
