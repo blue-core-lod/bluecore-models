@@ -1,11 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    Integer,
-    ForeignKey
-)
+from sqlalchemy import Boolean, DateTime, Integer, ForeignKey
 
 from sqlalchemy.orm import (
     mapped_column,
@@ -34,7 +29,7 @@ class OtherResource(ResourceBase):
 
     def __repr__(self):
         return f"<OtherResource {self.uri or self.id}>"
-    
+
 
 class BibframeOtherResources(Base):
     """

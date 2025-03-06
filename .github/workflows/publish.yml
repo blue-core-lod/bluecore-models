@@ -1,0 +1,31 @@
+name: Publish to PyPI
+
+# This action requires that this repo be set up as a publisher be setup in pypi.
+# https://docs.pypi.org/trusted-publishers/
+
+on:
+  release:
+    types:
+      published
+
+jobs:
+  publish-pypi:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/bluecore-models
+
+    permissions:
+      id-token: write
+
+    steps:
+        uses: actions/checkout@v3
+
+      - name: install uv
+        run: pip install uv
+
+      - name: publish
+        run: |
+          uv build
+          uv publish

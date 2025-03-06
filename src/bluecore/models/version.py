@@ -1,10 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import (
-    DateTime,
-    Integer,
-    ForeignKey
-)
+from sqlalchemy import DateTime, Integer, ForeignKey
 
 from sqlalchemy.orm import (
     mapped_column,
@@ -16,6 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from bluecore.models.base import Base
 from bluecore.models.resource import ResourceBase
+
 
 class Version(Base):
     __tablename__ = "versions"

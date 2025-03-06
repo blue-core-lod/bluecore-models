@@ -11,6 +11,7 @@ from sqlalchemy.orm import (
 
 from bluecore.models.resource import ResourceBase
 
+
 class Instance(ResourceBase):
     __tablename__ = "instances"
 
