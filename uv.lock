@@ -17,8 +17,9 @@ wheels = [
 
 [[package]]
 name = "bluecore-models"
-version = "0.2.1"
-source = { virtual = "." }
+version = "0.2.0"
+source = { editable = "." }
+
 dependencies = [
     { name = "alembic" },
     { name = "psycopg2-binary" },
