@@ -16,8 +16,8 @@ wheels = [
 ]
 
 [[package]]
-name = "blue-core-data-models"
-version = "0.2.0"
+name = "bluecore-models"
+version = "0.2.1"
 source = { virtual = "." }
 dependencies = [
     { name = "alembic" },
