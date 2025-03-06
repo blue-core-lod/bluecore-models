@@ -195,4 +195,3 @@ def test_bibframe_other_resources(pg_session):
         assert bibframe_other_resource.bibframe_resource is not None
         assert bibframe_other_resource.created_at
         assert bibframe_other_resource.updated_at
-

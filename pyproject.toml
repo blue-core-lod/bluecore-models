@@ -1,5 +1,5 @@
 [project]
-name = "blue-core-data-models"
+name = "bluecore-models"
 version = "0.2.0"
 description = "Blue Core BIBFRAME Data Models"
 readme = "README.md"
@@ -15,4 +15,9 @@ dev = [
     "pytest>=8.3.4",
     "pytest-mock-resources>=2.12.1",
     "ruff>=0.9.6",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src"
 ]

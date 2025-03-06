@@ -1,10 +1,12 @@
 """Utility functions for working with RDF graphs."""
+
 import rdflib
 
 BF = rdflib.Namespace("http://id.loc.gov/ontologies/bibframe/")
 BFLC = rdflib.Namespace("http://id.loc.gov/ontologies/bflc/")
 LCLOCAL = rdflib.Namespace("http://id.loc.gov/ontologies/lclocal/")
 MADS = rdflib.Namespace("http://www.loc.gov/mads/rdf/v1#")
+
 
 def init_graph() -> rdflib.Graph:
     """Initialize a new RDF graph with the necessary namespaces."""

@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from bluecore.models.base import Base
 
+
 class ResourceBase(Base):
     __tablename__ = "resource_base"
 
