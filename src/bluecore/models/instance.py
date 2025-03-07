@@ -19,7 +19,7 @@ class Instance(ResourceBase):
         Integer, ForeignKey("resource_base.id"), primary_key=True
     )
     work_id: Mapped[int] = mapped_column(Integer, ForeignKey("works.id"), nullable=True)
-    work: Mapped["Work"] = relationship(
+    work: Mapped["Work"] = relationship(  # noqa
         "Work", foreign_keys=work_id, backref="instances"
     )
 

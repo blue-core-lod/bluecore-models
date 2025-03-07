@@ -1,4 +1,5 @@
 """Utility functions for working with RDF graphs."""
+
 import logging
 
 import rdflib
@@ -10,6 +11,7 @@ LCLOCAL = rdflib.Namespace("http://id.loc.gov/ontologies/lclocal/")
 MADS = rdflib.Namespace("http://www.loc.gov/mads/rdf/v1#")
 
 logger = logging.getLogger(__name__)
+
 
 def init_graph() -> rdflib.Graph:
     """Initialize a new RDF graph with the necessary namespaces."""
@@ -28,9 +30,7 @@ def _check_for_namespace(node: rdflib.URIRef) -> bool:
 
 def _exclude_uri_from_other_resources(uri: rdflib.URIRef) -> bool:
     """Checks if uri is in the BF, MADS, or RDF namespaces"""
-    return (
-        uri in BF or uri in MADS or uri in rdflib.RDF
-    )
+    return uri in BF or uri in MADS or uri in rdflib.RDF
 
 
 def _expand_bnode(graph: rdflib.Graph, entity_graph: rdflib.Graph, bnode: rdflib.BNode):
@@ -65,11 +65,13 @@ def generate_entity_graph(graph: rdflib.Graph, entity: rdflib.URIRef) -> rdflib.
     return entity_graph
 
 
-def generate_other_resources(record_graph: rdflib.Graph, entity_graph: rdflib.Graph) -> list:
+def generate_other_resources(
+    record_graph: rdflib.Graph, entity_graph: rdflib.Graph
+) -> list:
     """
-    Takes a Record Graph and Entity Graph and returns a list of dictionaries 
-    where each dict contains the sub-graphs and URIs that referenced in the 
-    entity graph and present in the record graph. 
+    Takes a Record Graph and Entity Graph and returns a list of dictionaries
+    where each dict contains the sub-graphs and URIs that referenced in the
+    entity graph and present in the record graph.
     """
     other_resources = []
     logger.error(f"Size of entity graph {len(entity_graph)}")
@@ -81,14 +83,16 @@ def generate_other_resources(record_graph: rdflib.Graph, entity_graph: rdflib.Gr
       }
     """):
         uri = row[0]
-        if _exclude_uri_from_other_resources(uri) or _is_work_or_instance(uri, record_graph):
+        if _exclude_uri_from_other_resources(uri) or _is_work_or_instance(
+            uri, record_graph
+        ):
             continue
         other_resource_graph = generate_entity_graph(record_graph, uri)
         if len(other_resource_graph) > 0:
             other_resources.append(
                 {
                     "uri": str(uri),
-                    "graph": other_resource_graph.serialize(format='json-ld')
+                    "graph": other_resource_graph.serialize(format="json-ld"),
                 }
             )
     return other_resources
