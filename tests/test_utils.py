@@ -9,6 +9,7 @@ from bluecore.utils.graph import (
     generate_entity_graph,
     generate_other_resources,
     init_graph,
+    _is_work_or_instance,
 )
 
 
@@ -73,3 +74,12 @@ def test_generate_other_resources():
     assert sorted_other_instance_resources[-1]["uri"].startswith(
         "http://id.loc.gov/vocabulary/organizations/dlcmrc"
     )
+
+
+def test_is_work_or_instance():
+    loc_graph = init_graph()
+    work_uri = rdflib.URIRef("http://id.loc.gov/resources/works/23807141")
+    # Adds a fake class to work
+    loc_graph.add((work_uri, rdflib.RDF.type, MADS.Resource))
+    loc_graph.add((work_uri, rdflib.RDF.type, BF.Work))
+    assert _is_work_or_instance(work_uri, loc_graph)
