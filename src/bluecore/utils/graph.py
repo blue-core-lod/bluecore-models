@@ -50,7 +50,7 @@ def _is_work_or_instance(uri: rdflib.URIRef, graph: rdflib.Graph) -> bool:
         # maybe through inference
         if class_ == BF.Work or class_ == BF.Instance:
             return True
-        return False
+    return False
 
 
 def generate_entity_graph(graph: rdflib.Graph, entity: rdflib.URIRef) -> rdflib.Graph:
