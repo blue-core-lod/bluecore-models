@@ -75,21 +75,6 @@ def create_test_rows():
             bf_class_id=2,
             resource_id=1,
         ),
-        # Version
-        Version(
-            id=1,
-            resource_id=1,
-            data=pathlib.Path("tests/blue-core-work.jsonld").read_text(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        ),
-        Version(
-            id=2,
-            resource_id=2,
-            data=pathlib.Path("tests/blue-core-instance.jsonld").read_text(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        ),
         # BibframeOtherResources
         BibframeOtherResources(
             id=1,
@@ -145,6 +130,8 @@ def test_instance(pg_session):
         assert instance.updated_at
         assert instance.work is not None
         assert instance.work.uri.startswith("https://bluecore.info/work")
+        assert len(instance.versions) == 1
+        assert len(instance.classes) == 1
 
 
 def test_work(pg_session):
@@ -155,6 +142,8 @@ def test_work(pg_session):
         assert work.created_at
         assert work.updated_at
         assert len(work.instances) > 0
+        assert len(work.versions) == 1
+        assert len(work.classes) == 1
 
 
 def test_other_resource(pg_session):
