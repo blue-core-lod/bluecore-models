@@ -4,7 +4,6 @@ import logging
 
 import rdflib
 
-
 BF = rdflib.Namespace("http://id.loc.gov/ontologies/bibframe/")
 BFLC = rdflib.Namespace("http://id.loc.gov/ontologies/bflc/")
 LCLOCAL = rdflib.Namespace("http://id.loc.gov/ontologies/lclocal/")
@@ -96,3 +95,14 @@ def generate_other_resources(
                 }
             )
     return other_resources
+
+
+def get_bf_classes(rdf_data: str, uri: str) -> list:
+    """Restrieves all of the resource's BIBFRAME classes from a graph."""
+    graph = init_graph()
+    graph.parse(data=rdf_data, format="json-ld")
+    classes = []
+    for class_ in graph.objects(subject=rdflib.URIRef(uri), predicate=rdflib.RDF.type):
+        if class_ in BF:
+            classes.append(class_)
+    return classes

@@ -1,4 +1,6 @@
 from sqlalchemy import (
+    event,
+    insert,
     ForeignKey,
     Integer,
 )
@@ -9,6 +11,8 @@ from sqlalchemy.orm import (
 )
 
 from bluecore.models.resource import ResourceBase
+from bluecore.models.version import Version
+from bluecore.utils.db import add_bf_classes, update_bf_classes
 
 
 class Work(ResourceBase):
@@ -23,3 +27,29 @@ class Work(ResourceBase):
 
     def __repr__(self):
         return f"<Work {self.uri}>"
+
+
+@event.listens_for(Work, "after_insert")
+def create_version_bf_classes(mapper, connection, target):
+    """
+    Creates a Version and associated Bibframe Classes
+    """
+    stmt = insert(Version.__table__).values(
+        resource_id=target.id,
+        data=target.data,
+    )
+    connection.execute(stmt)
+    add_bf_classes(connection, target)
+
+
+@event.listens_for(Work, "after_update")
+def update_version_bf_classes(mapper, connection, target):
+    """
+    Updates a Version and associated Bibframe Classes
+    """
+    stmt = insert(Version.__table__).values(
+        resource_id=target.id,
+        data=target.data,
+    )
+    connection.execute(stmt)
+    update_bf_classes(connection, target)

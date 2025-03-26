@@ -2,6 +2,8 @@ import pathlib
 from datetime import datetime, UTC
 
 import pytest
+import rdflib
+
 from pytest_mock_resources import create_sqlite_fixture, Rows
 
 from sqlalchemy.orm import sessionmaker
@@ -16,6 +18,8 @@ from bluecore.models import (
     Work,
     BibframeOtherResources,
 )
+
+from bluecore.utils.graph import BF, init_graph
 
 
 def create_test_rows():
@@ -38,7 +42,7 @@ def create_test_rows():
         # Work
         Work(
             id=1,
-            uri="https://bluecore.info/work/e0d6-40f0-abb3-e9130622eb8a",
+            uri="https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             data=pathlib.Path("tests/blue-core-work.jsonld").read_text(),
@@ -47,7 +51,7 @@ def create_test_rows():
         # Instance
         Instance(
             id=2,
-            uri="https://bluecore.info/instance/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
+            uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             data=pathlib.Path("tests/blue-core-instance.jsonld").read_text(),
@@ -63,32 +67,6 @@ def create_test_rows():
             data='{"description": "Sample Other Resource"}',
             type="other_resources",
             is_profile=False,
-        ),
-        # ResourceBibframeClass
-        ResourceBibframeClass(
-            id=1,
-            bf_class_id=1,
-            resource_id=2,
-        ),
-        ResourceBibframeClass(
-            id=2,
-            bf_class_id=2,
-            resource_id=1,
-        ),
-        # Version
-        Version(
-            id=1,
-            resource_id=1,
-            data=pathlib.Path("tests/blue-core-work.jsonld").read_text(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        ),
-        Version(
-            id=2,
-            resource_id=2,
-            data=pathlib.Path("tests/blue-core-instance.jsonld").read_text(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
         ),
         # BibframeOtherResources
         BibframeOtherResources(
@@ -130,10 +108,8 @@ def test_resource_bibframe_class(pg_session):
             .where(ResourceBibframeClass.id == 1)
             .first()
         )
-        assert resource_bf_class.resource.uri.startswith(
-            "https://bluecore.info/instance"
-        )
-        assert resource_bf_class.bf_class.name == "Instance"
+        assert resource_bf_class.resource.uri.startswith("https://bluecore.info/works")
+        assert resource_bf_class.bf_class.name == "Monograph"
 
 
 def test_instance(pg_session):
@@ -145,6 +121,8 @@ def test_instance(pg_session):
         assert instance.updated_at
         assert instance.work is not None
         assert instance.work.uri.startswith("https://bluecore.info/work")
+        assert len(instance.versions) == 1
+        assert len(instance.classes) == 1
 
 
 def test_work(pg_session):
@@ -155,6 +133,8 @@ def test_work(pg_session):
         assert work.created_at
         assert work.updated_at
         assert len(work.instances) > 0
+        assert len(work.versions) == 1
+        assert len(work.classes) == 3
 
 
 def test_other_resource(pg_session):
@@ -194,3 +174,34 @@ def test_bibframe_other_resources(pg_session):
         assert bibframe_other_resource.bibframe_resource is not None
         assert bibframe_other_resource.created_at
         assert bibframe_other_resource.updated_at
+
+
+def test_updated_instance(pg_session):
+    with pg_session() as session:
+        instance = session.query(Instance).where(Instance.id == 2).first()
+        instance_graph = init_graph()
+        instance_graph.parse(data=instance.data, format="json-ld")
+        instance_uri = rdflib.URIRef(instance.uri)
+        instance_graph.add((instance_uri, rdflib.RDF.type, BF.Electronic))
+        instance.data = instance_graph.serialize(format="json-ld")
+        session.add(instance)
+        session.commit()
+
+        assert len(instance.versions) == 2
+        assert len(instance.classes) == 2
+
+
+def test_updated_work(pg_session):
+    with pg_session() as session:
+        work = session.query(Work).where(Work.id == 1).first()
+        assert len(work.classes) == 3
+        work_graph = init_graph()
+        work_graph.parse(data=work.data, format="json-ld")
+        work_uri = rdflib.URIRef(work.uri)
+        work_graph.remove((work_uri, rdflib.RDF.type, BF.Text))
+        work.data = work_graph.serialize(format="json-ld")
+        session.add(work)
+        session.commit()
+
+        assert len(work.versions) == 2
+        assert len(work.classes) == 2
