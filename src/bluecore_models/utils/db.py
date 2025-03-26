@@ -3,9 +3,9 @@
 import rdflib
 
 from sqlalchemy import delete, insert, select
-from bluecore.models.bf_classes import BibframeClass, ResourceBibframeClass
+from bluecore_models.models.bf_classes import BibframeClass, ResourceBibframeClass
 
-from bluecore.utils.graph import get_bf_classes
+from bluecore_models.utils.graph import get_bf_classes
 
 
 def _new_bf_classs(connection, bf_class: rdflib.URIRef) -> int:

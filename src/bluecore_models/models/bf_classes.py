@@ -13,8 +13,8 @@ from sqlalchemy.orm import (
     Mapped,
     relationship,
 )
-from bluecore.models.base import Base
-from bluecore.models.resource import ResourceBase
+from bluecore_models.models.base import Base
+from bluecore_models.models.resource import ResourceBase
 
 
 class BibframeClass(Base):

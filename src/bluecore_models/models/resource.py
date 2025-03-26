@@ -12,7 +12,7 @@ from sqlalchemy.orm import (
 
 from sqlalchemy.dialects.postgresql import JSONB
 
-from bluecore.models.base import Base
+from bluecore_models.models.base import Base
 
 
 class ResourceBase(Base):
