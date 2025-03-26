@@ -2,7 +2,7 @@ import pathlib
 
 import rdflib
 
-from bluecore.utils.graph import (
+from bluecore_models.utils.graph import (
     BF,
     BFLC,
     MADS,

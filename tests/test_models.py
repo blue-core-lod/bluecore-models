@@ -8,7 +8,7 @@ from pytest_mock_resources import create_sqlite_fixture, Rows
 
 from sqlalchemy.orm import sessionmaker
 
-from bluecore.models import (
+from bluecore_models.models import (
     Base,
     BibframeClass,
     ResourceBibframeClass,
@@ -19,7 +19,7 @@ from bluecore.models import (
     BibframeOtherResources,
 )
 
-from bluecore.utils.graph import BF, init_graph
+from bluecore_models.utils.graph import BF, init_graph
 
 
 def create_test_rows():
