@@ -13,7 +13,7 @@ src = current_dir.parent / "src"
 
 sys.path = ["", str(src.absolute())] + sys.path[1:]
 
-from bluecore.models import (  # noqa: E402
+from bluecore_models.models import (  # noqa: E402
     Base,
     ResourceBase,  # noqa: F401
     Instance,  # noqa: F401

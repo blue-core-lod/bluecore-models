@@ -1,4 +1,4 @@
-import rdflib
+"""Module for BIBFRAME Instances"""
 
 from sqlalchemy import (
     event,
@@ -11,13 +11,11 @@ from sqlalchemy.orm import (
     mapped_column,
     Mapped,
     relationship,
-    Session,
 )
 
-from bluecore.models.bf_classes import BibframeClass, ResourceBibframeClass
-from bluecore.models.resource import ResourceBase
-from bluecore.models.version import Version
-from bluecore.utils.db import add_bf_classes, update_bf_classes
+from bluecore_models.models.resource import ResourceBase
+from bluecore_models.models.version import Version
+from bluecore_models.utils.db import add_bf_classes, update_bf_classes
 
 
 class Instance(ResourceBase):

@@ -10,8 +10,8 @@ from sqlalchemy.orm import (
 
 from sqlalchemy.dialects.postgresql import JSONB
 
-from bluecore.models.base import Base
-from bluecore.models.resource import ResourceBase
+from bluecore_models.models.base import Base
+from bluecore_models.models.resource import ResourceBase
 
 
 class Version(Base):

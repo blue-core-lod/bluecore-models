@@ -10,9 +10,9 @@ from sqlalchemy.orm import (
     Mapped,
 )
 
-from bluecore.models.resource import ResourceBase
-from bluecore.models.version import Version
-from bluecore.utils.db import add_bf_classes, update_bf_classes
+from bluecore_models.models.resource import ResourceBase
+from bluecore_models.models.version import Version
+from bluecore_models.utils.db import add_bf_classes, update_bf_classes
 
 
 class Work(ResourceBase):
