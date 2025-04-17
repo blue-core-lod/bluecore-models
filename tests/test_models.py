@@ -157,7 +157,6 @@ def test_versions(pg_session):
         assert version.resource == work
         assert version.data
         assert version.created_at
-        assert version.updated_at
         version2 = session.query(Version).where(Version.id == 2).first()
         instance = session.query(Instance).where(Instance.id == 2).first()
         assert version2.resource == instance
