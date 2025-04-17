@@ -8,8 +8,8 @@ To run the Postgres with the Blue Core Database, run the following command from 
 `docker run --name bluecore_db -e POSTGRES_USER=bluecore_admin -e POSTGRES_PASSWORD=bluecore_admin -v ./create-db.sql:/docker-entrypoint-initdb.d/create_database.sql -p 5432:5432 postgres:17`
 
 ## Installing
-- Install via pip: `pip install blue-core-data-models`
-- Install via uv: `uv add blue-core-data-models`
+- Install via pip: `pip install bluecore-models`
+- Install via uv: `uv add bluecore-models`
 
 ## Database Management
 The [SQLAlchemy](https://www.sqlalchemy.org/) Object Relational Mapper (ORM) is used to create
