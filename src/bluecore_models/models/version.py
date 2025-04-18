@@ -24,9 +24,6 @@ class Version(Base):
     resource: Mapped[ResourceBase] = relationship("ResourceBase", backref="versions")
     data: Mapped[bytes] = mapped_column(JSONB, nullable=False)
     created_at = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
 
     def __repr__(self):
         return f"<Version at {self.created_at} for {self.resource.uri}>"
