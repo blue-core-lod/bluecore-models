@@ -44,3 +44,14 @@ to add the new script to the repository with `git`.
 #### Applying Migrations
 To apply all of the migrations, run the following command:
 - `uv run alembic upgrade head`
+
+## Publishing to Pypi
+To publish the `bluecore-models` to [pypi](https://pypi.org/project/bluecore-models/), the
+following steps need to be taken. 
+
+1. Update the version in `pyproject.toml` either in a feature branch PR or in a
+   dedicated PR.
+2. After the PR is merged, create a [tagged release](https://github.com/blue-core-lod/bluecore-models/releases) 
+   using the same version (prepended with a `v` i.e. `v0.4.2`.
+3. Once the tagged release is saved, the [Publish to PyPi](https://github.com/blue-core-lod/bluecore-models/actions/workflows/publish.yml)
+   Github Action should then publish the release to PyPi. 
