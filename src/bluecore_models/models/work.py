@@ -37,6 +37,7 @@ def create_version_bf_classes(mapper, connection, target):
     stmt = insert(Version.__table__).values(
         resource_id=target.id,
         data=target.data,
+        created_at=target.updated_at,
     )
     connection.execute(stmt)
     add_bf_classes(connection, target)
@@ -50,6 +51,7 @@ def update_version_bf_classes(mapper, connection, target):
     stmt = insert(Version.__table__).values(
         resource_id=target.id,
         data=target.data,
+        created_at=target.updated_at,
     )
     connection.execute(stmt)
     update_bf_classes(connection, target)
