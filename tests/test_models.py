@@ -180,6 +180,13 @@ def test_bibframe_other_resources(pg_session):
 def test_updated_instance(pg_session):
     with pg_session() as session:
         instance = session.query(Instance).where(Instance.id == 2).first()
+        # Before updates: assert instance has 1 version and 1 class
+        assert len(instance.versions) == 1
+        assert len(instance.classes) == 1
+        # Assert instance 'updated_at' & version 'created_at' are the same
+        version_before_update = instance.versions[0]
+        assert version_before_update.created_at == instance.updated_at
+        # Update the instance
         instance_graph = init_graph()
         instance_graph.parse(data=instance.data, format="json-ld")
         instance_uri = rdflib.URIRef(instance.uri)
@@ -187,9 +194,11 @@ def test_updated_instance(pg_session):
         instance.data = instance_graph.serialize(format="json-ld")
         session.add(instance)
         session.commit()
-
+        # Assert new version was created, classes & timestamps aligned
         assert len(instance.versions) == 2
         assert len(instance.classes) == 2
+        latest_version = max(instance.versions, key=lambda version: version.id)
+        assert latest_version.created_at == instance.updated_at
 
 
 def test_updated_work(pg_session):
