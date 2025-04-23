@@ -23,6 +23,8 @@ from bluecore_models.utils.graph import BF, init_graph
 
 
 def create_test_rows():
+    time_now = datetime.now(UTC)  # Use for Instance and Work for now
+
     return Rows(
         # BibframeClass
         BibframeClass(
@@ -43,8 +45,8 @@ def create_test_rows():
         Work(
             id=1,
             uri="https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
+            created_at=time_now,
+            updated_at=time_now,
             data=pathlib.Path("tests/blue-core-work.jsonld").read_text(),
             type="works",
         ),
@@ -52,8 +54,8 @@ def create_test_rows():
         Instance(
             id=2,
             uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
+            created_at=time_now,
+            updated_at=time_now,
             data=pathlib.Path("tests/blue-core-instance.jsonld").read_text(),
             type="instances",
             work_id=1,
@@ -115,6 +117,9 @@ def test_resource_bibframe_class(pg_session):
 def test_instance(pg_session):
     with pg_session() as session:
         instance = session.query(Instance).where(Instance.id == 2).first()
+        version = session.query(Version).filter_by(resource_id=instance.id).first()
+        assert instance.created_at == instance.updated_at
+        assert version.created_at == instance.updated_at
         assert instance.uri.startswith("https://bluecore.info/instance")
         assert instance.data
         assert instance.created_at
@@ -128,6 +133,9 @@ def test_instance(pg_session):
 def test_work(pg_session):
     with pg_session() as session:
         work = session.query(Work).where(Work.id == 1).first()
+        version = session.query(Version).filter_by(resource_id=work.id).first()
+        assert work.created_at == work.updated_at
+        assert version.created_at == work.updated_at
         assert work.uri.startswith("https://bluecore.info/work")
         assert work.data
         assert work.created_at
@@ -178,6 +186,13 @@ def test_bibframe_other_resources(pg_session):
 def test_updated_instance(pg_session):
     with pg_session() as session:
         instance = session.query(Instance).where(Instance.id == 2).first()
+        # Before updates: assert instance has 1 version and 1 class
+        assert len(instance.versions) == 1
+        assert len(instance.classes) == 1
+        # Assert instance 'updated_at' & version 'created_at' are the same
+        version_before_update = instance.versions[0]
+        assert version_before_update.created_at == instance.updated_at
+        # Update the instance
         instance_graph = init_graph()
         instance_graph.parse(data=instance.data, format="json-ld")
         instance_uri = rdflib.URIRef(instance.uri)
@@ -185,15 +200,23 @@ def test_updated_instance(pg_session):
         instance.data = instance_graph.serialize(format="json-ld")
         session.add(instance)
         session.commit()
-
+        # Assert new version was created, classes & timestamps aligned
         assert len(instance.versions) == 2
         assert len(instance.classes) == 2
+        latest_version = max(instance.versions, key=lambda version: version.id)
+        assert latest_version.created_at == instance.updated_at
 
 
 def test_updated_work(pg_session):
     with pg_session() as session:
         work = session.query(Work).where(Work.id == 1).first()
+        # Before updates: assert work has 1 version and 3 classes
+        assert len(work.versions) == 1
         assert len(work.classes) == 3
+        # Assert work 'updated_at' & version 'created_at' are the same
+        version_before_update = work.versions[0]
+        assert version_before_update.created_at == work.updated_at
+        # Update the work
         work_graph = init_graph()
         work_graph.parse(data=work.data, format="json-ld")
         work_uri = rdflib.URIRef(work.uri)
@@ -201,6 +224,8 @@ def test_updated_work(pg_session):
         work.data = work_graph.serialize(format="json-ld")
         session.add(work)
         session.commit()
-
+        # Assert new version was created, classes & timestamps aligned
         assert len(work.versions) == 2
         assert len(work.classes) == 2
+        latest_version = max(work.versions, key=lambda version: version.id)
+        assert latest_version.created_at == work.updated_at
