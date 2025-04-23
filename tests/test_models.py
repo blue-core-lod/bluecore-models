@@ -133,6 +133,9 @@ def test_instance(pg_session):
 def test_work(pg_session):
     with pg_session() as session:
         work = session.query(Work).where(Work.id == 1).first()
+        version = session.query(Version).filter_by(resource_id=work.id).first()
+        assert work.created_at == work.updated_at
+        assert version.created_at == work.updated_at
         assert work.uri.startswith("https://bluecore.info/work")
         assert work.data
         assert work.created_at
