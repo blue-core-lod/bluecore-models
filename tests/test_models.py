@@ -23,6 +23,8 @@ from bluecore_models.utils.graph import BF, init_graph
 
 
 def create_test_rows():
+    time_now = datetime.now(UTC)  # Use for Instance and Work for now
+
     return Rows(
         # BibframeClass
         BibframeClass(
@@ -43,8 +45,8 @@ def create_test_rows():
         Work(
             id=1,
             uri="https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
+            created_at=time_now,
+            updated_at=time_now,
             data=pathlib.Path("tests/blue-core-work.jsonld").read_text(),
             type="works",
         ),
@@ -52,8 +54,8 @@ def create_test_rows():
         Instance(
             id=2,
             uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
+            created_at=time_now,
+            updated_at=time_now,
             data=pathlib.Path("tests/blue-core-instance.jsonld").read_text(),
             type="instances",
             work_id=1,
