@@ -2,16 +2,20 @@
 The Blue Core Data Models are used in [Blue Core API](https://github.com/blue-core-lod/bluecore_api) 
 and in the [Blue Core Workflows](https://github.com/blue-core-lod/bluecore-workflows) services.  
 
-## Run Postgres with Docker
+## 🐳 Run Postgres with Docker
 To run the Postgres with the Blue Core Database, run the following command from this directory:
 
 `docker run --name bluecore_db -e POSTGRES_USER=bluecore_admin -e POSTGRES_PASSWORD=bluecore_admin -v ./create-db.sql:/docker-entrypoint-initdb.d/create_database.sql -p 5432:5432 postgres:17`
 
-## Installing
+---
+
+## 🛠️ Installing
 - Install via pip: `pip install bluecore-models`
 - Install via uv: `uv add bluecore-models`
 
-## Database Management
+---
+
+## 🗄️ Database Management
 The [SQLAlchemy](https://www.sqlalchemy.org/) Object Relational Mapper (ORM) is used to create
 the Bluecore database models. 
 
@@ -45,7 +49,29 @@ to add the new script to the repository with `git`.
 To apply all of the migrations, run the following command:
 - `uv run alembic upgrade head`
 
-## Publishing to Pypi
+---
+
+## 🧪 Running Tests
+The test suite is written using pytest and is executed via uv.
+All tests are located in the tests/ directory.
+
+#### Run All Tests
+`uv run pytest`
+
+#### Run a specific test file
+`uv run pytest tests/test_models.py`
+
+#### Run a specific test function
+`uv run pytest tests/test_models.py -k test_updated_instance`
+
+#### Show output (prints/logs) during test execution
+`uv run pytest -s`
+
+💡 Make sure your virtual environment is activated and dependencies are installed with uv before running tests.
+
+---
+
+## ⬆️ Publishing to Pypi
 To publish the `bluecore-models` to [pypi](https://pypi.org/project/bluecore-models/), the
 following steps need to be taken. 
 
