@@ -195,7 +195,13 @@ def test_updated_instance(pg_session):
 def test_updated_work(pg_session):
     with pg_session() as session:
         work = session.query(Work).where(Work.id == 1).first()
+        # Before updates: assert work has 1 version and 3 classes
+        assert len(work.versions) == 1
         assert len(work.classes) == 3
+        # Assert work 'updated_at' & version 'created_at' are the same
+        version_before_update = work.versions[0]
+        assert version_before_update.created_at == work.updated_at
+        # Update the work
         work_graph = init_graph()
         work_graph.parse(data=work.data, format="json-ld")
         work_uri = rdflib.URIRef(work.uri)
@@ -203,6 +209,8 @@ def test_updated_work(pg_session):
         work.data = work_graph.serialize(format="json-ld")
         session.add(work)
         session.commit()
-
+        # Assert new version was created, classes & timestamps aligned
         assert len(work.versions) == 2
         assert len(work.classes) == 2
+        latest_version = max(work.versions, key=lambda version: version.id)
+        assert latest_version.created_at == work.updated_at
