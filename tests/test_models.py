@@ -117,6 +117,9 @@ def test_resource_bibframe_class(pg_session):
 def test_instance(pg_session):
     with pg_session() as session:
         instance = session.query(Instance).where(Instance.id == 2).first()
+        version = session.query(Version).filter_by(resource_id=instance.id).first()
+        assert instance.created_at == instance.updated_at
+        assert version.created_at == instance.updated_at
         assert instance.uri.startswith("https://bluecore.info/instance")
         assert instance.data
         assert instance.created_at
