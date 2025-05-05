@@ -4,6 +4,7 @@ from sqlalchemy.orm import mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import JSONB
 from bluecore_models.models.base import Base
 
+
 class ResourceBase(Base):
     __tablename__ = "resource_base"
 
