@@ -12,18 +12,16 @@ class ResourceBase(Base):
     type: Mapped[str] = mapped_column(String, nullable=False)
     data: Mapped[bytes] = mapped_column(JSONB, nullable=False)
     uri: Mapped[str] = mapped_column(String, nullable=True, unique=True)
-    created_at = mapped_column(DateTime())
-    updated_at = mapped_column(DateTime())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
     __mapper_args__ = {
         "polymorphic_on": type,
         "polymorphic_identity": "resource_base",
     }
-
-    def __init__(self, **kwargs):
-        time_now = datetime.now(UTC)
-        if "created_at" not in kwargs:
-            kwargs["created_at"] = time_now
-        if "updated_at" not in kwargs:
-            kwargs["updated_at"] = time_now
-        super().__init__(**kwargs)
