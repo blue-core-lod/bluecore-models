@@ -1,5 +1,5 @@
 from datetime import datetime, UTC
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, String, Uuid
 from sqlalchemy.orm import mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import JSONB
 from bluecore_models.models.base import Base
@@ -11,6 +11,7 @@ class ResourceBase(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str] = mapped_column(String, nullable=False)
     data: Mapped[bytes] = mapped_column(JSONB, nullable=False)
+    uuid: Mapped[Uuid] = mapped_column(Uuid, nullable=True, unique=True, index=True)
     uri: Mapped[str] = mapped_column(String, nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC)
