@@ -1,5 +1,6 @@
 import pathlib
 from datetime import datetime, UTC
+from uuid import UUID
 
 import pytest
 import rdflib
@@ -48,6 +49,7 @@ def create_test_rows():
             created_at=time_now,
             updated_at=time_now,
             data=pathlib.Path("tests/blue-core-work.jsonld").read_text(),
+            uuid=UUID("629e9a53-7d5b-439c-a227-5efdbeb102e4"),
             type="works",
         ),
         # Instance
@@ -58,6 +60,7 @@ def create_test_rows():
             updated_at=time_now,
             data=pathlib.Path("tests/blue-core-instance.jsonld").read_text(),
             type="instances",
+            uuid=UUID("9bd652f3-9e92-4aee-ba6c-cd33dcb43ffa"),
             work_id=1,
         ),
         # OtherResource
@@ -121,6 +124,7 @@ def test_instance(pg_session):
         assert instance.created_at == instance.updated_at
         assert version.created_at == instance.updated_at
         assert instance.uri.startswith("https://bluecore.info/instance")
+        assert instance.uuid == UUID("9bd652f3-9e92-4aee-ba6c-cd33dcb43ffa")
         assert instance.data
         assert instance.created_at
         assert instance.updated_at
@@ -137,6 +141,7 @@ def test_work(pg_session):
         assert work.created_at == work.updated_at
         assert version.created_at == work.updated_at
         assert work.uri.startswith("https://bluecore.info/work")
+        assert work.uuid == UUID("629e9a53-7d5b-439c-a227-5efdbeb102e4")
         assert work.data
         assert work.created_at
         assert work.updated_at
