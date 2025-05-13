@@ -51,6 +51,21 @@ To apply all of the migrations, run the following command:
 
 ---
 
+## 🧹 Linter for Python 
+bluecore-models uses [ruff](https://docs.astral.sh/ruff/)
+- `uv run ruff check`
+
+To auto-fix errors in both (where possible):
+- `uv run ruff check --fix`
+
+Check formatting differences without changing files:
+- `uv run ruff format --diff`
+
+Apply Ruff's code formatting:
+- `uv run ruff format`
+
+---
+
 ## 🧪 Running Tests
 The test suite is written using pytest and is executed via uv.
 All tests are located in the tests/ directory.
