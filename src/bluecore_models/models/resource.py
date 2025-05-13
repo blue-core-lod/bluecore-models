@@ -37,4 +37,5 @@ def set_created_and_updated(mapper, connection, target):
     now = datetime.now(UTC)
     if not target.created_at:
         target.created_at = now
-    target.updated_at = now
+    if not target.updated_at:
+        target.updated_at = now
