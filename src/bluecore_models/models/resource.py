@@ -1,5 +1,5 @@
 from datetime import datetime, UTC
-from sqlalchemy import DateTime, String, Uuid
+from sqlalchemy import DateTime, String, Uuid, event
 from sqlalchemy.orm import mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import JSONB
 from bluecore_models.models.base import Base
@@ -26,3 +26,15 @@ class ResourceBase(Base):
         "polymorphic_on": type,
         "polymorphic_identity": "resource_base",
     }
+
+
+# ==============================================================================
+# Ensure created_at and updated_at are exactly the same when inserting.
+# (if created_at time not present)
+# ------------------------------------------------------------------------------
+@event.listens_for(ResourceBase, "before_insert", propagate=True)
+def set_created_and_updated(mapper, connection, target):
+    now = datetime.now(UTC)
+    if not target.created_at:
+        target.created_at = now
+    target.updated_at = now
