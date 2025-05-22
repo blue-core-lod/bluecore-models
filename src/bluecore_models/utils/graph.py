@@ -4,6 +4,28 @@ import logging
 
 import rdflib
 
+from string import Template
+from uuid import uuid4
+
+UPDATE_SPARQL_TEMPLATE = Template("""
+DELETE {
+  <$old_subject> ?p ?o .
+  ?s ?pp <$old_subject>
+}
+INSERT {
+  <$bluecore_uri> ?p ?o .
+  ?s ?pp <$bluecore_uri> .
+}
+WHERE {
+  {
+    <$old_subject> ?p ?o .
+  }
+  UNION {
+    ?s ?pp <$old_subject> .
+  }
+}
+""")
+
 BF = rdflib.Namespace("http://id.loc.gov/ontologies/bibframe/")
 BFLC = rdflib.Namespace("http://id.loc.gov/ontologies/bflc/")
 LCLOCAL = rdflib.Namespace("http://id.loc.gov/ontologies/lclocal/")
@@ -50,6 +72,47 @@ def _is_work_or_instance(uri: rdflib.URIRef, graph: rdflib.Graph) -> bool:
         if class_ == BF.Work or class_ == BF.Instance:
             return True
     return False
+
+
+def _mint_uri(env_root: str, type_of: str) -> tuple:
+    """
+    Mints a Work or Instance URI based on the environment.
+    """
+    uuid = uuid4()
+    if not type_of.endswith("s"):
+        type_of = f"{type_of}s"
+    if env_root.endswith("/"):
+        env_root = env_root[0:-1]
+    return f"{env_root}/{type_of}/{uuid}", str(uuid)
+
+
+def _update_graph(**kwargs) -> rdflib.Graph:
+    """
+    Updates graph using a Blue Core URI subject. If incoming subject is
+    an URI, create a new RDF triple.
+    """
+    graph: rdflib.Graph = kwargs["graph"]
+    bluecore_uri: str = kwargs["bluecore_uri"]
+    bluecore_type: str = kwargs["bluecore_type"]
+
+    match bluecore_type.lower():
+        case "works" | "work":
+            object_uri = BF.Work
+
+        case "instances" | "instance":
+            object_uri = BF.Instance
+
+    external_subject = graph.value(predicate=rdflib.RDF.type, object=object_uri)
+    if external_subject is None:
+        raise ValueError(f"Cannot find external subject with a type of {object_uri}")
+    sparql_update_query = UPDATE_SPARQL_TEMPLATE.substitute(
+        old_subject=external_subject, bluecore_uri=bluecore_uri
+    )
+    graph.update(sparql_update_query)
+
+    if not isinstance(external_subject, rdflib.BNode):
+        graph.add((rdflib.URIRef(bluecore_uri), BF.derivedFrom, external_subject))
+    return graph
 
 
 def generate_entity_graph(graph: rdflib.Graph, entity: rdflib.URIRef) -> rdflib.Graph:
@@ -106,3 +169,25 @@ def get_bf_classes(rdf_data: str, uri: str) -> list:
         if class_ in BF:
             classes.append(class_)
     return classes
+
+
+def handle_external_subject(**kwargs) -> dict:
+    """
+    Handles external subject terms in new Blue Core descriptions
+    """
+    raw_jsonld = kwargs["data"]
+    env_root = kwargs["bluecore_base_url"]
+    bluecore_type = kwargs["type"]
+
+    graph = init_graph()
+    graph.parse(data=raw_jsonld, format="json-ld")
+
+    bluecore_uri, uuid = _mint_uri(env_root, bluecore_type)
+    modified_graph = _update_graph(
+        graph=graph, bluecore_uri=bluecore_uri, bluecore_type=bluecore_type
+    )
+    return {
+        "uri": bluecore_uri,
+        "data": modified_graph.serialize(format="jsonld"),
+        "uuid": uuid,
+    }

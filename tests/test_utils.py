@@ -1,5 +1,6 @@
 import pathlib
 
+import pytest
 import rdflib
 
 from bluecore_models.utils.graph import (
@@ -8,6 +9,7 @@ from bluecore_models.utils.graph import (
     MADS,
     generate_entity_graph,
     generate_other_resources,
+    handle_external_subject,
     init_graph,
     _is_work_or_instance,
 )
@@ -74,6 +76,32 @@ def test_generate_other_resources():
     assert sorted_other_instance_resources[-1]["uri"].startswith(
         "http://id.loc.gov/vocabulary/organizations/dlcmrc"
     )
+
+
+def test_handle_external_bnode_subject(mocker):
+    mocker.patch("bluecore_models.utils.uuid4",
+                 return_value="ac35fae6-3727-11f0-a057-5a0f9a6cb774")
+    
+    work_uri = rdflib.URIRef("https://bcld.info/works/c35fae6-3727-11f0-a057-5a0f9a6cb774")
+    graph = init_graph()
+    subject = rdflib.BNode()
+    graph.add((subject, rdflib.RDF.type, BF.Work))
+    title_bnode = rdflib.BNode()
+    graph.add((subject, BF.title, title_bnode))
+    graph.add((title_bnode, BF.mainTitle, rdflib.Literal("A Testing Work")))
+
+    result = handle_external_subject(
+        bluecore_base_url="https://bcld.info/",
+        data=graph.serialize(format='jsonld'),
+        type="works"
+    )
+
+    assert result['uri'] == str(work_uri)
+    bluecore_graph = init_graph()
+    bluecore_graph.parse(data=result['data'], format='jsonld')
+
+    bluecore_title = bluecore_graph.value(subject=work_uri, predicate=BF.title)
+    assert str(bluecore_graph.value(subject=bluecore_title, predicate=BF.mainTitle)) == "A Testing Work"
 
 
 def test_is_work_or_instance():
