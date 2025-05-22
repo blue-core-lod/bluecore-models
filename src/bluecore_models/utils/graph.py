@@ -81,6 +81,8 @@ def _mint_uri(env_root: str, type_of: str) -> tuple:
     uuid = uuid4()
     if not type_of.endswith("s"):
         type_of = f"{type_of}s"
+    if env_root.endswith("/"):
+        env_root = env_root[0:-1]
     return f"{env_root}/{type_of}/{uuid}", str(uuid)
 
 
@@ -107,6 +109,9 @@ def _update_graph(**kwargs) -> rdflib.Graph:
         old_subject=external_subject, bluecore_uri=bluecore_uri
     )
     graph.update(sparql_update_query)
+
+    if not isinstance(external_subject, rdflib.BNode):
+        graph.add((rdflib.URIRef(bluecore_uri), BF.derivedFrom, external_subject))
     return graph
 
 
