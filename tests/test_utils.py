@@ -79,10 +79,14 @@ def test_generate_other_resources():
 
 
 def test_handle_external_bnode_subject(mocker):
-    mocker.patch("bluecore_models.utils.uuid4",
-                 return_value="ac35fae6-3727-11f0-a057-5a0f9a6cb774")
-    
-    work_uri = rdflib.URIRef("https://bcld.info/works/c35fae6-3727-11f0-a057-5a0f9a6cb774")
+    mocker.patch(
+        "bluecore_models.utils.graph.uuid4",
+        return_value="ac35fae6-3727-11f0-a057-5a0f9a6cb774",
+    )
+
+    work_uri = rdflib.URIRef(
+        "https://bcld.info/works/ac35fae6-3727-11f0-a057-5a0f9a6cb774"
+    )
     graph = init_graph()
     subject = rdflib.BNode()
     graph.add((subject, rdflib.RDF.type, BF.Work))
@@ -92,16 +96,19 @@ def test_handle_external_bnode_subject(mocker):
 
     result = handle_external_subject(
         bluecore_base_url="https://bcld.info/",
-        data=graph.serialize(format='jsonld'),
-        type="works"
+        data=graph.serialize(format="json-ld"),
+        type="works",
     )
 
-    assert result['uri'] == str(work_uri)
+    assert result["uri"] == str(work_uri)
     bluecore_graph = init_graph()
-    bluecore_graph.parse(data=result['data'], format='jsonld')
+    bluecore_graph.parse(data=result["data"], format="json-ld")
 
     bluecore_title = bluecore_graph.value(subject=work_uri, predicate=BF.title)
-    assert str(bluecore_graph.value(subject=bluecore_title, predicate=BF.mainTitle)) == "A Testing Work"
+    assert (
+        str(bluecore_graph.value(subject=bluecore_title, predicate=BF.mainTitle))
+        == "A Testing Work"
+    )
 
 
 def test_is_work_or_instance():
