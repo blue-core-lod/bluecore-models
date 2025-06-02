@@ -4,27 +4,29 @@ import logging
 
 import rdflib
 
-from string import Template
 from uuid import uuid4
 
-UPDATE_SPARQL_TEMPLATE = Template("""
+from rdflib.plugins.sparql import prepareUpdate
+
+UPDATE_SPARQL = prepareUpdate("""
 DELETE {
-  <$old_subject> ?p ?o .
-  ?s ?pp <$old_subject>
+  ?old_subject ?p ?o .
+  ?s ?pp $old_subject
 }
 INSERT {
-  <$bluecore_uri> ?p ?o .
-  ?s ?pp <$bluecore_uri> .
+  ?bluecore_uri ?p ?o .
+  ?s ?pp ?bluecore_uri .
 }
 WHERE {
   {
-    <$old_subject> ?p ?o .
+    ?old_subject ?p ?o .
   }
   UNION {
-    ?s ?pp <$old_subject> .
+    ?s ?pp ?old_subject .
   }
 }
 """)
+
 
 BF = rdflib.Namespace("http://id.loc.gov/ontologies/bibframe/")
 BFLC = rdflib.Namespace("http://id.loc.gov/ontologies/bflc/")
@@ -105,10 +107,14 @@ def _update_graph(**kwargs) -> rdflib.Graph:
     external_subject = graph.value(predicate=rdflib.RDF.type, object=object_uri)
     if external_subject is None:
         raise ValueError(f"Cannot find external subject with a type of {object_uri}")
-    sparql_update_query = UPDATE_SPARQL_TEMPLATE.substitute(
-        old_subject=external_subject, bluecore_uri=bluecore_uri
+
+    graph.update(
+        UPDATE_SPARQL,
+        initBindings={
+            "old_subject": external_subject,
+            "bluecore_uri": rdflib.URIRef(bluecore_uri),
+        },
     )
-    graph.update(sparql_update_query)
 
     if not isinstance(external_subject, rdflib.BNode):
         graph.add((rdflib.URIRef(bluecore_uri), BF.derivedFrom, external_subject))
@@ -188,6 +194,6 @@ def handle_external_subject(**kwargs) -> dict:
     )
     return {
         "uri": bluecore_uri,
-        "data": modified_graph.serialize(format="jsonld"),
+        "data": modified_graph.serialize(format="json-ld"),
         "uuid": uuid,
     }
