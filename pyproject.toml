@@ -1,6 +1,6 @@
 [project]
 name = "bluecore-models"
-version = "0.5.1"
+version = "0.6.0"
 description = "Blue Core BIBFRAME Data Models"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,6 +13,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.3.4",
+    "pytest-mock>=3.14.1",
     "pytest-mock-resources>=2.12.1",
     "ruff>=0.9.6",
 ]
