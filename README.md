@@ -5,7 +5,7 @@ and in the [Blue Core Workflows](https://github.com/blue-core-lod/bluecore-workf
 ## 🐳 Run Postgres with Docker
 To run the Postgres with the Blue Core Database, run the following command from this directory:
 
-`docker run --name bluecore_db -e POSTGRES_USER=bluecore_admin -e POSTGRES_PASSWORD=bluecore_admin -v ./create-db.sql:/docker-entrypoint-initdb.d/create_database.sql -p 5432:5432 postgres:17`
+`docker run --name bluecore_db -e POSTGRES_USER=airflow -e POSTGRES_PASSWORD=airflow -v ./create-db.sql:/docker-entrypoint-initdb.d/create_database.sql -p 5432:5432 postgres:17`
 
 ---
 
