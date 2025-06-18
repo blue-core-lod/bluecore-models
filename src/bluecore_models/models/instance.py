@@ -14,6 +14,7 @@ from sqlalchemy.orm import (
 )
 
 from bluecore_models.models.resource import ResourceBase
+from bluecore_models.models.work import Work
 from bluecore_models.models.version import Version
 from bluecore_models.utils.db import add_bf_classes, update_bf_classes
 
@@ -25,7 +26,7 @@ class Instance(ResourceBase):
         Integer, ForeignKey("resource_base.id"), primary_key=True
     )
     work_id: Mapped[int] = mapped_column(Integer, ForeignKey("works.id"), nullable=True)
-    work: Mapped["Work"] = relationship(  # noqa
+    work: Mapped["Work"] = relationship(
         "Work", foreign_keys=work_id, backref="instances"
     )
 

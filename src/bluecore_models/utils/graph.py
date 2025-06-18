@@ -3,6 +3,7 @@
 import logging
 
 import rdflib
+from rdflib.query import ResultRow
 
 from uuid import uuid4
 
@@ -46,14 +47,14 @@ def init_graph() -> rdflib.Graph:
     return new_graph
 
 
-def _check_for_namespace(node: rdflib.URIRef) -> bool:
+def _check_for_namespace(node: rdflib.Node) -> bool:
     """Check if a node is in the LCLOCAL or DCTERMS namespace."""
-    return node in LCLOCAL or node in rdflib.DCTERMS
+    return node in LCLOCAL or node in rdflib.DCTERMS  # type: ignore
 
 
-def _exclude_uri_from_other_resources(uri: rdflib.URIRef) -> bool:
+def _exclude_uri_from_other_resources(uri: rdflib.Node) -> bool:
     """Checks if uri is in the BF, MADS, or RDF namespaces"""
-    return uri in BF or uri in MADS or uri in rdflib.RDF
+    return uri in BF or uri in MADS or uri in rdflib.RDF  # type: ignore
 
 
 def _expand_bnode(graph: rdflib.Graph, entity_graph: rdflib.Graph, bnode: rdflib.BNode):
@@ -66,7 +67,7 @@ def _expand_bnode(graph: rdflib.Graph, entity_graph: rdflib.Graph, bnode: rdflib
             _expand_bnode(graph, entity_graph, obj)
 
 
-def _is_work_or_instance(uri: rdflib.URIRef, graph: rdflib.Graph) -> bool:
+def _is_work_or_instance(uri: rdflib.Node, graph: rdflib.Graph) -> bool:
     """Checks if uri is a BIBFRAME Work or Instance"""
     for class_ in graph.objects(subject=uri, predicate=rdflib.RDF.type):
         # In the future we may want to include Work and Instances subclasses
@@ -111,8 +112,8 @@ def _update_graph(**kwargs) -> rdflib.Graph:
     graph.update(
         UPDATE_SPARQL,
         initBindings={
-            "old_subject": external_subject,
-            "bluecore_uri": rdflib.URIRef(bluecore_uri),
+            "old_subject": external_subject,  # type: ignore
+            "bluecore_uri": rdflib.URIRef(bluecore_uri),  # type: ignore
         },
     )
 
@@ -121,7 +122,7 @@ def _update_graph(**kwargs) -> rdflib.Graph:
     return graph
 
 
-def generate_entity_graph(graph: rdflib.Graph, entity: rdflib.URIRef) -> rdflib.Graph:
+def generate_entity_graph(graph: rdflib.Graph, entity: rdflib.Node) -> rdflib.Graph:
     """Generate an entity graph from a larger RDF graph."""
     entity_graph = init_graph()
     for pred, obj in graph.predicate_objects(subject=entity):
@@ -150,6 +151,7 @@ def generate_other_resources(
         FILTER(isIRI(?object))
       }
     """):
+        assert isinstance(row, ResultRow)
         uri = row[0]
         if _exclude_uri_from_other_resources(uri) or _is_work_or_instance(
             uri, record_graph
@@ -172,7 +174,7 @@ def get_bf_classes(rdf_data: str, uri: str) -> list:
     graph.parse(data=rdf_data, format="json-ld")
     classes = []
     for class_ in graph.objects(subject=rdflib.URIRef(uri), predicate=rdflib.RDF.type):
-        if class_ in BF:
+        if class_ in BF:  # type: ignore
             classes.append(class_)
     return classes
 
