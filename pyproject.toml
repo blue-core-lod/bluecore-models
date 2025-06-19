@@ -12,6 +12,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=1.16.1",
     "pytest>=8.3.4",
     "pytest-mock>=3.14.1",
     "pytest-mock-resources>=2.12.1",
@@ -30,3 +31,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bluecore_models"]
+
+[tool.mypy]
+ignore_missing_imports = true

@@ -1,6 +1,5 @@
 import pathlib
 
-import pytest
 import rdflib
 
 from bluecore_models.utils.graph import (
