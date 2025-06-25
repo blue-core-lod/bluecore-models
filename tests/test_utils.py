@@ -1,3 +1,5 @@
+import json
+
 import pathlib
 
 import rdflib
@@ -108,6 +110,10 @@ def test_handle_external_bnode_subject(mocker):
         str(bluecore_graph.value(subject=bluecore_title, predicate=BF.mainTitle))
         == "A Testing Work"
     )
+
+    framed_doc = json.loads(result["data"])
+    assert framed_doc["@context"]["@vocab"] == "http://id.loc.gov/ontologies/bibframe/"
+    assert framed_doc["title"]["mainTitle"] == "A Testing Work"
 
 
 def test_is_work_or_instance():
