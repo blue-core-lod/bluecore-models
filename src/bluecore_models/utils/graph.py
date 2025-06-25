@@ -1,9 +1,13 @@
 """Utility functions for working with RDF graphs."""
 
+import json
 import logging
 
 import rdflib
 from rdflib.query import ResultRow
+
+from pyld import jsonld
+from typing import Dict
 
 from uuid import uuid4
 
@@ -179,6 +183,26 @@ def get_bf_classes(rdf_data: str, uri: str) -> list:
     return classes
 
 
+def frame_jsonld(bluecore_uri: str, graph: rdflib.Graph):
+    """Frames the JSON-LD data to a specific structure."""
+    context: Dict[str, str] = {
+        "@vocab": "http://id.loc.gov/ontologies/bibframe/",
+        "bflc": "http://id.loc.gov/ontologies/bflc/",
+        "mads": "http://www.loc.gov/mads/rdf/v1#",
+    }
+    json_doc = json.loads(graph.serialize(format="json-ld"))
+    doc = jsonld.frame(
+        json_doc,
+        {
+            "@context": context,
+            "@id": bluecore_uri,
+            "@embed": "@always",
+        },
+    )
+
+    return doc
+
+
 def handle_external_subject(**kwargs) -> dict:
     """
     Handles external subject terms in new Blue Core descriptions
@@ -194,8 +218,10 @@ def handle_external_subject(**kwargs) -> dict:
     modified_graph = _update_graph(
         graph=graph, bluecore_uri=bluecore_uri, bluecore_type=bluecore_type
     )
+    framed_data = frame_jsonld(bluecore_uri, modified_graph)
+
     return {
         "uri": bluecore_uri,
-        "data": modified_graph.serialize(format="json-ld"),
+        "data": json.dumps(framed_data, indent=2),
         "uuid": uuid,
     }
