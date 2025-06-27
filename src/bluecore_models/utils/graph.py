@@ -183,7 +183,7 @@ def get_bf_classes(rdf_data: str, uri: str) -> list:
     return classes
 
 
-def frame_jsonld(bluecore_uri: str, graph: rdflib.Graph):
+def frame_jsonld(bluecore_uri: str, graph: rdflib.Graph) -> dict:
     """Frames the JSON-LD data to a specific structure."""
     context: Dict[str, str] = {
         "@vocab": "http://id.loc.gov/ontologies/bibframe/",
@@ -222,6 +222,6 @@ def handle_external_subject(**kwargs) -> dict:
 
     return {
         "uri": bluecore_uri,
-        "data": json.dumps(framed_data, indent=2),
+        "data": framed_data,
         "uuid": uuid,
     }
