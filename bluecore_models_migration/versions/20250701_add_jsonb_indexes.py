@@ -2,12 +2,10 @@
 
 Revision ID: 20250701
 Revises: 3be9942c0ebe
-Create Date: 2025-07-01
-
+Create Date: 2025-07-02
 """
 
 from alembic import op
-
 
 # revision identifiers, used by Alembic.
 revision: str = "20250701"
@@ -84,6 +82,65 @@ def upgrade():
         """
     )
 
+    # BTREE: Exact match on native UUID
+    # Use: WHERE uuid = 'abc123'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_works_on_uuid
+        ON resource_base (uuid)
+        WHERE type = 'works'
+        """
+    )
+
+    # BTREE: Exact match on native URI column
+    # Use: WHERE uri = 'https://bcld.info/works/abc123'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_works_on_uri
+        ON resource_base (uri)
+        WHERE type = 'works'
+        """
+    )
+
+    # BTREE: Filter or sort by created_at timestamp
+    # Use: WHERE created_at >= '2025-01-01'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_works_on_created_at
+        ON resource_base (created_at)
+        WHERE type = 'works'
+        """
+    )
+
+    # BTREE: Filter or sort by updated_at timestamp
+    # Use: WHERE updated_at >= '2025-01-01'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_works_on_updated_at
+        ON resource_base (updated_at)
+        WHERE type = 'works'
+        """
+    )
+
+    # BTREE: Fast exact match on mainTitle inside title block
+    # Use: WHERE data -> 'title' ->> 'mainTitle' = 'Example Title'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_works_on_data_mainTitle
+        ON resource_base ((data -> 'title' ->> 'mainTitle'))
+        WHERE type = 'works'
+        """
+    )
+
+    # BTREE: Exact match on derivedFrom @id field
+    # Use: WHERE data -> 'derivedFrom' ->> '@id' = 'http://id.loc.gov/resources/instances/abc123'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_works_on_data_derivedFrom_id
+        ON resource_base ((data -> 'derivedFrom' ->> '@id'))
+        WHERE type = 'works'
+        """
+    )
 
     #################-----------------------------------------------------------
     ##  INSTANCES  ##
@@ -131,7 +188,7 @@ def upgrade():
     )
 
     # GIN JSONPath: Index for matching any identifier (ISBN, LCCN, etc.)
-    # Use: WHERE jsonb_path_exists(data, '$.identifiedBy[*] ? (@.\"@type\" == \"Isbn\" && @.value == \"9798765683545\")')
+    # Use: WHERE jsonb_path_exists(data, '$.identifiedBy[*] ? (@.\"@type\" == \"Isbn\")')
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS index_instances_on_data_identified_by
@@ -152,6 +209,65 @@ def upgrade():
         """
     )
 
+    # BTREE: Exact match on native UUID
+    # Use: WHERE uuid = 'abc123'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_instances_on_uuid
+        ON resource_base (uuid)
+        WHERE type = 'instances'
+        """
+    )
+
+    # BTREE: Exact match on native URI column
+    # Use: WHERE uri = 'https://bcld.info/instances/xyz789'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_instances_on_uri
+        ON resource_base (uri)
+        WHERE type = 'instances'
+        """
+    )
+
+    # BTREE: Filter or sort by created_at timestamp
+    # Use: WHERE created_at >= '2025-01-01'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_instances_on_created_at
+        ON resource_base (created_at)
+        WHERE type = 'instances'
+        """
+    )
+
+    # BTREE: Filter or sort by updated_at timestamp
+    # Use: WHERE updated_at >= '2025-01-01'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_instances_on_updated_at
+        ON resource_base (updated_at)
+        WHERE type = 'instances'
+        """
+    )
+
+    # BTREE: Fast exact match on mainTitle inside title block
+    # Use: WHERE data -> 'title' ->> 'mainTitle' = 'Example Title'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_instances_on_data_mainTitle
+        ON resource_base ((data -> 'title' ->> 'mainTitle'))
+        WHERE type = 'instances'
+        """
+    )
+
+    # BTREE: Exact match on derivedFrom @id field
+    # Use: WHERE data -> 'derivedFrom' ->> '@id' = 'http://id.loc.gov/resources/instances/abc123'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_instances_on_data_derivedFrom_id
+        ON resource_base ((data -> 'derivedFrom' ->> '@id'))
+        WHERE type = 'instances'
+        """
+    )
 
     #######################-----------------------------------------------------
     ##  OTHER_RESOURCES  ##
@@ -199,6 +315,66 @@ def upgrade():
         """
     )
 
+    # BTREE: Exact match on native UUID
+    # Use: WHERE uuid = 'abc123'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_other_resources_on_uuid
+        ON resource_base (uuid)
+        WHERE type = 'other_resources'
+        """
+    )
+
+    # BTREE: Exact match on native URI column
+    # Use: WHERE uri = 'http://id.loc.gov/vocabulary/countries/dr'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_other_resources_on_uri
+        ON resource_base (uri)
+        WHERE type = 'other_resources'
+        """
+    )
+
+    # BTREE: Filter or sort by created_at timestamp
+    # Use: WHERE created_at >= '2025-01-01'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_other_resources_on_created_at
+        ON resource_base (created_at)
+        WHERE type = 'other_resources'
+        """
+    )
+
+    # BTREE: Filter or sort by updated_at timestamp
+    # Use: WHERE updated_at >= '2025-01-01'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_other_resources_on_updated_at
+        ON resource_base (updated_at)
+        WHERE type = 'other_resources'
+        """
+    )
+
+    # BTREE: Fast exact match on mainTitle inside title block
+    # Use: WHERE data -> 'title' ->> 'mainTitle' = 'Example Title'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_other_resources_on_data_mainTitle
+        ON resource_base ((data -> 'title' ->> 'mainTitle'))
+        WHERE type = 'other_resources'
+        """
+    )
+
+    # BTREE: Exact match on derivedFrom @id field
+    # Use: WHERE data -> 'derivedFrom' ->> '@id' = 'http://id.loc.gov/resources/instances/abc123'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_other_resources_on_data_derivedFrom_id
+        ON resource_base ((data -> 'derivedFrom' ->> '@id'))
+        WHERE type = 'other_resources'
+        """
+    )
+
 
 def downgrade():
     op.execute("DROP INDEX IF EXISTS index_works_on_data_id")
@@ -207,6 +383,12 @@ def downgrade():
     op.execute("DROP INDEX IF EXISTS index_works_on_data_type_path")
     op.execute("DROP INDEX IF EXISTS index_works_on_data_contribution_agent")
     op.execute("DROP INDEX IF EXISTS index_works_on_data_gin")
+    op.execute("DROP INDEX IF EXISTS index_works_on_uuid")
+    op.execute("DROP INDEX IF EXISTS index_works_on_uri")
+    op.execute("DROP INDEX IF EXISTS index_works_on_created_at")
+    op.execute("DROP INDEX IF EXISTS index_works_on_updated_at")
+    op.execute("DROP INDEX IF EXISTS index_works_on_data_mainTitle")
+    op.execute("DROP INDEX IF EXISTS index_works_on_data_derivedFrom_id")
 
     op.execute("DROP INDEX IF EXISTS index_instances_on_data_id")
     op.execute("DROP INDEX IF EXISTS index_instances_on_data_type")
@@ -214,8 +396,20 @@ def downgrade():
     op.execute("DROP INDEX IF EXISTS index_instances_on_data_type_path")
     op.execute("DROP INDEX IF EXISTS index_instances_on_data_identified_by")
     op.execute("DROP INDEX IF EXISTS index_instances_on_data_gin")
+    op.execute("DROP INDEX IF EXISTS index_instances_on_uuid")
+    op.execute("DROP INDEX IF EXISTS index_instances_on_uri")
+    op.execute("DROP INDEX IF EXISTS index_instances_on_created_at")
+    op.execute("DROP INDEX IF EXISTS index_instances_on_updated_at")
+    op.execute("DROP INDEX IF EXISTS index_instances_on_data_mainTitle")
+    op.execute("DROP INDEX IF EXISTS index_instances_on_data_derivedFrom_id")
 
     op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_id")
     op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_type")
     op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_type_path")
     op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_gin")
+    op.execute("DROP INDEX IF EXISTS index_other_resources_on_uuid")
+    op.execute("DROP INDEX IF EXISTS index_other_resources_on_uri")
+    op.execute("DROP INDEX IF EXISTS index_other_resources_on_created_at")
+    op.execute("DROP INDEX IF EXISTS index_other_resources_on_updated_at")
+    op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_mainTitle")
+    op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_derivedFrom_id")
