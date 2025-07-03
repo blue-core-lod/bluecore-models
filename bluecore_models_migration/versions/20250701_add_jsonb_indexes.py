@@ -15,9 +15,26 @@ depends_on = None
 
 
 def upgrade():
+    ####################################
+    ##  Create the pg_trgm extension  ##
+    ####################################
+    # For trigram indexing for iLike and pattern matching
+    op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+
     #############---------------------------------------------------------------
     ##  WORKS  ##
     #############
+
+    # GIN TRGM: Fallback keyword pattern match across entire JSONB payload
+    # Use: WHERE data::text ILIKE '%keyword%'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_works_on_data_text_trgm
+            ON resource_base
+            USING gin ((data ::text) gin_trgm_ops)
+            WHERE type = 'works'
+        """
+    )
 
     # BTREE: Fast exact match on RDF @id (Work URI)
     # Use: WHERE data ->> '@id' = 'https://bcld.info/works/abc123'
@@ -122,6 +139,7 @@ def upgrade():
         """
     )
 
+
     # BTREE: Fast exact match on mainTitle inside title block
     # Use: WHERE data -> 'title' ->> 'mainTitle' = 'Example Title'
     op.execute(
@@ -131,6 +149,18 @@ def upgrade():
         WHERE type = 'works'
         """
     )
+
+    # GIN TRGM: Pattern match (LIKE/ILIKE) on mainTitle inside title
+    # Use: WHERE data -> 'title' ->> 'mainTitle' ILIKE '%Cat%'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_works_on_data_mainTitle_trgm
+        ON resource_base
+        USING gin ((data -> 'title' ->> 'mainTitle') gin_trgm_ops)
+        WHERE type = 'works'
+        """
+    )
+
 
     # BTREE: Exact match on derivedFrom @id field
     # Use: WHERE data -> 'derivedFrom' ->> '@id' = 'http://id.loc.gov/resources/instances/abc123'
@@ -145,6 +175,17 @@ def upgrade():
     #################-----------------------------------------------------------
     ##  INSTANCES  ##
     #################
+
+    # GIN TRGM: Fallback keyword pattern match across entire JSONB payload
+    # Use: WHERE data::text ILIKE '%keyword%'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_instances_on_data_text_trgm
+            ON resource_base
+            USING gin ((data ::text) gin_trgm_ops)
+            WHERE type = 'instances'
+        """
+    )
 
     # BTREE: Fast exact match on RDF @id (Instance URI)
     # Use: WHERE data ->> '@id' = 'https://bcld.info/instances/xyz789'
@@ -259,6 +300,17 @@ def upgrade():
         """
     )
 
+    # GIN TRGM: Pattern match (LIKE/ILIKE) on mainTitle inside title block
+    # Use: WHERE data -> 'title' ->> 'mainTitle' ILIKE '%Cat%'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_instances_on_data_mainTitle_trgm
+        ON resource_base
+        USING gin ((data -> 'title' ->> 'mainTitle') gin_trgm_ops)
+        WHERE type = 'instances'
+        """
+    )
+
     # BTREE: Exact match on derivedFrom @id field
     # Use: WHERE data -> 'derivedFrom' ->> '@id' = 'http://id.loc.gov/resources/instances/abc123'
     op.execute(
@@ -272,6 +324,17 @@ def upgrade():
     #######################-----------------------------------------------------
     ##  OTHER_RESOURCES  ##
     #######################
+
+    # GIN TRGM: Fallback keyword pattern match across entire JSONB payload
+    # Use: WHERE data::text ILIKE '%keyword%'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_other_resources_on_data_text_trgm
+            ON resource_base
+            USING gin ((data ::text) gin_trgm_ops)
+            WHERE type = 'other_resources'
+        """
+    )
 
     # BTREE: Exact match on RDF @id (Other Resource URI)
     # Use: WHERE data ->> '@id' = 'http://id.loc.gov/vocabulary/countries/dr'
@@ -365,6 +428,18 @@ def upgrade():
         """
     )
 
+    # GIN TRGM: Pattern match (LIKE/ILIKE) on mainTitle inside title block
+    # Use: WHERE data -> 'title' ->> 'mainTitle' ILIKE '%Cat%'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_other_resources_on_data_mainTitle_trgm
+        ON resource_base
+        USING gin ((data -> 'title' ->> 'mainTitle') gin_trgm_ops)
+        WHERE type = 'other_resources'
+        """
+    )
+
+
     # BTREE: Exact match on derivedFrom @id field
     # Use: WHERE data -> 'derivedFrom' ->> '@id' = 'http://id.loc.gov/resources/instances/abc123'
     op.execute(
@@ -377,6 +452,15 @@ def upgrade():
 
 
 def downgrade():
+    op.execute("DROP INDEX IF EXISTS index_works_on_data_text_trgm")
+    op.execute("DROP INDEX IF EXISTS index_instances_on_data_text_trgm")
+    op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_text_trgm")
+
+    op.execute("DROP INDEX IF EXISTS index_works_on_data_mainTitle_trgm")
+    op.execute("DROP INDEX IF EXISTS index_instances_on_data_mainTitle_trgm")
+    op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_mainTitle_trgm")
+
+
     op.execute("DROP INDEX IF EXISTS index_works_on_data_id")
     op.execute("DROP INDEX IF EXISTS index_works_on_data_type")
     op.execute("DROP INDEX IF EXISTS index_works_on_data_language")
