@@ -21,6 +21,62 @@ def upgrade():
     # For trigram indexing for iLike and pattern matching
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
+    ##################----------------------------------------------------------
+    ##  ALL MODELS  ##
+    ##################
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_resource_base_on_data_mainTitle
+            ON resource_base ((data -> 'title' ->> 'mainTitle'));
+        """
+    )
+
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_resource_base_on_data_text_trgm
+            ON resource_base
+            USING gin ((data ::text) gin_trgm_ops);
+        """
+    )
+
+    # GIN TRGM: Pattern match (LIKE/ILIKE) on mainTitle inside title
+    # Use: WHERE data -> 'title' ->> 'mainTitle' ILIKE '%Cat%'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_resource_base_on_data_mainTitle_trgm
+        ON resource_base
+        USING gin ((data -> 'title' ->> 'mainTitle') gin_trgm_ops)
+        """
+    )
+
+    # BTREE: Exact match on derivedFrom @id field
+    # Use: WHERE data -> 'derivedFrom' ->> '@id' = 'http://id.loc.gov/resources/instances/abc123'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_resource_base_on_data_derivedFrom_id
+            ON resource_base ((data -> 'derivedFrom' ->> '@id'))
+        """
+    )
+
+    # BTREE: Exact match on native UUID
+    # Use: WHERE uuid = 'abc123'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_resource_base_on_uuid
+            ON resource_base (uuid)
+        """
+    )
+
+    # GIN: Fallback index for containment search on any key
+    # Use: WHERE data @> '{"title": {"mainTitle": "Le mal joli"}}'
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS index_resource_base_on_data_gin
+        ON resource_base
+        USING gin (data)
+        """
+    )
+
     #############---------------------------------------------------------------
     ##  WORKS  ##
     #############
