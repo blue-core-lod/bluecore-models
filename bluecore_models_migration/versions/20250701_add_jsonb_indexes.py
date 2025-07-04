@@ -508,6 +508,14 @@ def upgrade():
 
 
 def downgrade():
+    # Drop shared global indexes (non-scoped)
+    op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_mainTitle")
+    op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_text_trgm")
+    op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_mainTitle_trgm")
+    op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_derivedFrom_id")
+    op.execute("DROP INDEX IF EXISTS index_resource_base_on_uuid")
+    op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_gin")
+
     op.execute("DROP INDEX IF EXISTS index_works_on_data_text_trgm")
     op.execute("DROP INDEX IF EXISTS index_instances_on_data_text_trgm")
     op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_text_trgm")
@@ -515,7 +523,6 @@ def downgrade():
     op.execute("DROP INDEX IF EXISTS index_works_on_data_mainTitle_trgm")
     op.execute("DROP INDEX IF EXISTS index_instances_on_data_mainTitle_trgm")
     op.execute("DROP INDEX IF EXISTS index_other_resources_on_data_mainTitle_trgm")
-
 
     op.execute("DROP INDEX IF EXISTS index_works_on_data_id")
     op.execute("DROP INDEX IF EXISTS index_works_on_data_type")
