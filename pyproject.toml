@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.14.1",
     "psycopg2-binary>=2.9.10",
     "pyld>=2.0.4",
+    "pymilvus[model]>=2.5.12",
     "rdflib>=7.1.3",
 ]
 
