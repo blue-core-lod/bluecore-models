@@ -1,6 +1,6 @@
 [project]
 name = "bluecore-models"
-version = "0.7.0"
+version = "0.8.0"
 description = "Blue Core BIBFRAME Data Models"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -25,7 +25,7 @@ dev = [
 pythonpath = [
     "src"
 ]
-
+addopts = "-v"
 
 [build-system]
 requires = ["hatchling"]

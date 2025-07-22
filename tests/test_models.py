@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from uuid import UUID
 
 import pytest  # noqa
@@ -15,7 +17,7 @@ from bluecore_models.models import (
     BibframeOtherResources,
 )
 
-from bluecore_models.utils.graph import BF, init_graph
+from bluecore_models.utils.graph import BF, load_jsonld
 
 
 def test_bibframe_class(pg_session):
@@ -123,11 +125,10 @@ def test_updated_instance(pg_session):
         version_before_update = instance.versions[0]
         assert version_before_update.created_at == instance.updated_at
         # Update the instance
-        instance_graph = init_graph()
-        instance_graph.parse(data=instance.data, format="json-ld")
+        instance_graph = load_jsonld(instance.data)
         instance_uri = rdflib.URIRef(instance.uri)
         instance_graph.add((instance_uri, rdflib.RDF.type, BF.Electronic))
-        instance.data = instance_graph.serialize(format="json-ld")
+        instance.data = json.loads(instance_graph.serialize(format="json-ld"))
         session.add(instance)
         session.commit()
         # Assert new version was created, classes & timestamps aligned
@@ -147,11 +148,11 @@ def test_updated_work(pg_session):
         version_before_update = work.versions[0]
         assert version_before_update.created_at == work.updated_at
         # Update the work
-        work_graph = init_graph()
-        work_graph.parse(data=work.data, format="json-ld")
+        work_graph = load_jsonld(work.data)
+
         work_uri = rdflib.URIRef(work.uri)
         work_graph.remove((work_uri, rdflib.RDF.type, BF.Text))
-        work.data = work_graph.serialize(format="json-ld")
+        work.data = json.loads(work_graph.serialize(format="json-ld"))
         session.add(work)
         session.commit()
         # Assert new version was created, classes & timestamps aligned
@@ -159,3 +160,50 @@ def test_updated_work(pg_session):
         assert len(work.classes) == 2
         latest_version = max(work.versions, key=lambda version: version.id)
         assert latest_version.created_at == work.updated_at
+
+
+def test_work_jsonld_framing():
+    work_json = json.load(Path("tests/blue-core-work.jsonld").open())
+    work = Work(
+        uri="https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
+        data=work_json,
+    )
+    assert work_json != work.data, "setting Work.data frames json-ld"
+    assert (
+        work.data["@id"]
+        == "https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb"
+    ), "framing set @uri"
+    assert work.data["@type"] == ["Monograph", "Text", "Work"], "framing set @type"
+    assert (
+        work.data["title"][0]["mainTitle"][0]
+        == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
+    )
+    assert isinstance(work.data["@context"], dict), "framing added @context"
+
+
+def test_instance_jsonld_framing():
+    instance_json = json.load(Path("tests/blue-core-instance.jsonld").open())
+    instance = Instance(
+        uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
+        data=instance_json,
+    )
+    assert instance_json != instance.data, "setting Instance.data frames json-ld"
+    assert (
+        instance.data["@id"]
+        == "https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a"
+    ), "framing set @uri"
+    assert instance.data["@type"] == "Instance"
+    assert (
+        instance.data["title"]["mainTitle"][0]
+        == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
+    )
+    assert isinstance(instance.data["@context"], dict), "framing added @context"
+
+
+def test_other_resource_jsonld_framing():
+    other_json = [{"foo": "bar"}]
+    other = OtherResource(
+        uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
+        data=other_json,
+    )
+    assert other_json == other.data, "setting OtherResource.data DOES NOT frame json-ld"
