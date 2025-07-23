@@ -1,3 +1,4 @@
+import json
 import pathlib
 
 from datetime import datetime, UTC
@@ -46,7 +47,7 @@ def create_test_rows():
             uri="https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
             created_at=time_now,
             updated_at=time_now,
-            data=pathlib.Path("tests/blue-core-work.jsonld").read_text(),
+            data=json.load(pathlib.Path("tests/blue-core-work.jsonld").open()),
             uuid=UUID("629e9a53-7d5b-439c-a227-5efdbeb102e4"),
             type="works",
         ),
@@ -56,7 +57,7 @@ def create_test_rows():
             uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
             created_at=time_now,
             updated_at=time_now,
-            data=pathlib.Path("tests/blue-core-instance.jsonld").read_text(),
+            data=json.load(pathlib.Path("tests/blue-core-instance.jsonld").open()),
             type="instances",
             uuid=UUID("9bd652f3-9e92-4aee-ba6c-cd33dcb43ffa"),
             work_id=1,
@@ -67,7 +68,7 @@ def create_test_rows():
             uri="https://bluecore.info/other-resource/sample",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            data='{"description": "Sample Other Resource"}',
+            data={"description": "Sample Other Resource"},
             type="other_resources",
             is_profile=False,
         ),

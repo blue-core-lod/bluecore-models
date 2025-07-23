@@ -51,6 +51,28 @@ def init_graph() -> rdflib.Graph:
     return new_graph
 
 
+def load_jsonld(jsonld_data: list | dict) -> rdflib.Graph:
+    """
+    Load a JSON-LD represented as a Python list or dict into a rdflib Graph.
+    """
+    graph = init_graph()
+    # rdflib's json-ld parsing from a python object doesn't support a list yet
+    # see: https://github.com/RDFLib/rdflib/issues/3166
+    match jsonld_data:
+        case list():
+            # parse each JSON-LD dict in the list into the graph
+            for obj in jsonld_data:
+                graph.parse(data=obj, format="json-ld")
+        case dict():
+            graph.parse(data=jsonld_data, format="json-ld")  # type: ignore
+        case _:
+            raise ValueError(
+                f"JSON-LD must be a list or dict, got {type(jsonld_data).__name__}"
+            )
+
+    return graph
+
+
 def _check_for_namespace(node: rdflib.Node) -> bool:
     """Check if a node is in the LCLOCAL or DCTERMS namespace."""
     return node in LCLOCAL or node in rdflib.DCTERMS  # type: ignore
@@ -172,10 +194,9 @@ def generate_other_resources(
     return other_resources
 
 
-def get_bf_classes(rdf_data: str, uri: str) -> list:
+def get_bf_classes(rdf_data: list | dict, uri: str) -> list:
     """Restrieves all of the resource's BIBFRAME classes from a graph."""
-    graph = init_graph()
-    graph.parse(data=rdf_data, format="json-ld")
+    graph = load_jsonld(rdf_data)
     classes = []
     for class_ in graph.objects(subject=rdflib.URIRef(uri), predicate=rdflib.RDF.type):
         if class_ in BF:  # type: ignore
@@ -183,16 +204,15 @@ def get_bf_classes(rdf_data: str, uri: str) -> list:
     return classes
 
 
-def frame_jsonld(bluecore_uri: str, graph: rdflib.Graph) -> dict:
+def frame_jsonld(bluecore_uri: str, jsonld_data: list | dict) -> dict:
     """Frames the JSON-LD data to a specific structure."""
     context: Dict[str, str] = {
         "@vocab": "http://id.loc.gov/ontologies/bibframe/",
         "bflc": "http://id.loc.gov/ontologies/bflc/",
         "mads": "http://www.loc.gov/mads/rdf/v1#",
     }
-    json_doc = json.loads(graph.serialize(format="json-ld"))
     doc = jsonld.frame(
-        json_doc,
+        jsonld_data,
         {
             "@context": context,
             "@id": bluecore_uri,
@@ -218,10 +238,9 @@ def handle_external_subject(**kwargs) -> dict:
     modified_graph = _update_graph(
         graph=graph, bluecore_uri=bluecore_uri, bluecore_type=bluecore_type
     )
-    framed_data = frame_jsonld(bluecore_uri, modified_graph)
 
     return {
         "uri": bluecore_uri,
-        "data": framed_data,
+        "data": json.loads(modified_graph.serialize(format="json-ld")),
         "uuid": uuid,
     }

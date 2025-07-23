@@ -5,7 +5,7 @@ from typing import Union
 
 from pymilvus import model, MilvusClient
 
-from bluecore_models.utils.graph import init_graph
+from bluecore_models.utils.graph import load_jsonld
 from bluecore_models.models import Version
 
 logger = logging.getLogger(__name__)
@@ -38,8 +38,7 @@ def create_embeddings(
 
     embedding_func = model.DefaultEmbeddingFunction()
 
-    version_graph = init_graph()
-    version_graph.parse(data=version.data, format="json-ld")
+    version_graph = load_jsonld(version.data)
     version_id = version.id
 
     resource_uri = version.resource.uri

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from sqlalchemy import (
     event,
     insert,
@@ -13,6 +15,7 @@ from sqlalchemy.orm import (
 from bluecore_models.models.resource import ResourceBase
 from bluecore_models.models.version import Version
 from bluecore_models.utils.db import add_bf_classes, update_bf_classes
+from bluecore_models.utils.graph import frame_jsonld
 
 
 class Work(ResourceBase):
@@ -27,6 +30,17 @@ class Work(ResourceBase):
 
     def __repr__(self):
         return f"<Work {self.uri}>"
+
+
+@event.listens_for(Work.data, "set", propagate=True, retval=True)
+def set_jsonld(target, value, oldvalue, initiator) -> Optional[dict]:
+    """
+    Ensure that JSON-LD data is framed prior to persisting it to the database.
+    """
+    if value is not None:
+        return frame_jsonld(target.uri, value)
+    else:
+        return None
 
 
 @event.listens_for(Work, "after_insert")
