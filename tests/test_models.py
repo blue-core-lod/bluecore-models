@@ -207,3 +207,30 @@ def test_other_resource_jsonld_framing():
         data=other_json,
     )
     assert other_json == other.data, "setting OtherResource.data DOES NOT frame json-ld"
+
+
+def test_property_order():
+    """
+    The JSON-LD stored in the data property is automatically "framed" when it is
+    set. But framing requires that a uri be defined already. These tests ensure
+    that a descriptive exception is thrown when the ordering is incorrect.
+    """
+    with pytest.raises(ValueError) as e:
+        Instance(
+            data={"foo": "bar"},
+            uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
+        )
+    assert (
+        str(e.value)
+        == "For automatic jsonld framing to work you must ensure the uri property is set before the data property, even when constructing an object."
+    )
+
+    with pytest.raises(ValueError) as e:
+        Work(
+            data={"foo": "bar"},
+            uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
+        )
+    assert (
+        str(e.value)
+        == "For automatic jsonld framing to work you must ensure the uri property is set before the data property, even when constructing an object."
+    )
