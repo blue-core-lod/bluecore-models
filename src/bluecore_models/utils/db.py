@@ -1,11 +1,12 @@
 """Utilities for working with Blue Core Database"""
 
+from typing import Optional
+
 import rdflib
-
 from sqlalchemy import delete, insert, select
-from bluecore_models.models.bf_classes import BibframeClass, ResourceBibframeClass
 
-from bluecore_models.utils.graph import get_bf_classes
+from bluecore_models.models.bf_classes import BibframeClass, ResourceBibframeClass
+from bluecore_models.utils.graph import get_bf_classes, frame_jsonld
 
 
 def _new_bf_classs(connection, bf_class: rdflib.URIRef) -> int:
@@ -64,3 +65,28 @@ def update_bf_classes(connection, resource):
             bf_class_id=bf_class_id, resource_id=resource.id
         )
         connection.execute(stmt)
+
+
+def set_jsonld(target, value, oldvalue, initiator) -> Optional[dict]:
+    """
+    A ORM event handler that ensures JSON-LD data is framed prior to persisting it
+    to the database. Note the ordering of properties used in constructors
+    matters, since target.uri must be set on the object prior to setting data.
+
+    So this will work:
+
+        >>> w = Work(uri="https://example.com", data={ ... })
+
+    but this will not:
+
+        >>> w = Work(data={...}, uri="https://example.com")
+
+    """
+    if target.uri is None and value is not None:
+        raise ValueError(
+            "For automatic jsonld framing to work you must ensure the uri property is set before the data property, even when constructing an object."
+        )
+    elif value is not None:
+        return frame_jsonld(target.uri, value)
+    else:
+        return None
