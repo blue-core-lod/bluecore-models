@@ -44,13 +44,13 @@ def add_bf_classes(connection, resource):
 
 def add_version(connection, resource):
     """
-    Adds a Version based on the resource's updated_at date and if the resource's RDF 
+    Adds a Version based on the resource's updated_at date and if the resource's RDF
     data has changed.
     """
     stmt = select(Version.data).where(
         and_(
             Version.resource_id == resource.id,
-            Version.created_at == resource.updated_at
+            Version.created_at == resource.updated_at,
         )
     )
     result = connection.execute(stmt)
