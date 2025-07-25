@@ -162,6 +162,96 @@ def test_updated_work(pg_session):
         assert latest_version.created_at == work.updated_at
 
 
+def test_work_with_other_resources(pg_session):
+    """
+    Tests replicates logic in the resource_loader DAG when ingesting a
+    CBD json-ld file.
+    """
+    with pg_session() as session:
+        new_work = Work(
+            uri="https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
+            data={
+                "@id": "https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
+                "@context": {
+                    "bflc": "http://id.loc.gov/ontologies/bflc/",
+                    "mads": "http://www.loc.gov/mads/rdf/v1#",
+                    "@vocab": "http://id.loc.gov/ontologies/bibframe/",
+                },
+                "title": [{"@type": "Title", "mainTitle": "Hannah Arendt and the law"}],
+                "language": {"@id": "http://id.loc.gov/vocabulary/languages/eng"},
+                "contribution": [
+                    {
+                        "role": {"@id": "http://id.loc.gov/vocabulary/relators/ctb"},
+                        "@type": "Contribution",
+                        "agent": {"@id": "http://id.loc.gov/rwo/agents/no2012077908"},
+                    }
+                ],
+            },
+        )
+        session.add(new_work)
+        language = OtherResource(
+            uri="http://id.loc.gov/vocabulary/languages/eng",
+            data=[
+                {
+                    "@id": "http://id.loc.gov/vocabulary/languages/eng",
+                    "@type": ["http://id.loc.gov/ontologies/bibframe/Language"],
+                    "http://id.loc.gov/ontologies/bibframe/code": [
+                        {
+                            "@type": "http://www.w3.org/2001/XMLSchema#string",
+                            "@value": "eng",
+                        }
+                    ],
+                    "http://www.w3.org/2000/01/rdf-schema#label": [
+                        {"@value": "English", "@language": "en"}
+                    ],
+                }
+            ],
+        )
+        session.add(language)
+        language_resource = BibframeOtherResources(
+            other_resource=language, bibframe_resource=new_work
+        )
+        session.add(
+            language_resource
+        )  # Before this would add an duplicate Work version
+        ctb_relator = OtherResource(
+            uri="http://id.loc.gov/vocabulary/relators/ctb",
+            data={
+                "@id": "http://id.loc.gov/vocabulary/relators/ctb",
+                "@type": ["http://id.loc.gov/ontologies/bibframe/Role"],
+                "http://id.loc.gov/ontologies/bibframe/code": [{"@value": "ctb"}],
+            },
+        )
+        session.add(ctb_relator)
+        ctb_relator_resource = BibframeOtherResources(
+            other_resource=ctb_relator, bibframe_resource=new_work
+        )
+        session.add(ctb_relator_resource)
+        person = OtherResource(
+            uri="http://id.loc.gov/rwo/agents/no2012077908",
+            data={
+                "@id": "http://id.loc.gov/rwo/agents/no2012077908",
+                "@type": [
+                    "http://id.loc.gov/ontologies/bibframe/Agent",
+                    "http://id.loc.gov/ontologies/bibframe/Person",
+                ],
+                "http://id.loc.gov/ontologies/bflc/marcKey": [
+                    {"@value": "1001 $aMcCorkindale, Christopher"}
+                ],
+                "http://www.w3.org/2000/01/rdf-schema#label": [
+                    {"@value": "McCorkindale, Christopher"}
+                ],
+            },
+        )
+        session.add(person)
+        person_resource = BibframeOtherResources(
+            other_resource=person, bibframe_resource=new_work
+        )
+        session.add(person_resource)
+        session.commit()
+        assert len(new_work.versions) == 1, "Ensure only 1 version for work"
+
+
 def test_work_jsonld_framing():
     work_json = json.load(Path("tests/blue-core-work.jsonld").open())
     work = Work(
