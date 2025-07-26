@@ -189,6 +189,10 @@ def test_work_with_other_resources(pg_session):
             },
         )
         session.add(new_work)
+
+        # it's important to commit the work here or else the test of version counts below will always succeed.
+        session.commit()
+
         language = OtherResource(
             uri="http://id.loc.gov/vocabulary/languages/eng",
             data=[
@@ -249,6 +253,7 @@ def test_work_with_other_resources(pg_session):
         )
         session.add(person_resource)
         session.commit()
+
         assert len(new_work.versions) == 1, "Ensure only 1 version for work"
 
 

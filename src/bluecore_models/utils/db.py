@@ -3,20 +3,12 @@
 from typing import Optional
 
 import rdflib
-from sqlalchemy import and_, delete, insert, select
+from sqlalchemy import delete, insert, select
+from sqlalchemy.orm import object_session
 
 from bluecore_models.models.bf_classes import BibframeClass, ResourceBibframeClass
 from bluecore_models.models.version import Version
 from bluecore_models.utils.graph import get_bf_classes, frame_jsonld
-
-
-def _add_version_for_resource(connection, resource):
-    stmt = insert(Version.__table__).values(
-        resource_id=resource.id,
-        data=resource.data,
-        created_at=resource.updated_at,
-    )
-    connection.execute(stmt)
 
 
 def _new_bf_classs(connection, bf_class: rdflib.URIRef) -> int:
@@ -44,22 +36,15 @@ def add_bf_classes(connection, resource):
 
 def add_version(connection, resource):
     """
-    Adds a Version based on the resource's updated_at date and if the resource's RDF
-    data has changed.
+    Adds a Version if the resource had been modified.
     """
-    stmt = select(Version.data).where(
-        and_(
-            Version.resource_id == resource.id,
-            Version.created_at == resource.updated_at,
+    if object_session(resource).is_modified(resource, include_collections=False):
+        stmt = insert(Version.__table__).values(
+            resource_id=resource.id,
+            data=resource.data,
+            created_at=resource.updated_at,
         )
-    )
-    result = connection.execute(stmt)
-    existing_version_data = result.scalar()
-    if not existing_version_data:
-        _add_version_for_resource(connection, resource)
-        return
-    if existing_version_data != resource.data:
-        _add_version_for_resource(connection, resource)
+        connection.execute(stmt)
 
 
 def update_bf_classes(connection, resource):
