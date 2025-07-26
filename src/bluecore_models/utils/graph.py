@@ -169,7 +169,7 @@ def generate_other_resources(
     entity graph and present in the record graph.
     """
     other_resources = []
-    logger.error(f"Size of entity graph {len(entity_graph)}")
+    logger.info(f"Size of entity graph {len(entity_graph)}")
     for row in entity_graph.query("""
       SELECT DISTINCT ?object
       WHERE {
