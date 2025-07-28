@@ -72,18 +72,7 @@ def upgrade():
         """
     )
 
-    # ✅ GIN: Full-text search on data_vector
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS index_resource_base_on_data_vector
-        ON resource_base
-        USING gin (data_vector)
-        """
-    )
-
-
 def downgrade():
-    op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_vector")
     op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_gin")
     op.execute("DROP INDEX IF EXISTS index_resource_base_on_uuid")
     op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_derivedFrom_id")
