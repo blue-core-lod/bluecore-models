@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid1
 
 import pytest  # noqa
 import rdflib
@@ -106,7 +106,7 @@ def test_bibframe_other_resources(pg_session):
     with pg_session() as session:
         bibframe_other_resource = (
             session.query(BibframeOtherResources)
-            .where(BibframeOtherResources.id == 1)
+            .where(BibframeOtherResources.id == 4)
             .first()
         )
         assert bibframe_other_resource.other_resource is not None
@@ -169,6 +169,7 @@ def test_work_with_other_resources(pg_session):
     """
     with pg_session() as session:
         new_work = Work(
+            id=4,
             uri="https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
             data={
                 "@id": "https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
@@ -194,6 +195,7 @@ def test_work_with_other_resources(pg_session):
         session.commit()
 
         language = OtherResource(
+            id=5,
             uri="http://id.loc.gov/vocabulary/languages/eng",
             data=[
                 {
@@ -219,6 +221,7 @@ def test_work_with_other_resources(pg_session):
             language_resource
         )  # Before this would add an duplicate Work version
         ctb_relator = OtherResource(
+            id=6,
             uri="http://id.loc.gov/vocabulary/relators/ctb",
             data={
                 "@id": "http://id.loc.gov/vocabulary/relators/ctb",
@@ -232,6 +235,7 @@ def test_work_with_other_resources(pg_session):
         )
         session.add(ctb_relator_resource)
         person = OtherResource(
+            id=7,
             uri="http://id.loc.gov/rwo/agents/no2012077908",
             data={
                 "@id": "http://id.loc.gov/rwo/agents/no2012077908",
@@ -329,3 +333,59 @@ def test_property_order():
         str(e.value)
         == "For automatic jsonld framing to work you must ensure the uri property is set before the data property, even when constructing an object."
     )
+
+
+def test_works_search(pg_session):
+    with pg_session() as session:
+        # pg_sessions loads a work with subject "Renewable energy sources--Government policy--Korea (South)"
+        w = (
+            session.query(Work).where(
+                Work.data_vector.match("Renewable energy sources")
+            )
+        ).first()
+        assert w, "known item search"
+
+        w = (
+            session.query(Work).where(Work.data_vector.match("Renewable energy source"))
+        ).first()
+        assert w, "stemming 'sources' to 'source'"
+
+        assert (
+            len(
+                session.query(Work)
+                .where(Work.data_vector.match("Nope nada never"))
+                .all()
+            )
+            == 0
+        ), "missing text"
+
+        # TODO: should we be using websearch_to_tsquery() instead of the default
+        # which SQLAlchemy performs here which I believe is plainto_tsquery()?
+        # I think this would allow us to support boolean searches and phrase
+        # searches?
+        #
+        # see: https://www.postgresql.org/docs/current/textsearch-controls.html
+
+
+def test_data_vector_update(pg_session):
+    """
+    Ensure that updating the Work.data causes the Work.data_vector to get
+    updated.
+    """
+    with pg_session() as session:
+        # a random string
+        random_str = uuid1().hex
+
+        # ensure that the random string isn't in the db
+        results = (session.query(Work).where(Work.data_vector.match(random_str))).all()
+        assert len(results) == 0, "random string not present"
+
+        # add the random string to the Work JSON-LD
+        work = session.query(Work).where(Work.id == 1).first()
+        work.data = {**work.data, "title": random_str}
+        session.add(work)
+        session.commit()
+
+        # ensure that now we can find the random string
+        results = (session.query(Work).where(Work.data_vector.match(random_str))).all()
+        assert len(results) == 1
