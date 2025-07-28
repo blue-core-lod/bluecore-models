@@ -169,6 +169,7 @@ def test_work_with_other_resources(pg_session):
     """
     with pg_session() as session:
         new_work = Work(
+            id=4,
             uri="https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
             data={
                 "@id": "https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
@@ -194,6 +195,7 @@ def test_work_with_other_resources(pg_session):
         session.commit()
 
         language = OtherResource(
+            id=5,
             uri="http://id.loc.gov/vocabulary/languages/eng",
             data=[
                 {
@@ -219,6 +221,7 @@ def test_work_with_other_resources(pg_session):
             language_resource
         )  # Before this would add an duplicate Work version
         ctb_relator = OtherResource(
+            id=6,
             uri="http://id.loc.gov/vocabulary/relators/ctb",
             data={
                 "@id": "http://id.loc.gov/vocabulary/relators/ctb",
@@ -232,6 +235,7 @@ def test_work_with_other_resources(pg_session):
         )
         session.add(ctb_relator_resource)
         person = OtherResource(
+            id=7,
             uri="http://id.loc.gov/rwo/agents/no2012077908",
             data={
                 "@id": "http://id.loc.gov/rwo/agents/no2012077908",
