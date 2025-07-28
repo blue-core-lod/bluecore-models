@@ -1,6 +1,6 @@
 [project]
 name = "bluecore-models"
-version = "0.7.0"
+version = "0.8.1"
 description = "Blue Core BIBFRAME Data Models"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.14.1",
     "psycopg2-binary>=2.9.10",
     "pyld>=2.0.4",
+    "pymilvus[model]>=2.5.12",
     "rdflib>=7.1.3",
 ]
 
@@ -24,7 +25,7 @@ dev = [
 pythonpath = [
     "src"
 ]
-
+addopts = "-v"
 
 [build-system]
 requires = ["hatchling"]

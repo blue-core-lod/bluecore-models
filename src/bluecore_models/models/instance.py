@@ -16,7 +16,7 @@ from sqlalchemy.orm import (
 from bluecore_models.models.resource import ResourceBase
 from bluecore_models.models.work import Work
 from bluecore_models.models.version import Version
-from bluecore_models.utils.db import add_bf_classes, update_bf_classes
+from bluecore_models.utils.db import add_bf_classes, update_bf_classes, set_jsonld
 
 
 class Instance(ResourceBase):
@@ -64,3 +64,6 @@ def update_version_bf_classes(mapper, connection, target):
     )
     connection.execute(stmt)
     update_bf_classes(connection, target)
+
+
+event.listen(Instance.data, "set", set_jsonld, retval=True)

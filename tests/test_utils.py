@@ -1,4 +1,5 @@
-import pathlib
+import json
+from pathlib import Path
 
 import rdflib
 
@@ -10,6 +11,7 @@ from bluecore_models.utils.graph import (
     generate_other_resources,
     handle_external_subject,
     init_graph,
+    load_jsonld,
     _is_work_or_instance,
 )
 
@@ -19,13 +21,20 @@ def test_init_graph():
     assert graph.namespace_manager.store.namespace("bf") == rdflib.URIRef(BF)
     assert graph.namespace_manager.store.namespace("bflc") == rdflib.URIRef(BFLC)
     assert graph.namespace_manager.store.namespace("mads") == rdflib.URIRef(MADS)
+    assert len(graph) == 0
+
+
+def test_load_jsonld():
+    graph = load_jsonld(json.load(Path("tests/23807141.jsonld").open()))
+    assert graph.namespace_manager.store.namespace("bf") == rdflib.URIRef(BF)
+    assert graph.namespace_manager.store.namespace("bflc") == rdflib.URIRef(BFLC)
+    assert graph.namespace_manager.store.namespace("mads") == rdflib.URIRef(MADS)
+    assert len(graph) == 324
 
 
 def test_generate_entity_graph():
-    loc_graph = init_graph()
-    loc_graph.parse(
-        data=pathlib.Path("tests/23807141.jsonld").read_text(), format="json-ld"
-    )
+    loc_graph = load_jsonld(json.load(Path("tests/23807141.jsonld").open()))
+
     work_uri = rdflib.URIRef("http://id.loc.gov/resources/works/23807141")
     dcterm_part_of = loc_graph.value(
         subject=work_uri, predicate=rdflib.DCTERMS.isPartOf
@@ -46,10 +55,7 @@ def test_generate_entity_graph():
 
 
 def test_generate_other_resources():
-    loc_graph = init_graph()
-    loc_graph.parse(
-        data=pathlib.Path("tests/23807141.jsonld").read_text(), format="json-ld"
-    )
+    loc_graph = load_jsonld(json.load(Path("tests/23807141.jsonld").open()))
     work_uri = rdflib.URIRef("http://id.loc.gov/resources/works/23807141")
     work_graph = generate_entity_graph(loc_graph, work_uri)
     other_work_resources = generate_other_resources(loc_graph, work_graph)
@@ -100,18 +106,13 @@ def test_handle_external_bnode_subject(mocker):
     )
 
     assert result["uri"] == str(work_uri)
-    bluecore_graph = init_graph()
-    bluecore_graph.parse(data=result["data"], format="json-ld")
+    bluecore_graph = load_jsonld(result["data"])
 
     bluecore_title = bluecore_graph.value(subject=work_uri, predicate=BF.title)
     assert (
         str(bluecore_graph.value(subject=bluecore_title, predicate=BF.mainTitle))
         == "A Testing Work"
     )
-
-    framed_doc = result["data"]
-    assert framed_doc["@context"]["@vocab"] == "http://id.loc.gov/ontologies/bibframe/"
-    assert framed_doc["title"]["mainTitle"] == "A Testing Work"
 
 
 def test_is_work_or_instance():

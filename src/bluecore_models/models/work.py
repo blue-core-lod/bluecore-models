@@ -12,7 +12,7 @@ from sqlalchemy.orm import (
 
 from bluecore_models.models.resource import ResourceBase
 from bluecore_models.models.version import Version
-from bluecore_models.utils.db import add_bf_classes, update_bf_classes
+from bluecore_models.utils.db import add_bf_classes, update_bf_classes, set_jsonld
 
 
 class Work(ResourceBase):
@@ -27,6 +27,9 @@ class Work(ResourceBase):
 
     def __repr__(self):
         return f"<Work {self.uri}>"
+
+
+event.listen(Work.data, "set", set_jsonld, retval=True)
 
 
 @event.listens_for(Work, "after_insert")
