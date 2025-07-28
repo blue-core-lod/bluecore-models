@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid1
 
 import pytest  # noqa
 import rdflib
@@ -106,7 +106,7 @@ def test_bibframe_other_resources(pg_session):
     with pg_session() as session:
         bibframe_other_resource = (
             session.query(BibframeOtherResources)
-            .where(BibframeOtherResources.id == 1)
+            .where(BibframeOtherResources.id == 4)
             .first()
         )
         assert bibframe_other_resource.other_resource is not None
@@ -160,6 +160,105 @@ def test_updated_work(pg_session):
         assert len(work.classes) == 2
         latest_version = max(work.versions, key=lambda version: version.id)
         assert latest_version.created_at == work.updated_at
+
+
+def test_work_with_other_resources(pg_session):
+    """
+    Tests replicates logic in the resource_loader DAG when ingesting a
+    CBD json-ld file.
+    """
+    with pg_session() as session:
+        new_work = Work(
+            id=4,
+            uri="https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
+            data={
+                "@id": "https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
+                "@context": {
+                    "bflc": "http://id.loc.gov/ontologies/bflc/",
+                    "mads": "http://www.loc.gov/mads/rdf/v1#",
+                    "@vocab": "http://id.loc.gov/ontologies/bibframe/",
+                },
+                "title": [{"@type": "Title", "mainTitle": "Hannah Arendt and the law"}],
+                "language": {"@id": "http://id.loc.gov/vocabulary/languages/eng"},
+                "contribution": [
+                    {
+                        "role": {"@id": "http://id.loc.gov/vocabulary/relators/ctb"},
+                        "@type": "Contribution",
+                        "agent": {"@id": "http://id.loc.gov/rwo/agents/no2012077908"},
+                    }
+                ],
+            },
+        )
+        session.add(new_work)
+
+        # it's important to commit the work here or else the test of version counts below will always succeed.
+        session.commit()
+
+        language = OtherResource(
+            id=5,
+            uri="http://id.loc.gov/vocabulary/languages/eng",
+            data=[
+                {
+                    "@id": "http://id.loc.gov/vocabulary/languages/eng",
+                    "@type": ["http://id.loc.gov/ontologies/bibframe/Language"],
+                    "http://id.loc.gov/ontologies/bibframe/code": [
+                        {
+                            "@type": "http://www.w3.org/2001/XMLSchema#string",
+                            "@value": "eng",
+                        }
+                    ],
+                    "http://www.w3.org/2000/01/rdf-schema#label": [
+                        {"@value": "English", "@language": "en"}
+                    ],
+                }
+            ],
+        )
+        session.add(language)
+        language_resource = BibframeOtherResources(
+            other_resource=language, bibframe_resource=new_work
+        )
+        session.add(
+            language_resource
+        )  # Before this would add an duplicate Work version
+        ctb_relator = OtherResource(
+            id=6,
+            uri="http://id.loc.gov/vocabulary/relators/ctb",
+            data={
+                "@id": "http://id.loc.gov/vocabulary/relators/ctb",
+                "@type": ["http://id.loc.gov/ontologies/bibframe/Role"],
+                "http://id.loc.gov/ontologies/bibframe/code": [{"@value": "ctb"}],
+            },
+        )
+        session.add(ctb_relator)
+        ctb_relator_resource = BibframeOtherResources(
+            other_resource=ctb_relator, bibframe_resource=new_work
+        )
+        session.add(ctb_relator_resource)
+        person = OtherResource(
+            id=7,
+            uri="http://id.loc.gov/rwo/agents/no2012077908",
+            data={
+                "@id": "http://id.loc.gov/rwo/agents/no2012077908",
+                "@type": [
+                    "http://id.loc.gov/ontologies/bibframe/Agent",
+                    "http://id.loc.gov/ontologies/bibframe/Person",
+                ],
+                "http://id.loc.gov/ontologies/bflc/marcKey": [
+                    {"@value": "1001 $aMcCorkindale, Christopher"}
+                ],
+                "http://www.w3.org/2000/01/rdf-schema#label": [
+                    {"@value": "McCorkindale, Christopher"}
+                ],
+            },
+        )
+        session.add(person)
+        person_resource = BibframeOtherResources(
+            other_resource=person, bibframe_resource=new_work
+        )
+        session.add(person_resource)
+        session.commit()
+
+        assert len(new_work.versions) == 1, "Ensure only 1 version for work"
 
 
 def test_work_jsonld_framing():
@@ -234,3 +333,59 @@ def test_property_order():
         str(e.value)
         == "For automatic jsonld framing to work you must ensure the uri property is set before the data property, even when constructing an object."
     )
+
+
+def test_works_search(pg_session):
+    with pg_session() as session:
+        # pg_sessions loads a work with subject "Renewable energy sources--Government policy--Korea (South)"
+        w = (
+            session.query(Work).where(
+                Work.data_vector.match("Renewable energy sources")
+            )
+        ).first()
+        assert w, "known item search"
+
+        w = (
+            session.query(Work).where(Work.data_vector.match("Renewable energy source"))
+        ).first()
+        assert w, "stemming 'sources' to 'source'"
+
+        assert (
+            len(
+                session.query(Work)
+                .where(Work.data_vector.match("Nope nada never"))
+                .all()
+            )
+            == 0
+        ), "missing text"
+
+        # TODO: should we be using websearch_to_tsquery() instead of the default
+        # which SQLAlchemy performs here which I believe is plainto_tsquery()?
+        # I think this would allow us to support boolean searches and phrase
+        # searches?
+        #
+        # see: https://www.postgresql.org/docs/current/textsearch-controls.html
+
+
+def test_data_vector_update(pg_session):
+    """
+    Ensure that updating the Work.data causes the Work.data_vector to get
+    updated.
+    """
+    with pg_session() as session:
+        # a random string
+        random_str = uuid1().hex
+
+        # ensure that the random string isn't in the db
+        results = (session.query(Work).where(Work.data_vector.match(random_str))).all()
+        assert len(results) == 0, "random string not present"
+
+        # add the random string to the Work JSON-LD
+        work = session.query(Work).where(Work.id == 1).first()
+        work.data = {**work.data, "title": random_str}
+        session.add(work)
+        session.commit()
+
+        # ensure that now we can find the random string
+        results = (session.query(Work).where(Work.data_vector.match(random_str))).all()
+        assert len(results) == 1

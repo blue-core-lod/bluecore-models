@@ -2,7 +2,6 @@
 
 from sqlalchemy import (
     event,
-    insert,
     ForeignKey,
     Integer,
 )
@@ -15,8 +14,12 @@ from sqlalchemy.orm import (
 
 from bluecore_models.models.resource import ResourceBase
 from bluecore_models.models.work import Work
-from bluecore_models.models.version import Version
-from bluecore_models.utils.db import add_bf_classes, update_bf_classes, set_jsonld
+from bluecore_models.utils.db import (
+    add_bf_classes,
+    add_version,
+    update_bf_classes,
+    set_jsonld,
+)
 
 
 class Instance(ResourceBase):
@@ -43,12 +46,7 @@ def create_version_bf_classes(mapper, connection, target):
     """
     Creates a Version and associated Bibframe Classes
     """
-    stmt = insert(Version.__table__).values(
-        resource_id=target.id,
-        data=target.data,
-        created_at=target.updated_at,
-    )
-    connection.execute(stmt)
+    add_version(connection, target)
     add_bf_classes(connection, target)
 
 
@@ -57,12 +55,7 @@ def update_version_bf_classes(mapper, connection, target):
     """
     Updates a Version and associated Bibframe Classes
     """
-    stmt = insert(Version.__table__).values(
-        resource_id=target.id,
-        data=target.data,
-        created_at=target.updated_at,
-    )
-    connection.execute(stmt)
+    add_version(connection, target)
     update_bf_classes(connection, target)
 
 

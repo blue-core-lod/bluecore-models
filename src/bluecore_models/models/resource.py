@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
-from sqlalchemy import DateTime, String, Uuid, event
+from sqlalchemy import DateTime, String, Uuid, Computed, event, text
 from sqlalchemy.orm import mapped_column, Mapped
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from bluecore_models.models.base import Base
 
 
@@ -20,6 +20,9 @@ class ResourceBase(Base):
         DateTime,
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
+    )
+    data_vector: Mapped[bytes] = mapped_column(
+        TSVECTOR, Computed(text("to_tsvector('english', data)"))
     )
 
     __mapper_args__ = {
