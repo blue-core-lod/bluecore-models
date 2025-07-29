@@ -18,15 +18,6 @@ def upgrade():
     # ==========================================================================
     # Indexes for resource_base table
     # --------------------------------------------------------------------------
-    # BTREE: Exact match on RDF @id
-    # e.g. WHERE data ->> '@id' = 'https://bcld.info/works/abc123'
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS index_resource_base_on_data_id
-        ON resource_base ((data ->> '@id'))
-        """
-    )
-
     # BTREE: Exact match on derivedFrom → @id
     # e.g. WHERE data -> 'derivedFrom' ->> '@id' = 'http://id.loc.gov/...'
     op.execute(
@@ -47,6 +38,5 @@ def upgrade():
 
 
 def downgrade():
-    op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_id")
     op.execute("DROP INDEX IF EXISTS index_resource_base_on_data_derivedFrom_id")
     op.execute("DROP INDEX IF EXISTS index_resource_base_on_uuid")
