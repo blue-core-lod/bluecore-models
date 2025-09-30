@@ -4,6 +4,7 @@ import pathlib
 from datetime import datetime, UTC
 from uuid import UUID
 
+import contextlib
 import pytest
 
 from pytest_mock_resources import create_postgres_fixture, Rows, PostgresConfig
@@ -75,3 +76,18 @@ engine = create_postgres_fixture(create_test_rows())
 def pg_session(engine):
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
+
+
+@pytest.fixture
+def user_context():
+    from bluecore_models.models.version import CURRENT_USER_ID
+
+    @contextlib.contextmanager
+    def _context(uid: str | None):
+        token = CURRENT_USER_ID.set(uid)
+        try:
+            yield
+        finally:
+            CURRENT_USER_ID.reset(token)
+
+    return _context

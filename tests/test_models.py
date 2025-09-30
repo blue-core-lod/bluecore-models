@@ -89,7 +89,7 @@ def test_other_resource(pg_session):
         assert other_resource.is_profile is False
 
 
-def test_versions(pg_session):
+def test_versions(pg_session, user_context):
     with pg_session() as session:
         version = session.query(Version).where(Version.id == 1).first()
         work = session.query(Work).where(Work.id == 1).first()
@@ -100,6 +100,19 @@ def test_versions(pg_session):
         version2 = session.query(Version).where(Version.id == 2).first()
         instance = session.query(Instance).where(Instance.id == 2).first()
         assert version2.resource == instance
+
+        with user_context("55875c9a-c67c-4c60-9c91-bc260f71f92a"):
+            work.data = {**work.data, "_test_bump": uuid1().hex}
+            session.add(work)
+            session.commit()
+        latest_version = (
+            session.query(Version)
+            .filter(Version.resource_id == work.id)
+            .order_by(Version.id.desc())
+            .first()
+        )
+        assert latest_version is not None
+        assert latest_version.keycloak_user_id == "55875c9a-c67c-4c60-9c91-bc260f71f92a"
 
 
 def test_bibframe_other_resources(pg_session):
