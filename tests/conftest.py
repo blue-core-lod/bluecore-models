@@ -21,6 +21,7 @@ from bluecore_models.models import (
     BibframeOtherResources,
 )
 
+
 def create_test_rows():
     time_now = datetime.now(UTC)  # Use for Instance and Work for now
 
@@ -76,9 +77,11 @@ def pg_session(engine):
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
 
+
 @pytest.fixture
 def user_context():
     from bluecore_models.models.version import CURRENT_USER_ID
+
     @contextlib.contextmanager
     def _context(uid: str | None):
         token = CURRENT_USER_ID.set(uid)
@@ -86,4 +89,5 @@ def user_context():
             yield
         finally:
             CURRENT_USER_ID.reset(token)
+
     return _context

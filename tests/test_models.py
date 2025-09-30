@@ -101,15 +101,19 @@ def test_versions(pg_session, user_context):
         instance = session.query(Instance).where(Instance.id == 2).first()
         assert version2.resource == instance
 
-        # Create a NEW version while a user UID is set in the ContextVar
-        from uuid import uuid4
         with user_context("55875c9a-c67c-4c60-9c91-bc260f71f92a"):
-            work.data = {**work.data, "_test_bump": uuid4().hex}
+            work.data = {**work.data, "_test_bump": uuid1().hex}
             session.add(work)
             session.commit()
-        latest_version = (session.query(Version).filter(Version.resource_id == work.id).order_by(Version.id.desc()).first())
+        latest_version = (
+            session.query(Version)
+            .filter(Version.resource_id == work.id)
+            .order_by(Version.id.desc())
+            .first()
+        )
         assert latest_version is not None
         assert latest_version.keycloak_user_id == "55875c9a-c67c-4c60-9c91-bc260f71f92a"
+
 
 def test_bibframe_other_resources(pg_session):
     with pg_session() as session:
