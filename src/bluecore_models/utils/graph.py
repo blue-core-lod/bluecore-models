@@ -210,6 +210,7 @@ def frame_jsonld(bluecore_uri: str, jsonld_data: list | dict) -> dict:
         "@vocab": "http://id.loc.gov/ontologies/bibframe/",
         "bflc": "http://id.loc.gov/ontologies/bflc/",
         "mads": "http://www.loc.gov/mads/rdf/v1#",
+        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
     }
     doc = jsonld.frame(
         jsonld_data,
