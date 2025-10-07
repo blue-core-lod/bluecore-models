@@ -1,0 +1,3057 @@
+{
+  "@context": {
+    "@vocab": "http://id.loc.gov/ontologies/bibframe/",
+    "bflc": "http://id.loc.gov/ontologies/bflc/",
+    "mads": "http://www.loc.gov/mads/rdf/v1#"
+  },
+  "@graph": [
+    {
+      "@id": "_:b0",
+      "@type": "Lccn",
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "  2024027742"
+    },
+    {
+      "@id": "_:b1",
+      "@type": "Isbn",
+      "qualifier": "paperback",
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790475"
+    },
+    {
+      "@id": "_:b10",
+      "@type": "AdminMetadata",
+      "date": {
+        "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "@value": "2024-08-01T17:18:38"
+      },
+      "status": {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+        "@type": "Status",
+        "code": "c",
+        "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+      }
+    },
+    {
+      "@id": "_:b11",
+      "@type": "AdminMetadata",
+      "agent": {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+        "@type": [
+          "Agent",
+          "Organization"
+        ],
+        "code": [
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/code",
+            "@value": "DLC"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+            "@value": "dlc"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+            "@value": "US-dlc"
+          }
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+      },
+      "date": {
+        "@type": "http://www.w3.org/2001/XMLSchema#date",
+        "@value": "2024-07-31"
+      },
+      "status": {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/n",
+        "@type": "Status",
+        "code": "n",
+        "http://www.w3.org/2000/01/rdf-schema#label": "new"
+      }
+    },
+    {
+      "@id": "_:b12",
+      "@type": [
+        "Topic",
+        "mads:ComplexSubject"
+      ],
+      "bflc:aap-normalized": "businessenterprisesinformationtechnologymanagement",
+      "source": {
+        "@id": "http://id.loc.gov/authorities/subjects",
+        "@type": [
+          "mads:MADSScheme",
+          "Source"
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": {
+          "@language": "en",
+          "@value": "Library of Congress Subject Headings"
+        }
+      },
+      "mads:authoritativeLabel": "Business enterprises--Information technology--Management",
+      "mads:componentList": {
+        "@list": [
+          {
+            "@id": "http://id.loc.gov/authorities/subjects/sh85018285",
+            "@type": "mads:Topic",
+            "bflc:marcKey": "150 0$aBusiness enterprises",
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Business enterprises"
+            }
+          },
+          {
+            "@id": "http://id.loc.gov/authorities/subjects/sh2002012003",
+            "@type": "mads:Topic",
+            "bflc:marcKey": "180  $xInformation technology",
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Information technology"
+            }
+          },
+          {
+            "@id": "http://id.loc.gov/authorities/subjects/sh2002007911",
+            "@type": "mads:Topic",
+            "bflc:marcKey": "180  $xManagement",
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Management"
+            }
+          }
+        ]
+      },
+      "mads:isMemberOfMADSScheme": {
+        "@id": "http://id.loc.gov/authorities/subjects",
+        "@type": [
+          "mads:MADSScheme",
+          "Source"
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": {
+          "@language": "en",
+          "@value": "Library of Congress Subject Headings"
+        }
+      },
+      "http://www.w3.org/2000/01/rdf-schema#label": "Business enterprises--Information technology--Management"
+    },
+    {
+      "@id": "_:b13",
+      "@type": [
+        "Contribution",
+        "PrimaryContribution"
+      ],
+      "agent": {
+        "@id": "http://id.loc.gov/rwo/agents/n2024040883",
+        "@type": [
+          "Agent",
+          "Person"
+        ],
+        "bflc:marcKey": "1001 $aFarri, Elisa",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Farri, Elisa"
+      },
+      "role": {
+        "@id": "http://id.loc.gov/vocabulary/relators/aut",
+        "@type": "Role",
+        "code": "aut",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+      }
+    },
+    {
+      "@id": "_:b14",
+      "@type": "Title",
+      "mainTitle": "HBR guide to generative AI for managers"
+    },
+    {
+      "@id": "_:b15",
+      "@type": [
+        "ProvisionActivity",
+        "Publication"
+      ],
+      "bflc:simpleAgent": "Harvard Business Review Press",
+      "bflc:simpleDate": "[2025]",
+      "bflc:simplePlace": "Boston, Massachusetts",
+      "date": {
+        "@type": "http://id.loc.gov/datatypes/edtf",
+        "@value": "2025"
+      },
+      "place": {
+        "@id": "http://id.loc.gov/vocabulary/countries/mau",
+        "@type": "Place",
+        "code": {
+          "@type": "http://www.w3.org/2001/XMLSchema#string",
+          "@value": "mau"
+        },
+        "http://www.w3.org/2000/01/rdf-schema#label": {
+          "@language": "en",
+          "@value": "Massachusetts"
+        }
+      }
+    },
+    {
+      "@id": "_:b16",
+      "@type": "ClassificationLcc",
+      "assigner": {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+        "@type": [
+          "Agent",
+          "Organization"
+        ],
+        "code": [
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/code",
+            "@value": "DLC"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+            "@value": "dlc"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+            "@value": "US-dlc"
+          }
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+      },
+      "classificationPortion": "HD30.2",
+      "status": {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/uba",
+        "@type": "Status",
+        "code": "uba",
+        "http://www.w3.org/2000/01/rdf-schema#label": "used by assigner"
+      }
+    },
+    {
+      "@id": "_:b17",
+      "@type": "Relation",
+      "associatedResource": {
+        "@id": "_:b18",
+        "@type": [
+          "Series",
+          "bflc:Uncontrolled"
+        ],
+        "status": {
+          "@id": "http://id.loc.gov/vocabulary/mstatus/t",
+          "@type": "Status",
+          "code": "t",
+          "http://www.w3.org/2000/01/rdf-schema#label": "transcribed"
+        },
+        "title": {
+          "@id": "_:b33",
+          "@type": "Title",
+          "mainTitle": "HBR guides"
+        }
+      },
+      "relationship": {
+        "@id": "http://id.loc.gov/ontologies/bibframe/hasSeries"
+      }
+    },
+    {
+      "@id": "_:b18",
+      "@type": [
+        "Series",
+        "bflc:Uncontrolled"
+      ],
+      "status": {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/t",
+        "@type": "Status",
+        "code": "t",
+        "http://www.w3.org/2000/01/rdf-schema#label": "transcribed"
+      },
+      "title": {
+        "@id": "_:b33",
+        "@type": "Title",
+        "mainTitle": "HBR guides"
+      }
+    },
+    {
+      "@id": "_:b19",
+      "@type": "Isbn",
+      "qualifier": "paperback",
+      "status": {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/cancinv",
+        "@type": "Status",
+        "code": "cancinv",
+        "http://www.w3.org/2000/01/rdf-schema#label": "canceled or invalid"
+      },
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790475"
+    },
+    {
+      "@id": "_:b2",
+      "@type": "Contribution",
+      "agent": {
+        "@id": "http://id.loc.gov/rwo/agents/n2024040886",
+        "@type": [
+          "Agent",
+          "Person"
+        ],
+        "bflc:marcKey": "1001 $aRosani, Gabriele",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Rosani, Gabriele"
+      },
+      "role": {
+        "@id": "http://id.loc.gov/vocabulary/relators/aut",
+        "@type": "Role",
+        "code": "aut",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+      }
+    },
+    {
+      "@id": "_:b20",
+      "@type": "Title",
+      "mainTitle": "HBR guide to generative AI for managers"
+    },
+    {
+      "@id": "_:b21",
+      "@type": [
+        "Note",
+        "http://id.loc.gov/vocabulary/mnotetype/descsource"
+      ],
+      "http://www.w3.org/2000/01/rdf-schema#label": "Description based on print version record and CIP data provided by publisher; resource not viewed"
+    },
+    {
+      "@id": "_:b22",
+      "@type": "VariantTitle",
+      "mainTitle": "Artificial intelligence for managers"
+    },
+    {
+      "@id": "_:b23",
+      "@type": "Isbn",
+      "qualifier": "epub",
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790482"
+    },
+    {
+      "@id": "_:b24",
+      "@type": "AdminMetadata",
+      "agent": {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+        "@type": [
+          "Agent",
+          "Organization"
+        ],
+        "code": [
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/code",
+            "@value": "DLC"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+            "@value": "dlc"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+            "@value": "US-dlc"
+          }
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+      },
+      "date": {
+        "@type": "http://www.w3.org/2001/XMLSchema#date",
+        "@value": "2024-07-31"
+      },
+      "status": {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/n",
+        "@type": "Status",
+        "code": "n",
+        "http://www.w3.org/2000/01/rdf-schema#label": "new"
+      }
+    },
+    {
+      "@id": "_:b25",
+      "@type": "AdminMetadata",
+      "agent": {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc",
+        "@type": [
+          "Agent",
+          "Organization"
+        ],
+        "code": [
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/code",
+            "@value": "DLC-MRC"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+            "@value": "dlcmrc"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+            "@value": "US-dlcmrc"
+          }
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress, Network Development and MARC Standards Office"
+      },
+      "date": {
+        "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "@value": "2024-08-02T17:51:02.400885-04:00"
+      },
+      "generationProcess": {
+        "@id": "https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.7.0"
+      },
+      "status": {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+        "@type": "Status",
+        "code": "c",
+        "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+      }
+    },
+    {
+      "@id": "_:b26",
+      "@type": [
+        "Contribution",
+        "PrimaryContribution"
+      ],
+      "agent": {
+        "@id": "http://id.loc.gov/rwo/agents/n2024040883",
+        "@type": [
+          "Agent",
+          "Person"
+        ],
+        "bflc:marcKey": "1001 $aFarri, Elisa",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Farri, Elisa"
+      },
+      "role": {
+        "@id": "http://id.loc.gov/vocabulary/relators/aut",
+        "@type": "Role",
+        "code": "aut",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+      }
+    },
+    {
+      "@id": "_:b27",
+      "@type": "Relation",
+      "associatedResource": {
+        "@id": "http://id.loc.gov/resources/works/23804671",
+        "@type": "Work",
+        "contribution": [
+          {
+            "@id": "_:b13",
+            "@type": [
+              "Contribution",
+              "PrimaryContribution"
+            ],
+            "agent": {
+              "@id": "http://id.loc.gov/rwo/agents/n2024040883",
+              "@type": [
+                "Agent",
+                "Person"
+              ],
+              "bflc:marcKey": "1001 $aFarri, Elisa",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Farri, Elisa"
+            },
+            "role": {
+              "@id": "http://id.loc.gov/vocabulary/relators/aut",
+              "@type": "Role",
+              "code": "aut",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+            }
+          },
+          {
+            "@id": "_:b2",
+            "@type": "Contribution",
+            "agent": {
+              "@id": "http://id.loc.gov/rwo/agents/n2024040886",
+              "@type": [
+                "Agent",
+                "Person"
+              ],
+              "bflc:marcKey": "1001 $aRosani, Gabriele",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Rosani, Gabriele"
+            },
+            "role": {
+              "@id": "http://id.loc.gov/vocabulary/relators/aut",
+              "@type": "Role",
+              "code": "aut",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+            }
+          }
+        ],
+        "hasInstance": {
+          "@id": "http://id.loc.gov/resources/instances/23804671",
+          "@type": "Instance",
+          "carrier": {
+            "@id": "http://id.loc.gov/vocabulary/carriers/nc",
+            "@type": "Carrier",
+            "code": "nc",
+            "http://www.w3.org/2000/01/rdf-schema#label": "volume"
+          },
+          "identifiedBy": [
+            {
+              "@id": "_:b0",
+              "@type": "Lccn",
+              "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "  2024027742"
+            },
+            {
+              "@id": "_:b1",
+              "@type": "Isbn",
+              "qualifier": "paperback",
+              "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790475"
+            }
+          ],
+          "media": {
+            "@id": "http://id.loc.gov/vocabulary/mediaTypes/n",
+            "@type": "Media",
+            "code": "n",
+            "http://www.w3.org/2000/01/rdf-schema#label": "unmediated"
+          },
+          "publicationStatement": "Boston, Massachusetts: Harvard Business Review Press, [2025]"
+        },
+        "title": {
+          "@id": "_:b14",
+          "@type": "Title",
+          "mainTitle": "HBR guide to generative AI for managers"
+        }
+      },
+      "relationship": [
+        {
+          "@id": "http://id.loc.gov/vocabulary/relationship/otherphysicalformat",
+          "@type": "Relationship",
+          "code": "otherphysicalformat",
+          "http://www.w3.org/2000/01/rdf-schema#label": "other physical format"
+        },
+        {
+          "@id": "http://id.loc.gov/entities/relationships/printversion",
+          "@type": "Relationship",
+          "http://www.w3.org/2000/01/rdf-schema#label": "Print version"
+        }
+      ]
+    },
+    {
+      "@id": "_:b28",
+      "@type": [
+        "Topic",
+        "mads:ComplexSubject"
+      ],
+      "bflc:aap-normalized": "managementtechnologicalinnovations",
+      "source": {
+        "@id": "http://id.loc.gov/authorities/subjects",
+        "@type": [
+          "mads:MADSScheme",
+          "Source"
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": {
+          "@language": "en",
+          "@value": "Library of Congress Subject Headings"
+        }
+      },
+      "mads:authoritativeLabel": "Management--Technological innovations",
+      "mads:componentList": {
+        "@list": [
+          {
+            "@id": "http://id.loc.gov/authorities/subjects/sh85080336",
+            "@type": "mads:Topic",
+            "bflc:marcKey": "150 0$aManagement",
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Management"
+            }
+          },
+          {
+            "@id": "http://id.loc.gov/authorities/subjects/sh2001009095",
+            "@type": "mads:Topic",
+            "bflc:marcKey": "180  $xTechnological innovations",
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Technological innovations"
+            }
+          }
+        ]
+      },
+      "mads:isMemberOfMADSScheme": {
+        "@id": "http://id.loc.gov/authorities/subjects",
+        "@type": [
+          "mads:MADSScheme",
+          "Source"
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": {
+          "@language": "en",
+          "@value": "Library of Congress Subject Headings"
+        }
+      },
+      "http://www.w3.org/2000/01/rdf-schema#label": "Management--Technological innovations"
+    },
+    {
+      "@id": "_:b29",
+      "@type": "Summary",
+      "http://www.w3.org/2000/01/rdf-schema#label": "\"You're probably aware that generative AI can output quality text in any style and create stunning images in seconds. But smart managers are using gen AI for much more-business case development, data analysis, strategic exploration, and dozens of other applications. Soon, managers who develop their generative AI capabilities will be leaping ahead of managers who don't. Fortunately, you can start now and see results fast. The HBR Guide to Generative AI for Managers is packed with practical tips, prompts, case studies, and ideas to apply gen AI to dozens of managerial tasks right away and achieve incredible results. It's time for you to develop your gen AI-enabled mindset. This book will show you how. You'll learn how to: Understand key terms and concepts; identify the risks and rewards of generative AI; enhance your productivity; employ gen AI as both a copilot and a co-thinker; use the generative AI platform that best suits your needs; and leverage gen AI for business decisions and leading change. Arm yourself with the advice you need to succeed on the job with the most trusted brand in business. Packed with how-to essentials from leading experts, the HBR Guides provide smart answers to your most pressing work challenges\"-- Provided by publisher"
+    },
+    {
+      "@id": "_:b3",
+      "@type": "AdminMetadata",
+      "bflc:encodingLevel": {
+        "@id": "http://id.loc.gov/vocabulary/menclvl/8",
+        "@type": "bflc:EncodingLevel",
+        "code": "8",
+        "http://www.w3.org/2000/01/rdf-schema#label": "prepublication"
+      },
+      "descriptionAuthentication": {
+        "@id": "http://id.loc.gov/vocabulary/marcauthen/pcc",
+        "@type": "DescriptionAuthentication",
+        "code": "pcc",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Program for Cooperative Cataloging"
+      },
+      "descriptionConventions": [
+        {
+          "@id": "http://id.loc.gov/vocabulary/descriptionConventions/isbd",
+          "@type": "DescriptionConventions",
+          "code": "isbd",
+          "http://www.w3.org/2000/01/rdf-schema#label": "ISBD: International standard bibliographic description"
+        },
+        {
+          "@id": "http://id.loc.gov/vocabulary/descriptionConventions/rda",
+          "@type": "DescriptionConventions",
+          "code": "rda",
+          "http://www.w3.org/2000/01/rdf-schema#label": "Resource description and access"
+        }
+      ],
+      "descriptionLanguage": {
+        "@id": "http://id.loc.gov/vocabulary/languages/eng",
+        "@type": "Language",
+        "code": {
+          "@type": "http://www.w3.org/2001/XMLSchema#string",
+          "@value": "eng"
+        },
+        "http://www.w3.org/2000/01/rdf-schema#label": {
+          "@language": "en",
+          "@value": "English"
+        }
+      },
+      "descriptionLevel": {
+        "@id": "http://id.loc.gov/ontologies/bibframe-2-3-0/"
+      },
+      "identifiedBy": {
+        "@id": "_:b4",
+        "@type": "Local",
+        "assigner": {
+          "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+          "@type": [
+            "Agent",
+            "Organization"
+          ],
+          "code": [
+            {
+              "@type": "http://id.loc.gov/datatypes/orgs/code",
+              "@value": "DLC"
+            },
+            {
+              "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+              "@value": "dlc"
+            },
+            {
+              "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+              "@value": "US-dlc"
+            }
+          ],
+          "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+        },
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "23807141"
+      },
+      "http://id.loc.gov/ontologies/lclocal/d906": "=906     $a 7 $b cbc $c orignew $d 1 $e ecip $f 20 $g y-gencatlg",
+      "http://id.loc.gov/ontologies/lclocal/d925": "=925  0  $a acquire $e ecip ebook $x policy default",
+      "http://id.loc.gov/ontologies/lclocal/d955": "=955     $a ecip ebook 2024-08-01",
+      "http://id.loc.gov/ontologies/lclocal/d985": "=985     $a LC online resource $d 2024-08-01"
+    },
+    {
+      "@id": "_:b30",
+      "@type": "VariantTitle",
+      "mainTitle": "Harvard business review guide to generative AI for managers"
+    },
+    {
+      "@id": "_:b31",
+      "@type": "VariantTitle",
+      "mainTitle": "Generative AI for managers",
+      "variantType": "portion"
+    },
+    {
+      "@id": "_:b32",
+      "@type": "Lccn",
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "  2024027743"
+    },
+    {
+      "@id": "_:b33",
+      "@type": "Title",
+      "mainTitle": "HBR guides"
+    },
+    {
+      "@id": "_:b34",
+      "@type": "AdminMetadata",
+      "agent": {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc",
+        "@type": [
+          "Agent",
+          "Organization"
+        ],
+        "code": [
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/code",
+            "@value": "DLC-MRC"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+            "@value": "dlcmrc"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+            "@value": "US-dlcmrc"
+          }
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress, Network Development and MARC Standards Office"
+      },
+      "date": {
+        "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "@value": "2024-08-02T17:51:02.400885-04:00"
+      },
+      "generationProcess": {
+        "@id": "https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.7.0"
+      },
+      "status": {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+        "@type": "Status",
+        "code": "c",
+        "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+      }
+    },
+    {
+      "@id": "_:b35",
+      "@type": "Title",
+      "mainTitle": "HBR guide to generative AI for managers"
+    },
+    {
+      "@id": "_:b36",
+      "@type": "AdminMetadata",
+      "date": {
+        "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "@value": "2024-08-01T17:18:38"
+      },
+      "status": {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+        "@type": "Status",
+        "code": "c",
+        "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+      }
+    },
+    {
+      "@id": "_:b37",
+      "@type": "Extent",
+      "http://www.w3.org/2000/01/rdf-schema#label": "1 online resource"
+    },
+    {
+      "@id": "_:b38",
+      "@type": "Note",
+      "http://www.w3.org/2000/01/rdf-schema#label": "Includes index"
+    },
+    {
+      "@id": "_:b4",
+      "@type": "Local",
+      "assigner": {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+        "@type": [
+          "Agent",
+          "Organization"
+        ],
+        "code": [
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/code",
+            "@value": "DLC"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+            "@value": "dlc"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+            "@value": "US-dlc"
+          }
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+      },
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "23807141"
+    },
+    {
+      "@id": "_:b5",
+      "@type": "AdminMetadata",
+      "bflc:encodingLevel": {
+        "@id": "http://id.loc.gov/vocabulary/menclvl/8",
+        "@type": "bflc:EncodingLevel",
+        "code": "8",
+        "http://www.w3.org/2000/01/rdf-schema#label": "prepublication"
+      },
+      "descriptionAuthentication": {
+        "@id": "http://id.loc.gov/vocabulary/marcauthen/pcc",
+        "@type": "DescriptionAuthentication",
+        "code": "pcc",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Program for Cooperative Cataloging"
+      },
+      "descriptionConventions": [
+        {
+          "@id": "http://id.loc.gov/vocabulary/descriptionConventions/isbd",
+          "@type": "DescriptionConventions",
+          "code": "isbd",
+          "http://www.w3.org/2000/01/rdf-schema#label": "ISBD: International standard bibliographic description"
+        },
+        {
+          "@id": "http://id.loc.gov/vocabulary/descriptionConventions/rda",
+          "@type": "DescriptionConventions",
+          "code": "rda",
+          "http://www.w3.org/2000/01/rdf-schema#label": "Resource description and access"
+        }
+      ],
+      "descriptionLanguage": {
+        "@id": "http://id.loc.gov/vocabulary/languages/eng",
+        "@type": "Language",
+        "code": {
+          "@type": "http://www.w3.org/2001/XMLSchema#string",
+          "@value": "eng"
+        },
+        "http://www.w3.org/2000/01/rdf-schema#label": {
+          "@language": "en",
+          "@value": "English"
+        }
+      },
+      "descriptionLevel": {
+        "@id": "http://id.loc.gov/ontologies/bibframe-2-3-0/"
+      },
+      "identifiedBy": {
+        "@id": "_:b6",
+        "@type": "Local",
+        "assigner": {
+          "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+          "@type": [
+            "Agent",
+            "Organization"
+          ],
+          "code": [
+            {
+              "@type": "http://id.loc.gov/datatypes/orgs/code",
+              "@value": "DLC"
+            },
+            {
+              "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+              "@value": "dlc"
+            },
+            {
+              "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+              "@value": "US-dlc"
+            }
+          ],
+          "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+        },
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "23807141"
+      },
+      "http://id.loc.gov/ontologies/lclocal/d906": "=906     $a 7 $b cbc $c orignew $d 1 $e ecip $f 20 $g y-gencatlg",
+      "http://id.loc.gov/ontologies/lclocal/d925": "=925  0  $a acquire $e ecip ebook $x policy default",
+      "http://id.loc.gov/ontologies/lclocal/d955": "=955     $a ecip ebook 2024-08-01",
+      "http://id.loc.gov/ontologies/lclocal/d985": "=985     $a LC online resource $d 2024-08-01"
+    },
+    {
+      "@id": "_:b6",
+      "@type": "Local",
+      "assigner": {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+        "@type": [
+          "Agent",
+          "Organization"
+        ],
+        "code": [
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/code",
+            "@value": "DLC"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+            "@value": "dlc"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+            "@value": "US-dlc"
+          }
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+      },
+      "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "23807141"
+    },
+    {
+      "@id": "_:b7",
+      "@type": "ClassificationDdc",
+      "assigner": {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+        "@type": [
+          "Agent",
+          "Organization"
+        ],
+        "code": [
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/code",
+            "@value": "DLC"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+            "@value": "dlc"
+          },
+          {
+            "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+            "@value": "US-dlc"
+          }
+        ],
+        "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+      },
+      "classificationPortion": "658.4/038",
+      "edition": "full",
+      "source": {
+        "@id": "_:b8",
+        "@type": "Source",
+        "code": "23/eng/20240731"
+      }
+    },
+    {
+      "@id": "_:b8",
+      "@type": "Source",
+      "code": "23/eng/20240731"
+    },
+    {
+      "@id": "_:b9",
+      "@type": "Contribution",
+      "agent": {
+        "@id": "http://id.loc.gov/rwo/agents/n2024040886",
+        "@type": [
+          "Agent",
+          "Person"
+        ],
+        "bflc:marcKey": "1001 $aRosani, Gabriele",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Rosani, Gabriele"
+      },
+      "role": {
+        "@id": "http://id.loc.gov/vocabulary/relators/aut",
+        "@type": "Role",
+        "code": "aut",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/authorities/subjects",
+      "@type": [
+        "mads:MADSScheme",
+        "Source"
+      ],
+      "http://www.w3.org/2000/01/rdf-schema#label": {
+        "@language": "en",
+        "@value": "Library of Congress Subject Headings"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/authorities/subjects/sh2001009095",
+      "@type": "mads:Topic",
+      "bflc:marcKey": "180  $xTechnological innovations",
+      "http://www.w3.org/2000/01/rdf-schema#label": {
+        "@language": "en",
+        "@value": "Technological innovations"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/authorities/subjects/sh2002007911",
+      "@type": "mads:Topic",
+      "bflc:marcKey": "180  $xManagement",
+      "http://www.w3.org/2000/01/rdf-schema#label": {
+        "@language": "en",
+        "@value": "Management"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/authorities/subjects/sh2002012003",
+      "@type": "mads:Topic",
+      "bflc:marcKey": "180  $xInformation technology",
+      "http://www.w3.org/2000/01/rdf-schema#label": {
+        "@language": "en",
+        "@value": "Information technology"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/authorities/subjects/sh85018285",
+      "@type": "mads:Topic",
+      "bflc:marcKey": "150 0$aBusiness enterprises",
+      "http://www.w3.org/2000/01/rdf-schema#label": {
+        "@language": "en",
+        "@value": "Business enterprises"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/authorities/subjects/sh85065889",
+      "@type": "Topic",
+      "bflc:marcKey": "150  $aIndustrial management",
+      "http://www.w3.org/2000/01/rdf-schema#label": {
+        "@language": "en",
+        "@value": "Industrial management"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/authorities/subjects/sh85080336",
+      "@type": "mads:Topic",
+      "bflc:marcKey": "150 0$aManagement",
+      "http://www.w3.org/2000/01/rdf-schema#label": {
+        "@language": "en",
+        "@value": "Management"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/entities/relationships/printversion",
+      "@type": "Relationship",
+      "http://www.w3.org/2000/01/rdf-schema#label": "Print version"
+    },
+    {
+      "@id": "http://id.loc.gov/ontologies/bibframe-2-3-0/"
+    },
+    {
+      "@id": "http://id.loc.gov/ontologies/bibframe/hasSeries"
+    },
+    {
+      "@id": "http://id.loc.gov/resources/instances"
+    },
+    {
+      "@id": "http://id.loc.gov/resources/instances/23804671",
+      "@type": "Instance",
+      "carrier": {
+        "@id": "http://id.loc.gov/vocabulary/carriers/nc",
+        "@type": "Carrier",
+        "code": "nc",
+        "http://www.w3.org/2000/01/rdf-schema#label": "volume"
+      },
+      "identifiedBy": [
+        {
+          "@id": "_:b0",
+          "@type": "Lccn",
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "  2024027742"
+        },
+        {
+          "@id": "_:b1",
+          "@type": "Isbn",
+          "qualifier": "paperback",
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790475"
+        }
+      ],
+      "media": {
+        "@id": "http://id.loc.gov/vocabulary/mediaTypes/n",
+        "@type": "Media",
+        "code": "n",
+        "http://www.w3.org/2000/01/rdf-schema#label": "unmediated"
+      },
+      "publicationStatement": "Boston, Massachusetts: Harvard Business Review Press, [2025]"
+    },
+    {
+      "@id": "http://id.loc.gov/resources/instances/23807141",
+      "@type": "Instance",
+      "bflc:projectedProvisionDate": "2502",
+      "adminMetadata": [
+        {
+          "@id": "_:b11",
+          "@type": "AdminMetadata",
+          "agent": {
+            "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+            "@type": [
+              "Agent",
+              "Organization"
+            ],
+            "code": [
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/code",
+                "@value": "DLC"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                "@value": "dlc"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                "@value": "US-dlc"
+              }
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+          },
+          "date": {
+            "@type": "http://www.w3.org/2001/XMLSchema#date",
+            "@value": "2024-07-31"
+          },
+          "status": {
+            "@id": "http://id.loc.gov/vocabulary/mstatus/n",
+            "@type": "Status",
+            "code": "n",
+            "http://www.w3.org/2000/01/rdf-schema#label": "new"
+          }
+        },
+        {
+          "@id": "_:b36",
+          "@type": "AdminMetadata",
+          "date": {
+            "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+            "@value": "2024-08-01T17:18:38"
+          },
+          "status": {
+            "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+            "@type": "Status",
+            "code": "c",
+            "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+          }
+        },
+        {
+          "@id": "_:b34",
+          "@type": "AdminMetadata",
+          "agent": {
+            "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc",
+            "@type": [
+              "Agent",
+              "Organization"
+            ],
+            "code": [
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/code",
+                "@value": "DLC-MRC"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                "@value": "dlcmrc"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                "@value": "US-dlcmrc"
+              }
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress, Network Development and MARC Standards Office"
+          },
+          "date": {
+            "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+            "@value": "2024-08-02T17:51:02.400885-04:00"
+          },
+          "generationProcess": {
+            "@id": "https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.7.0"
+          },
+          "status": {
+            "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+            "@type": "Status",
+            "code": "c",
+            "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+          }
+        },
+        {
+          "@id": "_:b5",
+          "@type": "AdminMetadata",
+          "bflc:encodingLevel": {
+            "@id": "http://id.loc.gov/vocabulary/menclvl/8",
+            "@type": "bflc:EncodingLevel",
+            "code": "8",
+            "http://www.w3.org/2000/01/rdf-schema#label": "prepublication"
+          },
+          "descriptionAuthentication": {
+            "@id": "http://id.loc.gov/vocabulary/marcauthen/pcc",
+            "@type": "DescriptionAuthentication",
+            "code": "pcc",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Program for Cooperative Cataloging"
+          },
+          "descriptionConventions": [
+            {
+              "@id": "http://id.loc.gov/vocabulary/descriptionConventions/isbd",
+              "@type": "DescriptionConventions",
+              "code": "isbd",
+              "http://www.w3.org/2000/01/rdf-schema#label": "ISBD: International standard bibliographic description"
+            },
+            {
+              "@id": "http://id.loc.gov/vocabulary/descriptionConventions/rda",
+              "@type": "DescriptionConventions",
+              "code": "rda",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Resource description and access"
+            }
+          ],
+          "descriptionLanguage": {
+            "@id": "http://id.loc.gov/vocabulary/languages/eng",
+            "@type": "Language",
+            "code": {
+              "@type": "http://www.w3.org/2001/XMLSchema#string",
+              "@value": "eng"
+            },
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "English"
+            }
+          },
+          "descriptionLevel": {
+            "@id": "http://id.loc.gov/ontologies/bibframe-2-3-0/"
+          },
+          "identifiedBy": {
+            "@id": "_:b6",
+            "@type": "Local",
+            "assigner": {
+              "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+              "@type": [
+                "Agent",
+                "Organization"
+              ],
+              "code": [
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/code",
+                  "@value": "DLC"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                  "@value": "dlc"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                  "@value": "US-dlc"
+                }
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+            },
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "23807141"
+          },
+          "http://id.loc.gov/ontologies/lclocal/d906": "=906     $a 7 $b cbc $c orignew $d 1 $e ecip $f 20 $g y-gencatlg",
+          "http://id.loc.gov/ontologies/lclocal/d925": "=925  0  $a acquire $e ecip ebook $x policy default",
+          "http://id.loc.gov/ontologies/lclocal/d955": "=955     $a ecip ebook 2024-08-01",
+          "http://id.loc.gov/ontologies/lclocal/d985": "=985     $a LC online resource $d 2024-08-01"
+        }
+      ],
+      "carrier": {
+        "@id": "http://id.loc.gov/vocabulary/carriers/cr",
+        "@type": "Carrier",
+        "code": "cr",
+        "http://www.w3.org/2000/01/rdf-schema#label": "online resource"
+      },
+      "extent": {
+        "@id": "_:b37",
+        "@type": "Extent",
+        "http://www.w3.org/2000/01/rdf-schema#label": "1 online resource"
+      },
+      "identifiedBy": [
+        {
+          "@id": "_:b32",
+          "@type": "Lccn",
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "  2024027743"
+        },
+        {
+          "@id": "_:b23",
+          "@type": "Isbn",
+          "qualifier": "epub",
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790482"
+        },
+        {
+          "@id": "_:b19",
+          "@type": "Isbn",
+          "qualifier": "paperback",
+          "status": {
+            "@id": "http://id.loc.gov/vocabulary/mstatus/cancinv",
+            "@type": "Status",
+            "code": "cancinv",
+            "http://www.w3.org/2000/01/rdf-schema#label": "canceled or invalid"
+          },
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790475"
+        }
+      ],
+      "instanceOf": {
+        "@id": "http://id.loc.gov/resources/works/23807141",
+        "@type": [
+          "Work",
+          "Text",
+          "Monograph"
+        ],
+        "bflc:aap": "Farri, Elisa HBR guide to generative AI for managers",
+        "bflc:aap-normalized": "farrielisahbrguidetogenerativeaiformanagers",
+        "adminMetadata": [
+          {
+            "@id": "_:b24",
+            "@type": "AdminMetadata",
+            "agent": {
+              "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+              "@type": [
+                "Agent",
+                "Organization"
+              ],
+              "code": [
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/code",
+                  "@value": "DLC"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                  "@value": "dlc"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                  "@value": "US-dlc"
+                }
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+            },
+            "date": {
+              "@type": "http://www.w3.org/2001/XMLSchema#date",
+              "@value": "2024-07-31"
+            },
+            "status": {
+              "@id": "http://id.loc.gov/vocabulary/mstatus/n",
+              "@type": "Status",
+              "code": "n",
+              "http://www.w3.org/2000/01/rdf-schema#label": "new"
+            }
+          },
+          {
+            "@id": "_:b10",
+            "@type": "AdminMetadata",
+            "date": {
+              "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+              "@value": "2024-08-01T17:18:38"
+            },
+            "status": {
+              "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+              "@type": "Status",
+              "code": "c",
+              "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+            }
+          },
+          {
+            "@id": "_:b25",
+            "@type": "AdminMetadata",
+            "agent": {
+              "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc",
+              "@type": [
+                "Agent",
+                "Organization"
+              ],
+              "code": [
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/code",
+                  "@value": "DLC-MRC"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                  "@value": "dlcmrc"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                  "@value": "US-dlcmrc"
+                }
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress, Network Development and MARC Standards Office"
+            },
+            "date": {
+              "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+              "@value": "2024-08-02T17:51:02.400885-04:00"
+            },
+            "generationProcess": {
+              "@id": "https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.7.0"
+            },
+            "status": {
+              "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+              "@type": "Status",
+              "code": "c",
+              "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+            }
+          },
+          {
+            "@id": "_:b3",
+            "@type": "AdminMetadata",
+            "bflc:encodingLevel": {
+              "@id": "http://id.loc.gov/vocabulary/menclvl/8",
+              "@type": "bflc:EncodingLevel",
+              "code": "8",
+              "http://www.w3.org/2000/01/rdf-schema#label": "prepublication"
+            },
+            "descriptionAuthentication": {
+              "@id": "http://id.loc.gov/vocabulary/marcauthen/pcc",
+              "@type": "DescriptionAuthentication",
+              "code": "pcc",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Program for Cooperative Cataloging"
+            },
+            "descriptionConventions": [
+              {
+                "@id": "http://id.loc.gov/vocabulary/descriptionConventions/isbd",
+                "@type": "DescriptionConventions",
+                "code": "isbd",
+                "http://www.w3.org/2000/01/rdf-schema#label": "ISBD: International standard bibliographic description"
+              },
+              {
+                "@id": "http://id.loc.gov/vocabulary/descriptionConventions/rda",
+                "@type": "DescriptionConventions",
+                "code": "rda",
+                "http://www.w3.org/2000/01/rdf-schema#label": "Resource description and access"
+              }
+            ],
+            "descriptionLanguage": {
+              "@id": "http://id.loc.gov/vocabulary/languages/eng",
+              "@type": "Language",
+              "code": {
+                "@type": "http://www.w3.org/2001/XMLSchema#string",
+                "@value": "eng"
+              },
+              "http://www.w3.org/2000/01/rdf-schema#label": {
+                "@language": "en",
+                "@value": "English"
+              }
+            },
+            "descriptionLevel": {
+              "@id": "http://id.loc.gov/ontologies/bibframe-2-3-0/"
+            },
+            "identifiedBy": {
+              "@id": "_:b4",
+              "@type": "Local",
+              "assigner": {
+                "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+                "@type": [
+                  "Agent",
+                  "Organization"
+                ],
+                "code": [
+                  {
+                    "@type": "http://id.loc.gov/datatypes/orgs/code",
+                    "@value": "DLC"
+                  },
+                  {
+                    "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                    "@value": "dlc"
+                  },
+                  {
+                    "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                    "@value": "US-dlc"
+                  }
+                ],
+                "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+              },
+              "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "23807141"
+            },
+            "http://id.loc.gov/ontologies/lclocal/d906": "=906     $a 7 $b cbc $c orignew $d 1 $e ecip $f 20 $g y-gencatlg",
+            "http://id.loc.gov/ontologies/lclocal/d925": "=925  0  $a acquire $e ecip ebook $x policy default",
+            "http://id.loc.gov/ontologies/lclocal/d955": "=955     $a ecip ebook 2024-08-01",
+            "http://id.loc.gov/ontologies/lclocal/d985": "=985     $a LC online resource $d 2024-08-01"
+          }
+        ],
+        "classification": [
+          {
+            "@id": "_:b16",
+            "@type": "ClassificationLcc",
+            "assigner": {
+              "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+              "@type": [
+                "Agent",
+                "Organization"
+              ],
+              "code": [
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/code",
+                  "@value": "DLC"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                  "@value": "dlc"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                  "@value": "US-dlc"
+                }
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+            },
+            "classificationPortion": "HD30.2",
+            "status": {
+              "@id": "http://id.loc.gov/vocabulary/mstatus/uba",
+              "@type": "Status",
+              "code": "uba",
+              "http://www.w3.org/2000/01/rdf-schema#label": "used by assigner"
+            }
+          },
+          {
+            "@id": "_:b7",
+            "@type": "ClassificationDdc",
+            "assigner": {
+              "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+              "@type": [
+                "Agent",
+                "Organization"
+              ],
+              "code": [
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/code",
+                  "@value": "DLC"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                  "@value": "dlc"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                  "@value": "US-dlc"
+                }
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+            },
+            "classificationPortion": "658.4/038",
+            "edition": "full",
+            "source": {
+              "@id": "_:b8",
+              "@type": "Source",
+              "code": "23/eng/20240731"
+            }
+          }
+        ],
+        "content": {
+          "@id": "http://id.loc.gov/vocabulary/contentTypes/txt",
+          "@type": "Content",
+          "code": "txt",
+          "http://www.w3.org/2000/01/rdf-schema#label": "text"
+        },
+        "contribution": [
+          {
+            "@id": "_:b26",
+            "@type": [
+              "Contribution",
+              "PrimaryContribution"
+            ],
+            "agent": {
+              "@id": "http://id.loc.gov/rwo/agents/n2024040883",
+              "@type": [
+                "Agent",
+                "Person"
+              ],
+              "bflc:marcKey": "1001 $aFarri, Elisa",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Farri, Elisa"
+            },
+            "role": {
+              "@id": "http://id.loc.gov/vocabulary/relators/aut",
+              "@type": "Role",
+              "code": "aut",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+            }
+          },
+          {
+            "@id": "_:b9",
+            "@type": "Contribution",
+            "agent": {
+              "@id": "http://id.loc.gov/rwo/agents/n2024040886",
+              "@type": [
+                "Agent",
+                "Person"
+              ],
+              "bflc:marcKey": "1001 $aRosani, Gabriele",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Rosani, Gabriele"
+            },
+            "role": {
+              "@id": "http://id.loc.gov/vocabulary/relators/aut",
+              "@type": "Role",
+              "code": "aut",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+            }
+          }
+        ],
+        "hasInstance": {
+          "@id": "http://id.loc.gov/resources/instances/23807141"
+        },
+        "language": {
+          "@id": "http://id.loc.gov/vocabulary/languages/eng",
+          "@type": "Language",
+          "code": {
+            "@type": "http://www.w3.org/2001/XMLSchema#string",
+            "@value": "eng"
+          },
+          "http://www.w3.org/2000/01/rdf-schema#label": {
+            "@language": "en",
+            "@value": "English"
+          }
+        },
+        "relation": [
+          {
+            "@id": "_:b17",
+            "@type": "Relation",
+            "associatedResource": {
+              "@id": "_:b18",
+              "@type": [
+                "Series",
+                "bflc:Uncontrolled"
+              ],
+              "status": {
+                "@id": "http://id.loc.gov/vocabulary/mstatus/t",
+                "@type": "Status",
+                "code": "t",
+                "http://www.w3.org/2000/01/rdf-schema#label": "transcribed"
+              },
+              "title": {
+                "@id": "_:b33",
+                "@type": "Title",
+                "mainTitle": "HBR guides"
+              }
+            },
+            "relationship": {
+              "@id": "http://id.loc.gov/ontologies/bibframe/hasSeries"
+            }
+          },
+          {
+            "@id": "_:b27",
+            "@type": "Relation",
+            "associatedResource": {
+              "@id": "http://id.loc.gov/resources/works/23804671",
+              "@type": "Work",
+              "contribution": [
+                {
+                  "@id": "_:b13",
+                  "@type": [
+                    "Contribution",
+                    "PrimaryContribution"
+                  ],
+                  "agent": {
+                    "@id": "http://id.loc.gov/rwo/agents/n2024040883",
+                    "@type": [
+                      "Agent",
+                      "Person"
+                    ],
+                    "bflc:marcKey": "1001 $aFarri, Elisa",
+                    "http://www.w3.org/2000/01/rdf-schema#label": "Farri, Elisa"
+                  },
+                  "role": {
+                    "@id": "http://id.loc.gov/vocabulary/relators/aut",
+                    "@type": "Role",
+                    "code": "aut",
+                    "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+                  }
+                },
+                {
+                  "@id": "_:b2",
+                  "@type": "Contribution",
+                  "agent": {
+                    "@id": "http://id.loc.gov/rwo/agents/n2024040886",
+                    "@type": [
+                      "Agent",
+                      "Person"
+                    ],
+                    "bflc:marcKey": "1001 $aRosani, Gabriele",
+                    "http://www.w3.org/2000/01/rdf-schema#label": "Rosani, Gabriele"
+                  },
+                  "role": {
+                    "@id": "http://id.loc.gov/vocabulary/relators/aut",
+                    "@type": "Role",
+                    "code": "aut",
+                    "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+                  }
+                }
+              ],
+              "hasInstance": {
+                "@id": "http://id.loc.gov/resources/instances/23804671",
+                "@type": "Instance",
+                "carrier": {
+                  "@id": "http://id.loc.gov/vocabulary/carriers/nc",
+                  "@type": "Carrier",
+                  "code": "nc",
+                  "http://www.w3.org/2000/01/rdf-schema#label": "volume"
+                },
+                "identifiedBy": [
+                  {
+                    "@id": "_:b0",
+                    "@type": "Lccn",
+                    "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "  2024027742"
+                  },
+                  {
+                    "@id": "_:b1",
+                    "@type": "Isbn",
+                    "qualifier": "paperback",
+                    "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790475"
+                  }
+                ],
+                "media": {
+                  "@id": "http://id.loc.gov/vocabulary/mediaTypes/n",
+                  "@type": "Media",
+                  "code": "n",
+                  "http://www.w3.org/2000/01/rdf-schema#label": "unmediated"
+                },
+                "publicationStatement": "Boston, Massachusetts: Harvard Business Review Press, [2025]"
+              },
+              "title": {
+                "@id": "_:b14",
+                "@type": "Title",
+                "mainTitle": "HBR guide to generative AI for managers"
+              }
+            },
+            "relationship": [
+              {
+                "@id": "http://id.loc.gov/vocabulary/relationship/otherphysicalformat",
+                "@type": "Relationship",
+                "code": "otherphysicalformat",
+                "http://www.w3.org/2000/01/rdf-schema#label": "other physical format"
+              },
+              {
+                "@id": "http://id.loc.gov/entities/relationships/printversion",
+                "@type": "Relationship",
+                "http://www.w3.org/2000/01/rdf-schema#label": "Print version"
+              }
+            ]
+          }
+        ],
+        "subject": [
+          {
+            "@id": "_:b28",
+            "@type": [
+              "Topic",
+              "mads:ComplexSubject"
+            ],
+            "bflc:aap-normalized": "managementtechnologicalinnovations",
+            "source": {
+              "@id": "http://id.loc.gov/authorities/subjects",
+              "@type": [
+                "mads:MADSScheme",
+                "Source"
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": {
+                "@language": "en",
+                "@value": "Library of Congress Subject Headings"
+              }
+            },
+            "mads:authoritativeLabel": "Management--Technological innovations",
+            "mads:componentList": {
+              "@list": [
+                {
+                  "@id": "http://id.loc.gov/authorities/subjects/sh85080336",
+                  "@type": "mads:Topic",
+                  "bflc:marcKey": "150 0$aManagement",
+                  "http://www.w3.org/2000/01/rdf-schema#label": {
+                    "@language": "en",
+                    "@value": "Management"
+                  }
+                },
+                {
+                  "@id": "http://id.loc.gov/authorities/subjects/sh2001009095",
+                  "@type": "mads:Topic",
+                  "bflc:marcKey": "180  $xTechnological innovations",
+                  "http://www.w3.org/2000/01/rdf-schema#label": {
+                    "@language": "en",
+                    "@value": "Technological innovations"
+                  }
+                }
+              ]
+            },
+            "mads:isMemberOfMADSScheme": {
+              "@id": "http://id.loc.gov/authorities/subjects",
+              "@type": [
+                "mads:MADSScheme",
+                "Source"
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": {
+                "@language": "en",
+                "@value": "Library of Congress Subject Headings"
+              }
+            },
+            "http://www.w3.org/2000/01/rdf-schema#label": "Management--Technological innovations"
+          },
+          {
+            "@id": "_:b12",
+            "@type": [
+              "Topic",
+              "mads:ComplexSubject"
+            ],
+            "bflc:aap-normalized": "businessenterprisesinformationtechnologymanagement",
+            "source": {
+              "@id": "http://id.loc.gov/authorities/subjects",
+              "@type": [
+                "mads:MADSScheme",
+                "Source"
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": {
+                "@language": "en",
+                "@value": "Library of Congress Subject Headings"
+              }
+            },
+            "mads:authoritativeLabel": "Business enterprises--Information technology--Management",
+            "mads:componentList": {
+              "@list": [
+                {
+                  "@id": "http://id.loc.gov/authorities/subjects/sh85018285",
+                  "@type": "mads:Topic",
+                  "bflc:marcKey": "150 0$aBusiness enterprises",
+                  "http://www.w3.org/2000/01/rdf-schema#label": {
+                    "@language": "en",
+                    "@value": "Business enterprises"
+                  }
+                },
+                {
+                  "@id": "http://id.loc.gov/authorities/subjects/sh2002012003",
+                  "@type": "mads:Topic",
+                  "bflc:marcKey": "180  $xInformation technology",
+                  "http://www.w3.org/2000/01/rdf-schema#label": {
+                    "@language": "en",
+                    "@value": "Information technology"
+                  }
+                },
+                {
+                  "@id": "http://id.loc.gov/authorities/subjects/sh2002007911",
+                  "@type": "mads:Topic",
+                  "bflc:marcKey": "180  $xManagement",
+                  "http://www.w3.org/2000/01/rdf-schema#label": {
+                    "@language": "en",
+                    "@value": "Management"
+                  }
+                }
+              ]
+            },
+            "mads:isMemberOfMADSScheme": {
+              "@id": "http://id.loc.gov/authorities/subjects",
+              "@type": [
+                "mads:MADSScheme",
+                "Source"
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": {
+                "@language": "en",
+                "@value": "Library of Congress Subject Headings"
+              }
+            },
+            "http://www.w3.org/2000/01/rdf-schema#label": "Business enterprises--Information technology--Management"
+          },
+          {
+            "@id": "http://id.loc.gov/authorities/subjects/sh85065889",
+            "@type": "Topic",
+            "bflc:marcKey": "150  $aIndustrial management",
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Industrial management"
+            }
+          }
+        ],
+        "summary": {
+          "@id": "_:b29",
+          "@type": "Summary",
+          "http://www.w3.org/2000/01/rdf-schema#label": "\"You're probably aware that generative AI can output quality text in any style and create stunning images in seconds. But smart managers are using gen AI for much more-business case development, data analysis, strategic exploration, and dozens of other applications. Soon, managers who develop their generative AI capabilities will be leaping ahead of managers who don't. Fortunately, you can start now and see results fast. The HBR Guide to Generative AI for Managers is packed with practical tips, prompts, case studies, and ideas to apply gen AI to dozens of managerial tasks right away and achieve incredible results. It's time for you to develop your gen AI-enabled mindset. This book will show you how. You'll learn how to: Understand key terms and concepts; identify the risks and rewards of generative AI; enhance your productivity; employ gen AI as both a copilot and a co-thinker; use the generative AI platform that best suits your needs; and leverage gen AI for business decisions and leading change. Arm yourself with the advice you need to succeed on the job with the most trusted brand in business. Packed with how-to essentials from leading experts, the HBR Guides provide smart answers to your most pressing work challenges\"-- Provided by publisher"
+        },
+        "supplementaryContent": {
+          "@id": "http://id.loc.gov/vocabulary/msupplcont/index",
+          "@type": "SupplementaryContent",
+          "code": "index",
+          "http://www.w3.org/2000/01/rdf-schema#label": "index"
+        },
+        "title": [
+          {
+            "@id": "_:b20",
+            "@type": "Title",
+            "mainTitle": "HBR guide to generative AI for managers"
+          },
+          {
+            "@id": "_:b30",
+            "@type": "VariantTitle",
+            "mainTitle": "Harvard business review guide to generative AI for managers"
+          },
+          {
+            "@id": "_:b31",
+            "@type": "VariantTitle",
+            "mainTitle": "Generative AI for managers",
+            "variantType": "portion"
+          },
+          {
+            "@id": "_:b22",
+            "@type": "VariantTitle",
+            "mainTitle": "Artificial intelligence for managers"
+          }
+        ],
+        "http://purl.org/dc/terms/isPartOf": {
+          "@id": "http://id.loc.gov/resources/works"
+        }
+      },
+      "issuance": {
+        "@id": "http://id.loc.gov/vocabulary/issuance/mono",
+        "@type": "Issuance",
+        "code": "mono",
+        "http://www.w3.org/2000/01/rdf-schema#label": "single unit"
+      },
+      "media": {
+        "@id": "http://id.loc.gov/vocabulary/mediaTypes/c",
+        "@type": "Media",
+        "code": "c",
+        "http://www.w3.org/2000/01/rdf-schema#label": "computer"
+      },
+      "note": [
+        {
+          "@id": "_:b38",
+          "@type": "Note",
+          "http://www.w3.org/2000/01/rdf-schema#label": "Includes index"
+        },
+        {
+          "@id": "_:b21",
+          "@type": [
+            "Note",
+            "http://id.loc.gov/vocabulary/mnotetype/descsource"
+          ],
+          "http://www.w3.org/2000/01/rdf-schema#label": "Description based on print version record and CIP data provided by publisher; resource not viewed"
+        }
+      ],
+      "provisionActivity": {
+        "@id": "_:b15",
+        "@type": [
+          "ProvisionActivity",
+          "Publication"
+        ],
+        "bflc:simpleAgent": "Harvard Business Review Press",
+        "bflc:simpleDate": "[2025]",
+        "bflc:simplePlace": "Boston, Massachusetts",
+        "date": {
+          "@type": "http://id.loc.gov/datatypes/edtf",
+          "@value": "2025"
+        },
+        "place": {
+          "@id": "http://id.loc.gov/vocabulary/countries/mau",
+          "@type": "Place",
+          "code": {
+            "@type": "http://www.w3.org/2001/XMLSchema#string",
+            "@value": "mau"
+          },
+          "http://www.w3.org/2000/01/rdf-schema#label": {
+            "@language": "en",
+            "@value": "Massachusetts"
+          }
+        }
+      },
+      "publicationStatement": "Boston, Massachusetts: Harvard Business Review Press, [2025]",
+      "responsibilityStatement": "Elisa Farri and Gabriele Rosani",
+      "title": {
+        "@id": "_:b35",
+        "@type": "Title",
+        "mainTitle": "HBR guide to generative AI for managers"
+      },
+      "http://purl.org/dc/terms/isPartOf": {
+        "@id": "http://id.loc.gov/resources/instances"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/resources/works"
+    },
+    {
+      "@id": "http://id.loc.gov/resources/works/23804671",
+      "@type": "Work",
+      "contribution": [
+        {
+          "@id": "_:b13",
+          "@type": [
+            "Contribution",
+            "PrimaryContribution"
+          ],
+          "agent": {
+            "@id": "http://id.loc.gov/rwo/agents/n2024040883",
+            "@type": [
+              "Agent",
+              "Person"
+            ],
+            "bflc:marcKey": "1001 $aFarri, Elisa",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Farri, Elisa"
+          },
+          "role": {
+            "@id": "http://id.loc.gov/vocabulary/relators/aut",
+            "@type": "Role",
+            "code": "aut",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+          }
+        },
+        {
+          "@id": "_:b2",
+          "@type": "Contribution",
+          "agent": {
+            "@id": "http://id.loc.gov/rwo/agents/n2024040886",
+            "@type": [
+              "Agent",
+              "Person"
+            ],
+            "bflc:marcKey": "1001 $aRosani, Gabriele",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Rosani, Gabriele"
+          },
+          "role": {
+            "@id": "http://id.loc.gov/vocabulary/relators/aut",
+            "@type": "Role",
+            "code": "aut",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+          }
+        }
+      ],
+      "hasInstance": {
+        "@id": "http://id.loc.gov/resources/instances/23804671",
+        "@type": "Instance",
+        "carrier": {
+          "@id": "http://id.loc.gov/vocabulary/carriers/nc",
+          "@type": "Carrier",
+          "code": "nc",
+          "http://www.w3.org/2000/01/rdf-schema#label": "volume"
+        },
+        "identifiedBy": [
+          {
+            "@id": "_:b0",
+            "@type": "Lccn",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "  2024027742"
+          },
+          {
+            "@id": "_:b1",
+            "@type": "Isbn",
+            "qualifier": "paperback",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790475"
+          }
+        ],
+        "media": {
+          "@id": "http://id.loc.gov/vocabulary/mediaTypes/n",
+          "@type": "Media",
+          "code": "n",
+          "http://www.w3.org/2000/01/rdf-schema#label": "unmediated"
+        },
+        "publicationStatement": "Boston, Massachusetts: Harvard Business Review Press, [2025]"
+      },
+      "title": {
+        "@id": "_:b14",
+        "@type": "Title",
+        "mainTitle": "HBR guide to generative AI for managers"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/resources/works/23807141",
+      "@type": [
+        "Work",
+        "Text",
+        "Monograph"
+      ],
+      "bflc:aap": "Farri, Elisa HBR guide to generative AI for managers",
+      "bflc:aap-normalized": "farrielisahbrguidetogenerativeaiformanagers",
+      "adminMetadata": [
+        {
+          "@id": "_:b24",
+          "@type": "AdminMetadata",
+          "agent": {
+            "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+            "@type": [
+              "Agent",
+              "Organization"
+            ],
+            "code": [
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/code",
+                "@value": "DLC"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                "@value": "dlc"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                "@value": "US-dlc"
+              }
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+          },
+          "date": {
+            "@type": "http://www.w3.org/2001/XMLSchema#date",
+            "@value": "2024-07-31"
+          },
+          "status": {
+            "@id": "http://id.loc.gov/vocabulary/mstatus/n",
+            "@type": "Status",
+            "code": "n",
+            "http://www.w3.org/2000/01/rdf-schema#label": "new"
+          }
+        },
+        {
+          "@id": "_:b10",
+          "@type": "AdminMetadata",
+          "date": {
+            "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+            "@value": "2024-08-01T17:18:38"
+          },
+          "status": {
+            "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+            "@type": "Status",
+            "code": "c",
+            "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+          }
+        },
+        {
+          "@id": "_:b25",
+          "@type": "AdminMetadata",
+          "agent": {
+            "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc",
+            "@type": [
+              "Agent",
+              "Organization"
+            ],
+            "code": [
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/code",
+                "@value": "DLC-MRC"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                "@value": "dlcmrc"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                "@value": "US-dlcmrc"
+              }
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress, Network Development and MARC Standards Office"
+          },
+          "date": {
+            "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+            "@value": "2024-08-02T17:51:02.400885-04:00"
+          },
+          "generationProcess": {
+            "@id": "https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.7.0"
+          },
+          "status": {
+            "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+            "@type": "Status",
+            "code": "c",
+            "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+          }
+        },
+        {
+          "@id": "_:b3",
+          "@type": "AdminMetadata",
+          "bflc:encodingLevel": {
+            "@id": "http://id.loc.gov/vocabulary/menclvl/8",
+            "@type": "bflc:EncodingLevel",
+            "code": "8",
+            "http://www.w3.org/2000/01/rdf-schema#label": "prepublication"
+          },
+          "descriptionAuthentication": {
+            "@id": "http://id.loc.gov/vocabulary/marcauthen/pcc",
+            "@type": "DescriptionAuthentication",
+            "code": "pcc",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Program for Cooperative Cataloging"
+          },
+          "descriptionConventions": [
+            {
+              "@id": "http://id.loc.gov/vocabulary/descriptionConventions/isbd",
+              "@type": "DescriptionConventions",
+              "code": "isbd",
+              "http://www.w3.org/2000/01/rdf-schema#label": "ISBD: International standard bibliographic description"
+            },
+            {
+              "@id": "http://id.loc.gov/vocabulary/descriptionConventions/rda",
+              "@type": "DescriptionConventions",
+              "code": "rda",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Resource description and access"
+            }
+          ],
+          "descriptionLanguage": {
+            "@id": "http://id.loc.gov/vocabulary/languages/eng",
+            "@type": "Language",
+            "code": {
+              "@type": "http://www.w3.org/2001/XMLSchema#string",
+              "@value": "eng"
+            },
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "English"
+            }
+          },
+          "descriptionLevel": {
+            "@id": "http://id.loc.gov/ontologies/bibframe-2-3-0/"
+          },
+          "identifiedBy": {
+            "@id": "_:b4",
+            "@type": "Local",
+            "assigner": {
+              "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+              "@type": [
+                "Agent",
+                "Organization"
+              ],
+              "code": [
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/code",
+                  "@value": "DLC"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                  "@value": "dlc"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                  "@value": "US-dlc"
+                }
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+            },
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "23807141"
+          },
+          "http://id.loc.gov/ontologies/lclocal/d906": "=906     $a 7 $b cbc $c orignew $d 1 $e ecip $f 20 $g y-gencatlg",
+          "http://id.loc.gov/ontologies/lclocal/d925": "=925  0  $a acquire $e ecip ebook $x policy default",
+          "http://id.loc.gov/ontologies/lclocal/d955": "=955     $a ecip ebook 2024-08-01",
+          "http://id.loc.gov/ontologies/lclocal/d985": "=985     $a LC online resource $d 2024-08-01"
+        }
+      ],
+      "classification": [
+        {
+          "@id": "_:b16",
+          "@type": "ClassificationLcc",
+          "assigner": {
+            "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+            "@type": [
+              "Agent",
+              "Organization"
+            ],
+            "code": [
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/code",
+                "@value": "DLC"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                "@value": "dlc"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                "@value": "US-dlc"
+              }
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+          },
+          "classificationPortion": "HD30.2",
+          "status": {
+            "@id": "http://id.loc.gov/vocabulary/mstatus/uba",
+            "@type": "Status",
+            "code": "uba",
+            "http://www.w3.org/2000/01/rdf-schema#label": "used by assigner"
+          }
+        },
+        {
+          "@id": "_:b7",
+          "@type": "ClassificationDdc",
+          "assigner": {
+            "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+            "@type": [
+              "Agent",
+              "Organization"
+            ],
+            "code": [
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/code",
+                "@value": "DLC"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                "@value": "dlc"
+              },
+              {
+                "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                "@value": "US-dlc"
+              }
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+          },
+          "classificationPortion": "658.4/038",
+          "edition": "full",
+          "source": {
+            "@id": "_:b8",
+            "@type": "Source",
+            "code": "23/eng/20240731"
+          }
+        }
+      ],
+      "content": {
+        "@id": "http://id.loc.gov/vocabulary/contentTypes/txt",
+        "@type": "Content",
+        "code": "txt",
+        "http://www.w3.org/2000/01/rdf-schema#label": "text"
+      },
+      "contribution": [
+        {
+          "@id": "_:b26",
+          "@type": [
+            "Contribution",
+            "PrimaryContribution"
+          ],
+          "agent": {
+            "@id": "http://id.loc.gov/rwo/agents/n2024040883",
+            "@type": [
+              "Agent",
+              "Person"
+            ],
+            "bflc:marcKey": "1001 $aFarri, Elisa",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Farri, Elisa"
+          },
+          "role": {
+            "@id": "http://id.loc.gov/vocabulary/relators/aut",
+            "@type": "Role",
+            "code": "aut",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+          }
+        },
+        {
+          "@id": "_:b9",
+          "@type": "Contribution",
+          "agent": {
+            "@id": "http://id.loc.gov/rwo/agents/n2024040886",
+            "@type": [
+              "Agent",
+              "Person"
+            ],
+            "bflc:marcKey": "1001 $aRosani, Gabriele",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Rosani, Gabriele"
+          },
+          "role": {
+            "@id": "http://id.loc.gov/vocabulary/relators/aut",
+            "@type": "Role",
+            "code": "aut",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+          }
+        }
+      ],
+      "hasInstance": {
+        "@id": "http://id.loc.gov/resources/instances/23807141",
+        "@type": "Instance",
+        "bflc:projectedProvisionDate": "2502",
+        "adminMetadata": [
+          {
+            "@id": "_:b11",
+            "@type": "AdminMetadata",
+            "agent": {
+              "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+              "@type": [
+                "Agent",
+                "Organization"
+              ],
+              "code": [
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/code",
+                  "@value": "DLC"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                  "@value": "dlc"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                  "@value": "US-dlc"
+                }
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+            },
+            "date": {
+              "@type": "http://www.w3.org/2001/XMLSchema#date",
+              "@value": "2024-07-31"
+            },
+            "status": {
+              "@id": "http://id.loc.gov/vocabulary/mstatus/n",
+              "@type": "Status",
+              "code": "n",
+              "http://www.w3.org/2000/01/rdf-schema#label": "new"
+            }
+          },
+          {
+            "@id": "_:b36",
+            "@type": "AdminMetadata",
+            "date": {
+              "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+              "@value": "2024-08-01T17:18:38"
+            },
+            "status": {
+              "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+              "@type": "Status",
+              "code": "c",
+              "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+            }
+          },
+          {
+            "@id": "_:b34",
+            "@type": "AdminMetadata",
+            "agent": {
+              "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc",
+              "@type": [
+                "Agent",
+                "Organization"
+              ],
+              "code": [
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/code",
+                  "@value": "DLC-MRC"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                  "@value": "dlcmrc"
+                },
+                {
+                  "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                  "@value": "US-dlcmrc"
+                }
+              ],
+              "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress, Network Development and MARC Standards Office"
+            },
+            "date": {
+              "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+              "@value": "2024-08-02T17:51:02.400885-04:00"
+            },
+            "generationProcess": {
+              "@id": "https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.7.0"
+            },
+            "status": {
+              "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+              "@type": "Status",
+              "code": "c",
+              "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+            }
+          },
+          {
+            "@id": "_:b5",
+            "@type": "AdminMetadata",
+            "bflc:encodingLevel": {
+              "@id": "http://id.loc.gov/vocabulary/menclvl/8",
+              "@type": "bflc:EncodingLevel",
+              "code": "8",
+              "http://www.w3.org/2000/01/rdf-schema#label": "prepublication"
+            },
+            "descriptionAuthentication": {
+              "@id": "http://id.loc.gov/vocabulary/marcauthen/pcc",
+              "@type": "DescriptionAuthentication",
+              "code": "pcc",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Program for Cooperative Cataloging"
+            },
+            "descriptionConventions": [
+              {
+                "@id": "http://id.loc.gov/vocabulary/descriptionConventions/isbd",
+                "@type": "DescriptionConventions",
+                "code": "isbd",
+                "http://www.w3.org/2000/01/rdf-schema#label": "ISBD: International standard bibliographic description"
+              },
+              {
+                "@id": "http://id.loc.gov/vocabulary/descriptionConventions/rda",
+                "@type": "DescriptionConventions",
+                "code": "rda",
+                "http://www.w3.org/2000/01/rdf-schema#label": "Resource description and access"
+              }
+            ],
+            "descriptionLanguage": {
+              "@id": "http://id.loc.gov/vocabulary/languages/eng",
+              "@type": "Language",
+              "code": {
+                "@type": "http://www.w3.org/2001/XMLSchema#string",
+                "@value": "eng"
+              },
+              "http://www.w3.org/2000/01/rdf-schema#label": {
+                "@language": "en",
+                "@value": "English"
+              }
+            },
+            "descriptionLevel": {
+              "@id": "http://id.loc.gov/ontologies/bibframe-2-3-0/"
+            },
+            "identifiedBy": {
+              "@id": "_:b6",
+              "@type": "Local",
+              "assigner": {
+                "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+                "@type": [
+                  "Agent",
+                  "Organization"
+                ],
+                "code": [
+                  {
+                    "@type": "http://id.loc.gov/datatypes/orgs/code",
+                    "@value": "DLC"
+                  },
+                  {
+                    "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+                    "@value": "dlc"
+                  },
+                  {
+                    "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+                    "@value": "US-dlc"
+                  }
+                ],
+                "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+              },
+              "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "23807141"
+            },
+            "http://id.loc.gov/ontologies/lclocal/d906": "=906     $a 7 $b cbc $c orignew $d 1 $e ecip $f 20 $g y-gencatlg",
+            "http://id.loc.gov/ontologies/lclocal/d925": "=925  0  $a acquire $e ecip ebook $x policy default",
+            "http://id.loc.gov/ontologies/lclocal/d955": "=955     $a ecip ebook 2024-08-01",
+            "http://id.loc.gov/ontologies/lclocal/d985": "=985     $a LC online resource $d 2024-08-01"
+          }
+        ],
+        "carrier": {
+          "@id": "http://id.loc.gov/vocabulary/carriers/cr",
+          "@type": "Carrier",
+          "code": "cr",
+          "http://www.w3.org/2000/01/rdf-schema#label": "online resource"
+        },
+        "extent": {
+          "@id": "_:b37",
+          "@type": "Extent",
+          "http://www.w3.org/2000/01/rdf-schema#label": "1 online resource"
+        },
+        "identifiedBy": [
+          {
+            "@id": "_:b32",
+            "@type": "Lccn",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "  2024027743"
+          },
+          {
+            "@id": "_:b23",
+            "@type": "Isbn",
+            "qualifier": "epub",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790482"
+          },
+          {
+            "@id": "_:b19",
+            "@type": "Isbn",
+            "qualifier": "paperback",
+            "status": {
+              "@id": "http://id.loc.gov/vocabulary/mstatus/cancinv",
+              "@type": "Status",
+              "code": "cancinv",
+              "http://www.w3.org/2000/01/rdf-schema#label": "canceled or invalid"
+            },
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790475"
+          }
+        ],
+        "instanceOf": {
+          "@id": "http://id.loc.gov/resources/works/23807141"
+        },
+        "issuance": {
+          "@id": "http://id.loc.gov/vocabulary/issuance/mono",
+          "@type": "Issuance",
+          "code": "mono",
+          "http://www.w3.org/2000/01/rdf-schema#label": "single unit"
+        },
+        "media": {
+          "@id": "http://id.loc.gov/vocabulary/mediaTypes/c",
+          "@type": "Media",
+          "code": "c",
+          "http://www.w3.org/2000/01/rdf-schema#label": "computer"
+        },
+        "note": [
+          {
+            "@id": "_:b38",
+            "@type": "Note",
+            "http://www.w3.org/2000/01/rdf-schema#label": "Includes index"
+          },
+          {
+            "@id": "_:b21",
+            "@type": [
+              "Note",
+              "http://id.loc.gov/vocabulary/mnotetype/descsource"
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": "Description based on print version record and CIP data provided by publisher; resource not viewed"
+          }
+        ],
+        "provisionActivity": {
+          "@id": "_:b15",
+          "@type": [
+            "ProvisionActivity",
+            "Publication"
+          ],
+          "bflc:simpleAgent": "Harvard Business Review Press",
+          "bflc:simpleDate": "[2025]",
+          "bflc:simplePlace": "Boston, Massachusetts",
+          "date": {
+            "@type": "http://id.loc.gov/datatypes/edtf",
+            "@value": "2025"
+          },
+          "place": {
+            "@id": "http://id.loc.gov/vocabulary/countries/mau",
+            "@type": "Place",
+            "code": {
+              "@type": "http://www.w3.org/2001/XMLSchema#string",
+              "@value": "mau"
+            },
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Massachusetts"
+            }
+          }
+        },
+        "publicationStatement": "Boston, Massachusetts: Harvard Business Review Press, [2025]",
+        "responsibilityStatement": "Elisa Farri and Gabriele Rosani",
+        "title": {
+          "@id": "_:b35",
+          "@type": "Title",
+          "mainTitle": "HBR guide to generative AI for managers"
+        },
+        "http://purl.org/dc/terms/isPartOf": {
+          "@id": "http://id.loc.gov/resources/instances"
+        }
+      },
+      "language": {
+        "@id": "http://id.loc.gov/vocabulary/languages/eng",
+        "@type": "Language",
+        "code": {
+          "@type": "http://www.w3.org/2001/XMLSchema#string",
+          "@value": "eng"
+        },
+        "http://www.w3.org/2000/01/rdf-schema#label": {
+          "@language": "en",
+          "@value": "English"
+        }
+      },
+      "relation": [
+        {
+          "@id": "_:b17",
+          "@type": "Relation",
+          "associatedResource": {
+            "@id": "_:b18",
+            "@type": [
+              "Series",
+              "bflc:Uncontrolled"
+            ],
+            "status": {
+              "@id": "http://id.loc.gov/vocabulary/mstatus/t",
+              "@type": "Status",
+              "code": "t",
+              "http://www.w3.org/2000/01/rdf-schema#label": "transcribed"
+            },
+            "title": {
+              "@id": "_:b33",
+              "@type": "Title",
+              "mainTitle": "HBR guides"
+            }
+          },
+          "relationship": {
+            "@id": "http://id.loc.gov/ontologies/bibframe/hasSeries"
+          }
+        },
+        {
+          "@id": "_:b27",
+          "@type": "Relation",
+          "associatedResource": {
+            "@id": "http://id.loc.gov/resources/works/23804671",
+            "@type": "Work",
+            "contribution": [
+              {
+                "@id": "_:b13",
+                "@type": [
+                  "Contribution",
+                  "PrimaryContribution"
+                ],
+                "agent": {
+                  "@id": "http://id.loc.gov/rwo/agents/n2024040883",
+                  "@type": [
+                    "Agent",
+                    "Person"
+                  ],
+                  "bflc:marcKey": "1001 $aFarri, Elisa",
+                  "http://www.w3.org/2000/01/rdf-schema#label": "Farri, Elisa"
+                },
+                "role": {
+                  "@id": "http://id.loc.gov/vocabulary/relators/aut",
+                  "@type": "Role",
+                  "code": "aut",
+                  "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+                }
+              },
+              {
+                "@id": "_:b2",
+                "@type": "Contribution",
+                "agent": {
+                  "@id": "http://id.loc.gov/rwo/agents/n2024040886",
+                  "@type": [
+                    "Agent",
+                    "Person"
+                  ],
+                  "bflc:marcKey": "1001 $aRosani, Gabriele",
+                  "http://www.w3.org/2000/01/rdf-schema#label": "Rosani, Gabriele"
+                },
+                "role": {
+                  "@id": "http://id.loc.gov/vocabulary/relators/aut",
+                  "@type": "Role",
+                  "code": "aut",
+                  "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+                }
+              }
+            ],
+            "hasInstance": {
+              "@id": "http://id.loc.gov/resources/instances/23804671",
+              "@type": "Instance",
+              "carrier": {
+                "@id": "http://id.loc.gov/vocabulary/carriers/nc",
+                "@type": "Carrier",
+                "code": "nc",
+                "http://www.w3.org/2000/01/rdf-schema#label": "volume"
+              },
+              "identifiedBy": [
+                {
+                  "@id": "_:b0",
+                  "@type": "Lccn",
+                  "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "  2024027742"
+                },
+                {
+                  "@id": "_:b1",
+                  "@type": "Isbn",
+                  "qualifier": "paperback",
+                  "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9798892790475"
+                }
+              ],
+              "media": {
+                "@id": "http://id.loc.gov/vocabulary/mediaTypes/n",
+                "@type": "Media",
+                "code": "n",
+                "http://www.w3.org/2000/01/rdf-schema#label": "unmediated"
+              },
+              "publicationStatement": "Boston, Massachusetts: Harvard Business Review Press, [2025]"
+            },
+            "title": {
+              "@id": "_:b14",
+              "@type": "Title",
+              "mainTitle": "HBR guide to generative AI for managers"
+            }
+          },
+          "relationship": [
+            {
+              "@id": "http://id.loc.gov/vocabulary/relationship/otherphysicalformat",
+              "@type": "Relationship",
+              "code": "otherphysicalformat",
+              "http://www.w3.org/2000/01/rdf-schema#label": "other physical format"
+            },
+            {
+              "@id": "http://id.loc.gov/entities/relationships/printversion",
+              "@type": "Relationship",
+              "http://www.w3.org/2000/01/rdf-schema#label": "Print version"
+            }
+          ]
+        }
+      ],
+      "subject": [
+        {
+          "@id": "_:b28",
+          "@type": [
+            "Topic",
+            "mads:ComplexSubject"
+          ],
+          "bflc:aap-normalized": "managementtechnologicalinnovations",
+          "source": {
+            "@id": "http://id.loc.gov/authorities/subjects",
+            "@type": [
+              "mads:MADSScheme",
+              "Source"
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Library of Congress Subject Headings"
+            }
+          },
+          "mads:authoritativeLabel": "Management--Technological innovations",
+          "mads:componentList": {
+            "@list": [
+              {
+                "@id": "http://id.loc.gov/authorities/subjects/sh85080336",
+                "@type": "mads:Topic",
+                "bflc:marcKey": "150 0$aManagement",
+                "http://www.w3.org/2000/01/rdf-schema#label": {
+                  "@language": "en",
+                  "@value": "Management"
+                }
+              },
+              {
+                "@id": "http://id.loc.gov/authorities/subjects/sh2001009095",
+                "@type": "mads:Topic",
+                "bflc:marcKey": "180  $xTechnological innovations",
+                "http://www.w3.org/2000/01/rdf-schema#label": {
+                  "@language": "en",
+                  "@value": "Technological innovations"
+                }
+              }
+            ]
+          },
+          "mads:isMemberOfMADSScheme": {
+            "@id": "http://id.loc.gov/authorities/subjects",
+            "@type": [
+              "mads:MADSScheme",
+              "Source"
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Library of Congress Subject Headings"
+            }
+          },
+          "http://www.w3.org/2000/01/rdf-schema#label": "Management--Technological innovations"
+        },
+        {
+          "@id": "_:b12",
+          "@type": [
+            "Topic",
+            "mads:ComplexSubject"
+          ],
+          "bflc:aap-normalized": "businessenterprisesinformationtechnologymanagement",
+          "source": {
+            "@id": "http://id.loc.gov/authorities/subjects",
+            "@type": [
+              "mads:MADSScheme",
+              "Source"
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Library of Congress Subject Headings"
+            }
+          },
+          "mads:authoritativeLabel": "Business enterprises--Information technology--Management",
+          "mads:componentList": {
+            "@list": [
+              {
+                "@id": "http://id.loc.gov/authorities/subjects/sh85018285",
+                "@type": "mads:Topic",
+                "bflc:marcKey": "150 0$aBusiness enterprises",
+                "http://www.w3.org/2000/01/rdf-schema#label": {
+                  "@language": "en",
+                  "@value": "Business enterprises"
+                }
+              },
+              {
+                "@id": "http://id.loc.gov/authorities/subjects/sh2002012003",
+                "@type": "mads:Topic",
+                "bflc:marcKey": "180  $xInformation technology",
+                "http://www.w3.org/2000/01/rdf-schema#label": {
+                  "@language": "en",
+                  "@value": "Information technology"
+                }
+              },
+              {
+                "@id": "http://id.loc.gov/authorities/subjects/sh2002007911",
+                "@type": "mads:Topic",
+                "bflc:marcKey": "180  $xManagement",
+                "http://www.w3.org/2000/01/rdf-schema#label": {
+                  "@language": "en",
+                  "@value": "Management"
+                }
+              }
+            ]
+          },
+          "mads:isMemberOfMADSScheme": {
+            "@id": "http://id.loc.gov/authorities/subjects",
+            "@type": [
+              "mads:MADSScheme",
+              "Source"
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": {
+              "@language": "en",
+              "@value": "Library of Congress Subject Headings"
+            }
+          },
+          "http://www.w3.org/2000/01/rdf-schema#label": "Business enterprises--Information technology--Management"
+        },
+        {
+          "@id": "http://id.loc.gov/authorities/subjects/sh85065889",
+          "@type": "Topic",
+          "bflc:marcKey": "150  $aIndustrial management",
+          "http://www.w3.org/2000/01/rdf-schema#label": {
+            "@language": "en",
+            "@value": "Industrial management"
+          }
+        }
+      ],
+      "summary": {
+        "@id": "_:b29",
+        "@type": "Summary",
+        "http://www.w3.org/2000/01/rdf-schema#label": "\"You're probably aware that generative AI can output quality text in any style and create stunning images in seconds. But smart managers are using gen AI for much more-business case development, data analysis, strategic exploration, and dozens of other applications. Soon, managers who develop their generative AI capabilities will be leaping ahead of managers who don't. Fortunately, you can start now and see results fast. The HBR Guide to Generative AI for Managers is packed with practical tips, prompts, case studies, and ideas to apply gen AI to dozens of managerial tasks right away and achieve incredible results. It's time for you to develop your gen AI-enabled mindset. This book will show you how. You'll learn how to: Understand key terms and concepts; identify the risks and rewards of generative AI; enhance your productivity; employ gen AI as both a copilot and a co-thinker; use the generative AI platform that best suits your needs; and leverage gen AI for business decisions and leading change. Arm yourself with the advice you need to succeed on the job with the most trusted brand in business. Packed with how-to essentials from leading experts, the HBR Guides provide smart answers to your most pressing work challenges\"-- Provided by publisher"
+      },
+      "supplementaryContent": {
+        "@id": "http://id.loc.gov/vocabulary/msupplcont/index",
+        "@type": "SupplementaryContent",
+        "code": "index",
+        "http://www.w3.org/2000/01/rdf-schema#label": "index"
+      },
+      "title": [
+        {
+          "@id": "_:b20",
+          "@type": "Title",
+          "mainTitle": "HBR guide to generative AI for managers"
+        },
+        {
+          "@id": "_:b30",
+          "@type": "VariantTitle",
+          "mainTitle": "Harvard business review guide to generative AI for managers"
+        },
+        {
+          "@id": "_:b31",
+          "@type": "VariantTitle",
+          "mainTitle": "Generative AI for managers",
+          "variantType": "portion"
+        },
+        {
+          "@id": "_:b22",
+          "@type": "VariantTitle",
+          "mainTitle": "Artificial intelligence for managers"
+        }
+      ],
+      "http://purl.org/dc/terms/isPartOf": {
+        "@id": "http://id.loc.gov/resources/works"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/rwo/agents/n2024040883",
+      "@type": [
+        "Agent",
+        "Person"
+      ],
+      "bflc:marcKey": "1001 $aFarri, Elisa",
+      "http://www.w3.org/2000/01/rdf-schema#label": "Farri, Elisa"
+    },
+    {
+      "@id": "http://id.loc.gov/rwo/agents/n2024040886",
+      "@type": [
+        "Agent",
+        "Person"
+      ],
+      "bflc:marcKey": "1001 $aRosani, Gabriele",
+      "http://www.w3.org/2000/01/rdf-schema#label": "Rosani, Gabriele"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/carriers/cr",
+      "@type": "Carrier",
+      "code": "cr",
+      "http://www.w3.org/2000/01/rdf-schema#label": "online resource"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/carriers/nc",
+      "@type": "Carrier",
+      "code": "nc",
+      "http://www.w3.org/2000/01/rdf-schema#label": "volume"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/contentTypes/txt",
+      "@type": "Content",
+      "code": "txt",
+      "http://www.w3.org/2000/01/rdf-schema#label": "text"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/countries/mau",
+      "@type": "Place",
+      "code": {
+        "@type": "http://www.w3.org/2001/XMLSchema#string",
+        "@value": "mau"
+      },
+      "http://www.w3.org/2000/01/rdf-schema#label": {
+        "@language": "en",
+        "@value": "Massachusetts"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/descriptionConventions/isbd",
+      "@type": "DescriptionConventions",
+      "code": "isbd",
+      "http://www.w3.org/2000/01/rdf-schema#label": "ISBD: International standard bibliographic description"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/descriptionConventions/rda",
+      "@type": "DescriptionConventions",
+      "code": "rda",
+      "http://www.w3.org/2000/01/rdf-schema#label": "Resource description and access"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/issuance/mono",
+      "@type": "Issuance",
+      "code": "mono",
+      "http://www.w3.org/2000/01/rdf-schema#label": "single unit"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/languages/eng",
+      "@type": "Language",
+      "code": {
+        "@type": "http://www.w3.org/2001/XMLSchema#string",
+        "@value": "eng"
+      },
+      "http://www.w3.org/2000/01/rdf-schema#label": {
+        "@language": "en",
+        "@value": "English"
+      }
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/marcauthen/pcc",
+      "@type": "DescriptionAuthentication",
+      "code": "pcc",
+      "http://www.w3.org/2000/01/rdf-schema#label": "Program for Cooperative Cataloging"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/mediaTypes/c",
+      "@type": "Media",
+      "code": "c",
+      "http://www.w3.org/2000/01/rdf-schema#label": "computer"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/mediaTypes/n",
+      "@type": "Media",
+      "code": "n",
+      "http://www.w3.org/2000/01/rdf-schema#label": "unmediated"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/menclvl/8",
+      "@type": "bflc:EncodingLevel",
+      "code": "8",
+      "http://www.w3.org/2000/01/rdf-schema#label": "prepublication"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+      "@type": "Status",
+      "code": "c",
+      "http://www.w3.org/2000/01/rdf-schema#label": "changed"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/mstatus/cancinv",
+      "@type": "Status",
+      "code": "cancinv",
+      "http://www.w3.org/2000/01/rdf-schema#label": "canceled or invalid"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/mstatus/n",
+      "@type": "Status",
+      "code": "n",
+      "http://www.w3.org/2000/01/rdf-schema#label": "new"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/mstatus/t",
+      "@type": "Status",
+      "code": "t",
+      "http://www.w3.org/2000/01/rdf-schema#label": "transcribed"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/mstatus/uba",
+      "@type": "Status",
+      "code": "uba",
+      "http://www.w3.org/2000/01/rdf-schema#label": "used by assigner"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/msupplcont/index",
+      "@type": "SupplementaryContent",
+      "code": "index",
+      "http://www.w3.org/2000/01/rdf-schema#label": "index"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+      "@type": [
+        "Agent",
+        "Organization"
+      ],
+      "code": [
+        {
+          "@type": "http://id.loc.gov/datatypes/orgs/code",
+          "@value": "DLC"
+        },
+        {
+          "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+          "@value": "dlc"
+        },
+        {
+          "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+          "@value": "US-dlc"
+        }
+      ],
+      "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc",
+      "@type": [
+        "Agent",
+        "Organization"
+      ],
+      "code": [
+        {
+          "@type": "http://id.loc.gov/datatypes/orgs/code",
+          "@value": "DLC-MRC"
+        },
+        {
+          "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+          "@value": "dlcmrc"
+        },
+        {
+          "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+          "@value": "US-dlcmrc"
+        }
+      ],
+      "http://www.w3.org/2000/01/rdf-schema#label": "United States, Library of Congress, Network Development and MARC Standards Office"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/relationship/otherphysicalformat",
+      "@type": "Relationship",
+      "code": "otherphysicalformat",
+      "http://www.w3.org/2000/01/rdf-schema#label": "other physical format"
+    },
+    {
+      "@id": "http://id.loc.gov/vocabulary/relators/aut",
+      "@type": "Role",
+      "code": "aut",
+      "http://www.w3.org/2000/01/rdf-schema#label": "Author"
+    },
+    {
+      "@id": "https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.7.0"
+    }
+  ]
+}
