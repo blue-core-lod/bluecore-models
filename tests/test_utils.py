@@ -130,29 +130,33 @@ def test_partition_graph():
 
     works, instances, others = partition_graph(g)
 
-    # check the works
+    # check the works, should be a URIRef -> Graph dictionary
     assert len(works) == 2, "found two Works"
-    assert works[0].value(predicate=RDF.type, object=BF.Work) == URIRef(
-        "http://id.loc.gov/resources/works/23804671"
-    ), "found Work 1 URI"
-    assert len(works[0]) == 14, "found expected number of assertions for Work 1"
-    assert works[1].value(predicate=RDF.type, object=BF.Work) == URIRef(
-        "http://id.loc.gov/resources/works/23807141"
-    ), "found Work 2 URI"
-    assert len(works[1]) == 118, "found expected number of assertions for Work 2"
+    assert URIRef("http://id.loc.gov/resources/works/23804671") in works, "found Work 1"
+    assert len(works[URIRef("http://id.loc.gov/resources/works/23804671")]) == 14, (
+        "found expected number of assertions for Work 1"
+    )
+    assert URIRef("http://id.loc.gov/resources/works/23807141") in works, "found Work 2"
+    assert len(works[URIRef("http://id.loc.gov/resources/works/23807141")]) == 118, (
+        "found expected number of assertions for Work 2"
+    )
 
-    # check the instances
+    # check the instances, should be a URIRef -> Graph dictionary
     assert len(instances) == 2, "found two Instances"
-    assert instances[0].value(predicate=RDF.type, object=BF.Instance) == URIRef(
-        "http://id.loc.gov/resources/instances/23804671"
-    ), "found Instance 1 URI"
-    assert len(instances[0]) == 11, "found expected number of assertions for Instance 1"
-    assert instances[1].value(predicate=RDF.type, object=BF.Instance) == URIRef(
-        "http://id.loc.gov/resources/instances/23807141"
-    ), "found Instance 2 URI"
-    assert len(instances[1]) == 68, "found expected number of assertions for Instance 2"
+    assert URIRef("http://id.loc.gov/resources/instances/23804671") in instances, (
+        "found Instance 1 URI"
+    )
+    assert (
+        len(instances[URIRef("http://id.loc.gov/resources/instances/23804671")]) == 11
+    ), "found expected number of assertions for Instance 1"
+    assert URIRef("http://id.loc.gov/resources/instances/23807141") in instances, (
+        "found Instance 2 URI"
+    )
+    assert (
+        len(instances[URIRef("http://id.loc.gov/resources/instances/23807141")]) == 68
+    ), "found expected number of assertions for Instance 2"
 
-    # check the Other Resources
+    # check the Other Resources, should be a URIRef -> Graph dictionary
     assert len(others) == 32, "found expected number of Other Resources"
     for uri, other_graph in others.items():
         assert len(other_graph) > 0

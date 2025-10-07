@@ -115,12 +115,22 @@ def set_jsonld(target, value, oldvalue, initiator) -> Optional[dict]:
 
 def save_graph(g: rdflib.Graph, bluecore_namespace="http://bcld.info") -> rdflib.Graph:
     """
-    Persists an rdflib Graph to the database. This will select and Bibframe
+    Persists an rdflib Graph to the database. This will select any Bibframe
     Work or Instance types in the graph, as well as Other Resources and add them
-    to the database. If the Works, Instances or Other Resources are already present in the
+    to the database. If any of the Works, Instances or Other Resources are already present in the
     database they will be updated. If they are not present they will have URIs
-    minted for them usingt he default Bluecore namespace that is provided.
+    minted for them using the Bluecore namespace that is provided (or the
+    default).
     """
-    works, instances, other = partition_graph(g)
+    works, instances, others = partition_graph(g)
+
+    for uri, graph in works:
+        pass
+
+    for uri, graph in instances:
+        pass
+
+    for uri, graph in others:
+        pass
 
     return g

@@ -245,40 +245,45 @@ def handle_external_subject(**kwargs) -> dict:
     }
 
 
+# A type for representing a mapping of URIs to their corresponding graphs
+GraphMap = dict[rdflib.URIRef, rdflib.Graph]
+
+
 def partition_graph(
     g: rdflib.Graph,
-) -> tuple[list[rdflib.Graph], list[rdflib.Graph], dict[rdflib.URIRef, rdflib.Graph]]:
+) -> tuple[GraphMap, GraphMap, GraphMap]:
     """
     Takes an RDF graph (most likely a Concise Bounded Description, aka CBD) and
-    returns a lists of Bibframe Works and Instances that are found in the graph.
-    The Other Resources are returned as a dictionary where the key is the URI
-    for the Other Resource, and the value is its corresponding graph.
+    returns three GraphMap for Works, Instances and Other Resources that
+    are found in the graph.
     """
     works = _extract_subgraphs(g, BF.Work)
     instances = _extract_subgraphs(g, BF.Instance)
     others = {}
 
-    for work in works:
+    for work in works.values():
         for uri, subgraph in _extract_others(g, work):
             others[uri] = subgraph
 
-    for instance in instances:
+    for instance in instances.values():
         for uri, subgraph in _extract_others(g, instance):
             others[uri] = subgraph
 
     return works, instances, others
 
 
-def _extract_subgraphs(
-    g: rdflib.Graph, bibframe_class: rdflib.URIRef
-) -> list[rdflib.Graph]:
-    """ """
-    subgraphs = []
+def _extract_subgraphs(g: rdflib.Graph, bibframe_class: rdflib.URIRef) -> GraphMap:
+    """
+    Given a graph, look for resources of a given type and return a dictionary
+    that maps each subject URI to its corresponding subgraph.
+    """
+    subgraphs = {}
     for s in g.subjects(RDF.type, bibframe_class):
-        if isinstance(s, rdflib.BNode):
-            logger.debug(f"skipping BNode for {bibframe_class}")
+        # ignore blank nodes
+        if not isinstance(s, rdflib.URIRef):
+            logger.debug(f"skipping {bibframe_class} since it isn't a URIRef")
         else:
-            subgraphs.append(generate_entity_graph(g, s))
+            subgraphs[s] = generate_entity_graph(g, s)
 
     return subgraphs
 
