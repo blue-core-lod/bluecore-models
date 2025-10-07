@@ -2,16 +2,13 @@
 
 import json
 import logging
-
-import rdflib
-from rdflib.query import ResultRow
-
-from pyld import jsonld
-from typing import Dict
-
+from typing import Dict, Generator
 from uuid import uuid4
 
+import rdflib
+from pyld import jsonld
 from rdflib.plugins.sparql import prepareUpdate
+from rdflib.query import ResultRow
 
 UPDATE_SPARQL = prepareUpdate("""
 DELETE {
@@ -33,6 +30,7 @@ WHERE {
 """)
 
 
+RDF = rdflib.RDF
 BF = rdflib.Namespace("http://id.loc.gov/ontologies/bibframe/")
 BFLC = rdflib.Namespace("http://id.loc.gov/ontologies/bflc/")
 LCLOCAL = rdflib.Namespace("http://id.loc.gov/ontologies/lclocal/")
@@ -245,3 +243,68 @@ def handle_external_subject(**kwargs) -> dict:
         "data": json.loads(modified_graph.serialize(format="json-ld")),
         "uuid": uuid,
     }
+
+
+def partition_graph(
+    g: rdflib.Graph,
+) -> tuple[list[rdflib.Graph], list[rdflib.Graph], dict[rdflib.URIRef, rdflib.Graph]]:
+    """
+    Takes an RDF graph (most likely a Concise Bounded Description, aka CBD) and
+    returns a lists of Bibframe Works and Instances that are found in the graph.
+    The Other Resources are returned as a dictionary where the key is the URI
+    for the Other Resource, and the value is its corresponding graph.
+    """
+    works = _extract_subgraphs(g, BF.Work)
+    instances = _extract_subgraphs(g, BF.Instance)
+    others = {}
+
+    for work in works:
+        for uri, subgraph in _extract_others(g, work):
+            others[uri] = subgraph
+
+    for instance in instances:
+        for uri, subgraph in _extract_others(g, instance):
+            others[uri] = subgraph
+
+    return works, instances, others
+
+
+def _extract_subgraphs(
+    g: rdflib.Graph, bibframe_class: rdflib.URIRef
+) -> list[rdflib.Graph]:
+    """ """
+    subgraphs = []
+    for s in g.subjects(RDF.type, bibframe_class):
+        if isinstance(s, rdflib.BNode):
+            logger.debug(f"skipping BNode for {bibframe_class}")
+        else:
+            subgraphs.append(generate_entity_graph(g, s))
+
+    return subgraphs
+
+
+def _extract_others(
+    g1: rdflib.Graph, g2: rdflib.Graph
+) -> Generator[tuple[rdflib.URIRef, rdflib.Graph], None, None]:
+    """
+    Takes two graphs G1 and G2, and returns a list of tuples
+    (URI, Graph) where each represents a resource R that is found in G1, is
+    referenced by G2, and where R is not a Bibframe or MADS type.
+    """
+
+    # iterate through each object in the graph
+    for o in g2.objects():
+        # ignore the object if it:
+        # - is not a URIs (exclude BNodes, Literals)
+        # - is a resource from the Bibframe or MADS vocabularies
+        # - is a Bibframe Works and Instances that are is in g1
+        if (
+            not isinstance(o, rdflib.URIRef)
+            or _exclude_uri_from_other_resources(o)
+            or _is_work_or_instance(o, g1)
+        ):
+            continue
+
+        # otherwise return the object URI, and its graph
+        if o in g1.subjects():
+            yield o, generate_entity_graph(g1, o)

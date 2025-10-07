@@ -8,7 +8,7 @@ from sqlalchemy.orm import object_session
 
 from bluecore_models.models.bf_classes import BibframeClass, ResourceBibframeClass
 from bluecore_models.models.version import Version, CURRENT_USER_ID
-from bluecore_models.utils.graph import get_bf_classes, frame_jsonld
+from bluecore_models.utils.graph import get_bf_classes, frame_jsonld, partition_graph
 
 
 def _new_bf_classs(connection, bf_class: rdflib.URIRef) -> int:
@@ -111,3 +111,16 @@ def set_jsonld(target, value, oldvalue, initiator) -> Optional[dict]:
         return frame_jsonld(target.uri, value)
     else:
         return None
+
+
+def save_graph(g: rdflib.Graph, bluecore_namespace="http://bcld.info") -> rdflib.Graph:
+    """
+    Persists an rdflib Graph to the database. This will select and Bibframe
+    Work or Instance types in the graph, as well as Other Resources and add them
+    to the database. If the Works, Instances or Other Resources are already present in the
+    database they will be updated. If they are not present they will have URIs
+    minted for them usingt he default Bluecore namespace that is provided.
+    """
+    works, instances, other = partition_graph(g)
+
+    return g

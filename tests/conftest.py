@@ -91,3 +91,14 @@ def user_context():
             CURRENT_USER_ID.reset(token)
 
     return _context
+
+
+@pytest.fixture
+def jsonld_object():
+    return {
+        "@context": {
+            "@vocab": "http://id.loc.gov/ontologies/bibframe/",
+            "bflc": "http://id.loc.gov/ontologies/bflc/",
+            "mads": "http://www.loc.gov/mads/rdf/v1#",
+        }
+    }

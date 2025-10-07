@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import rdflib
+from rdflib import RDF, URIRef
 
 from bluecore_models.utils.graph import (
     BF,
@@ -13,33 +14,34 @@ from bluecore_models.utils.graph import (
     init_graph,
     load_jsonld,
     _is_work_or_instance,
+    partition_graph,
 )
 
 
 def test_init_graph():
     graph = init_graph()
-    assert graph.namespace_manager.store.namespace("bf") == rdflib.URIRef(BF)
-    assert graph.namespace_manager.store.namespace("bflc") == rdflib.URIRef(BFLC)
-    assert graph.namespace_manager.store.namespace("mads") == rdflib.URIRef(MADS)
+    assert graph.namespace_manager.store.namespace("bf") == URIRef(BF)
+    assert graph.namespace_manager.store.namespace("bflc") == URIRef(BFLC)
+    assert graph.namespace_manager.store.namespace("mads") == URIRef(MADS)
     assert len(graph) == 0
 
 
 def test_load_jsonld():
     graph = load_jsonld(json.load(Path("tests/23807141.jsonld").open()))
-    assert graph.namespace_manager.store.namespace("bf") == rdflib.URIRef(BF)
-    assert graph.namespace_manager.store.namespace("bflc") == rdflib.URIRef(BFLC)
-    assert graph.namespace_manager.store.namespace("mads") == rdflib.URIRef(MADS)
+    assert graph.namespace_manager.store.namespace("bf") == URIRef(BF)
+    assert graph.namespace_manager.store.namespace("bflc") == URIRef(BFLC)
+    assert graph.namespace_manager.store.namespace("mads") == URIRef(MADS)
     assert len(graph) == 324
 
 
 def test_generate_entity_graph():
     loc_graph = load_jsonld(json.load(Path("tests/23807141.jsonld").open()))
 
-    work_uri = rdflib.URIRef("http://id.loc.gov/resources/works/23807141")
+    work_uri = URIRef("http://id.loc.gov/resources/works/23807141")
     dcterm_part_of = loc_graph.value(
         subject=work_uri, predicate=rdflib.DCTERMS.isPartOf
     )
-    assert dcterm_part_of == rdflib.URIRef("http://id.loc.gov/resources/works")
+    assert dcterm_part_of == URIRef("http://id.loc.gov/resources/works")
     work_graph = generate_entity_graph(loc_graph, work_uri)
     assert len(work_graph) == 118
 
@@ -56,7 +58,7 @@ def test_generate_entity_graph():
 
 def test_generate_other_resources():
     loc_graph = load_jsonld(json.load(Path("tests/23807141.jsonld").open()))
-    work_uri = rdflib.URIRef("http://id.loc.gov/resources/works/23807141")
+    work_uri = URIRef("http://id.loc.gov/resources/works/23807141")
     work_graph = generate_entity_graph(loc_graph, work_uri)
     other_work_resources = generate_other_resources(loc_graph, work_graph)
     assert len(other_work_resources) == 25
@@ -68,7 +70,7 @@ def test_generate_other_resources():
         "http://id.loc.gov/vocabulary/relators/aut"
     )
 
-    instance_uri = rdflib.URIRef("http://id.loc.gov/resources/instances/23807141")
+    instance_uri = URIRef("http://id.loc.gov/resources/instances/23807141")
     instance_graph = generate_entity_graph(loc_graph, instance_uri)
     other_instance_resources = generate_other_resources(loc_graph, instance_graph)
     assert len(other_instance_resources) == 14
@@ -89,9 +91,7 @@ def test_handle_external_bnode_subject(mocker):
         return_value="ac35fae6-3727-11f0-a057-5a0f9a6cb774",
     )
 
-    work_uri = rdflib.URIRef(
-        "https://bcld.info/works/ac35fae6-3727-11f0-a057-5a0f9a6cb774"
-    )
+    work_uri = URIRef("https://bcld.info/works/ac35fae6-3727-11f0-a057-5a0f9a6cb774")
     graph = init_graph()
     subject = rdflib.BNode()
     graph.add((subject, rdflib.RDF.type, BF.Work))
@@ -117,8 +117,48 @@ def test_handle_external_bnode_subject(mocker):
 
 def test_is_work_or_instance():
     loc_graph = init_graph()
-    work_uri = rdflib.URIRef("http://id.loc.gov/resources/works/23807141")
+    work_uri = URIRef("http://id.loc.gov/resources/works/23807141")
     # Adds a fake class to work
     loc_graph.add((work_uri, rdflib.RDF.type, MADS.Resource))
     loc_graph.add((work_uri, rdflib.RDF.type, BF.Work))
     assert _is_work_or_instance(work_uri, loc_graph)
+
+
+def test_partition_graph():
+    g = rdflib.Graph()
+    g.parse("tests/23807141.ttl")
+
+    works, instances, others = partition_graph(g)
+
+    # check the works
+    assert len(works) == 2, "found two Works"
+    assert works[0].value(predicate=RDF.type, object=BF.Work) == URIRef(
+        "http://id.loc.gov/resources/works/23804671"
+    ), "found Work 1 URI"
+    assert len(works[0]) == 14, "found expected number of assertions for Work 1"
+    assert works[1].value(predicate=RDF.type, object=BF.Work) == URIRef(
+        "http://id.loc.gov/resources/works/23807141"
+    ), "found Work 2 URI"
+    assert len(works[1]) == 118, "found expected number of assertions for Work 2"
+
+    # check the instances
+    assert len(instances) == 2, "found two Instances"
+    assert instances[0].value(predicate=RDF.type, object=BF.Instance) == URIRef(
+        "http://id.loc.gov/resources/instances/23804671"
+    ), "found Instance 1 URI"
+    assert len(instances[0]) == 11, "found expected number of assertions for Instance 1"
+    assert instances[1].value(predicate=RDF.type, object=BF.Instance) == URIRef(
+        "http://id.loc.gov/resources/instances/23807141"
+    ), "found Instance 2 URI"
+    assert len(instances[1]) == 68, "found expected number of assertions for Instance 2"
+
+    # check the Other Resources
+    assert len(others) == 32, "found expected number of Other Resources"
+    for uri, other_graph in others.items():
+        assert len(other_graph) > 0
+        assert uri not in BF, "Other resource URI not in Bibframe vocabulary"
+        assert uri not in MADS, "Other resource URI not in MADS vocabulary"
+        for type_ in other_graph.objects(uri, RDF.type):
+            assert type_ not in [BF.Work, BF.Instance], (
+                "OtherResource is not a Work or Instance"
+            )
