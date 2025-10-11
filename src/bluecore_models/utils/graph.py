@@ -116,7 +116,7 @@ def _mint_uri(env_root: str, type_of: str) -> tuple:
 def _update_graph(**kwargs) -> rdflib.Graph:
     """
     Updates graph using a Blue Core URI subject. If incoming subject is
-    an URI, create a new RDF triple.
+    an URI, create a new derivedFrom assertion. 
     """
     graph: rdflib.Graph = kwargs["graph"]
     bluecore_uri: str = kwargs["bluecore_uri"]
@@ -245,7 +245,7 @@ def handle_external_subject(**kwargs) -> dict:
     }
 
 
-# A type for representing a mapping of URIs to their corresponding graphs
+# A dictionary type for representing a mapping of URIs to their corresponding graphs
 GraphMap = dict[rdflib.URIRef, rdflib.Graph]
 
 

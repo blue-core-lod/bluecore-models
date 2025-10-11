@@ -18,7 +18,6 @@ from bluecore_models.models import (
 )
 
 from bluecore_models.utils.graph import BF, load_jsonld
-from bluecore_models.utils.db import save_graph
 
 
 def test_bibframe_class(pg_session):
@@ -407,35 +406,3 @@ def test_data_vector_update(pg_session):
         # ensure that now we can find the random string
         results = (session.query(Work).where(Work.data_vector.match(random_str))).all()
         assert len(results) == 1
-
-
-def test_jsonld_object(jsonld_object):
-    """
-    Test the jsonld_object fixture, which is a shell JSON-LD object with the
-    default context, that can be used in testing.
-    """
-    assert jsonld_object == {
-        "@context": {
-            "@vocab": "http://id.loc.gov/ontologies/bibframe/",
-            "bflc": "http://id.loc.gov/ontologies/bflc/",
-            "mads": "http://www.loc.gov/mads/rdf/v1#",
-        }
-    }
-
-
-def test_save_work(jsonld_object, pg_session):
-    """
-    Test that a Work graph can be persisted to the database.
-    """
-    jsonld_object["@id"] = "https://bcld.info/works/123"
-    jsonld_object["title"] = {"mainTitle": "Gravity's Rainbow"}
-
-    save_graph(load_jsonld(jsonld_object))
-
-    """
-    with pg_session() as session:
-        work = (
-            session.query(Work).where(Work.uri == "https://bcld.info/works/123").first()
-        )
-        assert work is not None
-    """

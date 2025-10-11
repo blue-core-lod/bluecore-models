@@ -4,6 +4,8 @@ from pathlib import Path
 import rdflib
 from rdflib import RDF, URIRef
 
+from bluecore_models.models import Work
+from bluecore_models.utils.db import save_graph
 from bluecore_models.utils.graph import (
     BF,
     BFLC,
@@ -166,3 +168,34 @@ def test_partition_graph():
             assert type_ not in [BF.Work, BF.Instance], (
                 "OtherResource is not a Work or Instance"
             )
+
+
+def test_jsonld_object(jsonld_object):
+    """
+    Test the jsonld_object fixture, which is a shell JSON-LD object with the
+    default context, that can be used in testing.
+    """
+    assert jsonld_object == {
+        "@context": {
+            "@vocab": "http://id.loc.gov/ontologies/bibframe/",
+            "bflc": "http://id.loc.gov/ontologies/bflc/",
+            "mads": "http://www.loc.gov/mads/rdf/v1#",
+        }
+    }
+
+
+def test_save_work(jsonld_object, pg_session):
+    """
+    Test that a Work graph can be persisted to the database.
+    """
+    jsonld_object["@id"] = "https://bcld.info/works/123"
+    jsonld_object["@type"] = BF.Work
+    jsonld_object["title"] = {"mainTitle": "Gravity's Rainbow"}
+
+    save_graph(pg_session, load_jsonld(jsonld_object))
+
+    with pg_session() as session:
+        work = (
+            session.query(Work).where(Work.uri == "https://bcld.info/works/123").first()
+        )
+        assert work is not None
