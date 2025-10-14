@@ -7,7 +7,7 @@ from rdflib.plugins import sparql
 from sqlalchemy.orm.session import sessionmaker
 
 from bluecore_models.namespaces import BF, MADS, RDF
-from bluecore_models.models import Work, Instance, OtherResource
+from bluecore_models.models import Work, Instance
 from bluecore_models.utils.graph import generate_entity_graph
 
 
@@ -49,6 +49,7 @@ class BluecoreGraph:
         self._mint_uris(BF.Instance, session_maker)
         self._save(BF.Work, session_maker)
         self._save(BF.Instance, session_maker)
+        # XXX: need to persist other resources too!
 
     def _save(self, class_, session_maker):
         match class_:
