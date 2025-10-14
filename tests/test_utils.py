@@ -5,7 +5,6 @@ import rdflib
 from rdflib import RDF, URIRef
 
 from bluecore_models.models import Work
-from bluecore_models.utils.db import save_graph
 from bluecore_models.utils.graph import (
     BF,
     BFLC,
@@ -16,7 +15,8 @@ from bluecore_models.utils.graph import (
     init_graph,
     load_jsonld,
     _is_work_or_instance,
-    partition_graph,
+    BluecoreGraph,
+    save_graph
 )
 
 
@@ -126,48 +126,26 @@ def test_is_work_or_instance():
     assert _is_work_or_instance(work_uri, loc_graph)
 
 
-def test_partition_graph():
+def test_bluecore_graph():
     g = rdflib.Graph()
     g.parse("tests/23807141.ttl")
+    bg = BluecoreGraph(g)
 
-    works, instances, others = partition_graph(g)
+    assert len(bg.works) == 2, "found two Works"
+    assert len(bg.works[0])== 14, "found expected number of assertions for Work 1"
+    assert len(bg.works[1]) == 118, "found expected number of assertions for Work 2"
 
-    # check the works, should be a URIRef -> Graph dictionary
-    assert len(works) == 2, "found two Works"
-    assert URIRef("http://id.loc.gov/resources/works/23804671") in works, "found Work 1"
-    assert len(works[URIRef("http://id.loc.gov/resources/works/23804671")]) == 14, (
-        "found expected number of assertions for Work 1"
-    )
-    assert URIRef("http://id.loc.gov/resources/works/23807141") in works, "found Work 2"
-    assert len(works[URIRef("http://id.loc.gov/resources/works/23807141")]) == 118, (
-        "found expected number of assertions for Work 2"
-    )
+    assert len(bg.instances) == 2, "found two Instances"
+    assert len(bg.instances[0]) == 11, "found expected number of assertions for Instance 1"
+    assert len(bg.instances[1]) == 68, "found expected number of assertions for Instance 2"
 
-    # check the instances, should be a URIRef -> Graph dictionary
-    assert len(instances) == 2, "found two Instances"
-    assert URIRef("http://id.loc.gov/resources/instances/23804671") in instances, (
-        "found Instance 1 URI"
-    )
-    assert (
-        len(instances[URIRef("http://id.loc.gov/resources/instances/23804671")]) == 11
-    ), "found expected number of assertions for Instance 1"
-    assert URIRef("http://id.loc.gov/resources/instances/23807141") in instances, (
-        "found Instance 2 URI"
-    )
-    assert (
-        len(instances[URIRef("http://id.loc.gov/resources/instances/23807141")]) == 68
-    ), "found expected number of assertions for Instance 2"
-
-    # check the Other Resources, should be a URIRef -> Graph dictionary
-    assert len(others) == 32, "found expected number of Other Resources"
-    for uri, other_graph in others.items():
+    assert len(bg.others) == 32, "found expected number of Other Resources"
+    for other_graph in bg.others:
         assert len(other_graph) > 0
-        assert uri not in BF, "Other resource URI not in Bibframe vocabulary"
-        assert uri not in MADS, "Other resource URI not in MADS vocabulary"
-        for type_ in other_graph.objects(uri, RDF.type):
-            assert type_ not in [BF.Work, BF.Instance], (
-                "OtherResource is not a Work or Instance"
-            )
+        for s, o in other_graph.subject_objects(RDF.type):
+            assert s not in BF, "Other resource URI not in Bibframe vocabulary"
+            assert s not in MADS, "Other resource URI not in MADS vocabulary"
+            assert o not in [BF.Work, BF.Instance], "OtherResource is not a Work or Instance"
 
 
 def test_jsonld_object(jsonld_object):
@@ -184,7 +162,7 @@ def test_jsonld_object(jsonld_object):
     }
 
 
-def test_save_work(jsonld_object, pg_session):
+def test_save_graph_work(jsonld_object, pg_session):
     """
     Test that a Work graph can be persisted to the database.
     """
@@ -195,7 +173,5 @@ def test_save_work(jsonld_object, pg_session):
     save_graph(pg_session, load_jsonld(jsonld_object))
 
     with pg_session() as session:
-        work = (
-            session.query(Work).where(Work.uri == "https://bcld.info/works/123").first()
-        )
+        work = session.query(Work).where(Work.uri == "https://bcld.info/works/123").first()
         assert work is not None

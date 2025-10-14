@@ -2,13 +2,16 @@
 
 import json
 import logging
-from typing import Dict, Generator
+from typing import Dict, Optional
 from uuid import uuid4
 
-import rdflib
 from pyld import jsonld
+from rdflib import Graph, URIRef, Namespace, RDF, Node, DCTERMS, BNode
 from rdflib.plugins.sparql import prepareUpdate
 from rdflib.query import ResultRow
+from sqlalchemy.orm.session import sessionmaker
+
+from bluecore_models.models import Work, Instance, OtherResource
 
 UPDATE_SPARQL = prepareUpdate("""
 DELETE {
@@ -30,18 +33,17 @@ WHERE {
 """)
 
 
-RDF = rdflib.RDF
-BF = rdflib.Namespace("http://id.loc.gov/ontologies/bibframe/")
-BFLC = rdflib.Namespace("http://id.loc.gov/ontologies/bflc/")
-LCLOCAL = rdflib.Namespace("http://id.loc.gov/ontologies/lclocal/")
-MADS = rdflib.Namespace("http://www.loc.gov/mads/rdf/v1#")
+BF = Namespace("http://id.loc.gov/ontologies/bibframe/")
+BFLC = Namespace("http://id.loc.gov/ontologies/bflc/")
+LCLOCAL = Namespace("http://id.loc.gov/ontologies/lclocal/")
+MADS = Namespace("http://www.loc.gov/mads/rdf/v1#")
 
 logger = logging.getLogger(__name__)
 
 
-def init_graph() -> rdflib.Graph:
+def init_graph() -> Graph:
     """Initialize a new RDF graph with the necessary namespaces."""
-    new_graph = rdflib.Graph()
+    new_graph = Graph()
     new_graph.namespace_manager.bind("bf", BF)
     new_graph.namespace_manager.bind("bflc", BFLC)
     new_graph.namespace_manager.bind("mads", MADS)
@@ -49,7 +51,7 @@ def init_graph() -> rdflib.Graph:
     return new_graph
 
 
-def load_jsonld(jsonld_data: list | dict) -> rdflib.Graph:
+def load_jsonld(jsonld_data: list | dict) -> Graph:
     """
     Load a JSON-LD represented as a Python list or dict into a rdflib Graph.
     """
@@ -71,29 +73,29 @@ def load_jsonld(jsonld_data: list | dict) -> rdflib.Graph:
     return graph
 
 
-def _check_for_namespace(node: rdflib.Node) -> bool:
+def _check_for_namespace(node: Node) -> bool:
     """Check if a node is in the LCLOCAL or DCTERMS namespace."""
-    return node in LCLOCAL or node in rdflib.DCTERMS  # type: ignore
+    return node in LCLOCAL or node in DCTERMS  # type: ignore
 
 
-def _exclude_uri_from_other_resources(uri: rdflib.Node) -> bool:
+def _exclude_uri_from_other_resources(uri: Node) -> bool:
     """Checks if uri is in the BF, MADS, or RDF namespaces"""
-    return uri in BF or uri in MADS or uri in rdflib.RDF  # type: ignore
+    return uri in BF or uri in MADS or uri in RDF  # type: ignore
 
 
-def _expand_bnode(graph: rdflib.Graph, entity_graph: rdflib.Graph, bnode: rdflib.BNode):
+def _expand_bnode(graph: Graph, entity_graph: Graph, bnode: BNode):
     """Expand a blank node in the entity graph."""
     for pred, obj in graph.predicate_objects(subject=bnode):
         if _check_for_namespace(pred) or _check_for_namespace(obj):
             continue
         entity_graph.add((bnode, pred, obj))
-        if isinstance(obj, rdflib.BNode):
+        if isinstance(obj, BNode):
             _expand_bnode(graph, entity_graph, obj)
 
 
-def _is_work_or_instance(uri: rdflib.Node, graph: rdflib.Graph) -> bool:
+def _is_work_or_instance(uri: Node, graph: Graph) -> bool:
     """Checks if uri is a BIBFRAME Work or Instance"""
-    for class_ in graph.objects(subject=uri, predicate=rdflib.RDF.type):
+    for class_ in graph.objects(subject=uri, predicate=RDF.type):
         # In the future we may want to include Work and Instances subclasses
         # maybe through inference
         if class_ == BF.Work or class_ == BF.Instance:
@@ -113,12 +115,12 @@ def _mint_uri(env_root: str, type_of: str) -> tuple:
     return f"{env_root}/{type_of}/{uuid}", str(uuid)
 
 
-def _update_graph(**kwargs) -> rdflib.Graph:
+def _update_graph(**kwargs) -> Graph:
     """
     Updates graph using a Blue Core URI subject. If incoming subject is
     an URI, create a new derivedFrom assertion. 
     """
-    graph: rdflib.Graph = kwargs["graph"]
+    graph: Graph = kwargs["graph"]
     bluecore_uri: str = kwargs["bluecore_uri"]
     bluecore_type: str = kwargs["bluecore_type"]
 
@@ -129,7 +131,7 @@ def _update_graph(**kwargs) -> rdflib.Graph:
         case "instances" | "instance":
             object_uri = BF.Instance
 
-    external_subject = graph.value(predicate=rdflib.RDF.type, object=object_uri)
+    external_subject = graph.value(predicate=RDF.type, object=object_uri)
     if external_subject is None:
         raise ValueError(f"Cannot find external subject with a type of {object_uri}")
 
@@ -137,29 +139,29 @@ def _update_graph(**kwargs) -> rdflib.Graph:
         UPDATE_SPARQL,
         initBindings={
             "old_subject": external_subject,  # type: ignore
-            "bluecore_uri": rdflib.URIRef(bluecore_uri),  # type: ignore
+            "bluecore_uri": URIRef(bluecore_uri),  # type: ignore
         },
     )
 
-    if not isinstance(external_subject, rdflib.BNode):
-        graph.add((rdflib.URIRef(bluecore_uri), BF.derivedFrom, external_subject))
+    if not isinstance(external_subject, BNode):
+        graph.add((URIRef(bluecore_uri), BF.derivedFrom, external_subject))
     return graph
 
 
-def generate_entity_graph(graph: rdflib.Graph, entity: rdflib.Node) -> rdflib.Graph:
+def generate_entity_graph(graph: Graph, entity: Node) -> Graph:
     """Generate an entity graph from a larger RDF graph."""
     entity_graph = init_graph()
     for pred, obj in graph.predicate_objects(subject=entity):
         if _check_for_namespace(pred) or _check_for_namespace(obj):
             continue
         entity_graph.add((entity, pred, obj))
-        if isinstance(obj, rdflib.BNode):
+        if isinstance(obj, BNode):
             _expand_bnode(graph, entity_graph, obj)
     return entity_graph
 
 
 def generate_other_resources(
-    record_graph: rdflib.Graph, entity_graph: rdflib.Graph
+    record_graph: Graph, entity_graph: Graph
 ) -> list:
     """
     Takes a Record Graph and Entity Graph and returns a list of dictionaries
@@ -196,7 +198,7 @@ def get_bf_classes(rdf_data: list | dict, uri: str) -> list:
     """Restrieves all of the resource's BIBFRAME classes from a graph."""
     graph = load_jsonld(rdf_data)
     classes = []
-    for class_ in graph.objects(subject=rdflib.URIRef(uri), predicate=rdflib.RDF.type):
+    for class_ in graph.objects(subject=URIRef(uri), predicate=RDF.type):
         if class_ in BF:  # type: ignore
             classes.append(class_)
     return classes
@@ -245,71 +247,182 @@ def handle_external_subject(**kwargs) -> dict:
     }
 
 
-# A dictionary type for representing a mapping of URIs to their corresponding graphs
-GraphMap = dict[rdflib.URIRef, rdflib.Graph]
-
-
-def partition_graph(
-    g: rdflib.Graph,
-) -> tuple[GraphMap, GraphMap, GraphMap]:
+class BluecoreGraph():
     """
-    Takes an RDF graph (most likely a Concise Bounded Description, aka CBD) and
-    returns three GraphMap for Works, Instances and Other Resources that
-    are found in the graph.
     """
-    works = _extract_subgraphs(g, BF.Work)
-    instances = _extract_subgraphs(g, BF.Instance)
-    others = {}
 
-    for work in works.values():
-        for uri, subgraph in _extract_others(g, work):
-            others[uri] = subgraph
+    def __init__(self, graph: Graph, namespace="https://bcld.info/"):
+        """
+        """
+        if not namespace.endswith("/"):
+            namespace += "/"
+        self.namespace = Namespace(namespace)
+        self.graph = graph
 
-    for instance in instances.values():
-        for uri, subgraph in _extract_others(g, instance):
-            others[uri] = subgraph
+    def works(self):
+        """
+        """
+        return self._extract_subgraphs(BF.Work)
 
-    return works, instances, others
+    def instances(self):
+        """
+        """
+        return self._extract_subgraphs(BF.Instance)
 
+    def others(self):
+        """
+        """
+        return self._extract_others()
 
-def _extract_subgraphs(g: rdflib.Graph, bibframe_class: rdflib.URIRef) -> GraphMap:
-    """
-    Given a graph, look for resources of a given type and return a dictionary
-    that maps each subject URI to its corresponding subgraph.
-    """
-    subgraphs = {}
-    for s in g.subjects(RDF.type, bibframe_class):
-        # ignore blank nodes
-        if not isinstance(s, rdflib.URIRef):
-            logger.debug(f"skipping {bibframe_class} since it isn't a URIRef")
+    def save(self, session_maker: sessionmaker) -> None:
+        """
+        """
+
+        self._mint_uris(BF.Work, session_maker)
+        self._mint_uris(BF.Instance, session_maker)
+
+        with session_maker() as session:
+
+            for work in self.works:
+                uri = self._subject(work, BF.Work)
+                data = json.loads(work.serialize("json-ld"))
+
+                work = session.query(Work).where(Work.uri == uri).first()
+
+                if work:
+                    work.data = data
+                    session.add(work)
+                else:
+                    data = json.loads(work.serialize("json-ld"))
+                    work = Work(uri=uri, data=data)
+                    session.add(work)
+
+    def _extract_subgraphs(self, bibframe_class: URIRef) -> list[Graph]:
+        """
+        Returns a list of subgraphs for subjects of a given type.
+        """
+        subgraphs = []
+        for s in self.graph.subjects(RDF.type, bibframe_class):
+            # ignore blank nodes
+            if not isinstance(s, URIRef):
+                logger.debug(f"skipping {bibframe_class} since it isn't a URIRef")
+            else:
+                subgraphs.append(generate_entity_graph(self.graph, s))
+
+        return subgraphs
+
+    def _extract_others(self) -> list[Graph]:
+        """
+        Returns a list of subgraphs for resources that are referenced but not fully
+        described in the Bluecore Graph.
+        """
+        others = []
+        other_uris = set()
+
+        for g in self.works + self.instances:
+
+            # iterate through each object in the graph
+            for o in g.objects():
+                # ignore the object if it:
+                # - is not a URI (exclude BNodes, Literals)
+                # - is a resource from the Bibframe or MADS vocabularies
+                # - is a Bibframe Work or Instance that is in g1
+                if (
+                    not isinstance(o, URIRef)
+                    or _exclude_uri_from_other_resources(o)
+                    or _is_work_or_instance(o, self.graph)
+                ):
+                    continue
+
+                # otherwise return the object URI, and its graph
+                if o in self.graph.subjects() and o not in other_uris:
+                    others.append(generate_entity_graph(self.graph, o))
+                    other_uris.add(o)
+
+        return others
+
+    def _subject(self, graph: Graph, class_: URIRef) -> URIRef:
+        """
+        Gets the subject URI from the supplied graph using the rdf type class.
+        """
+
+        # there should only be one subject URI in the graph for the given class
+        uris = graph.subjects(RDF.type, class_)
+        if len(uris) == 0:
+            raise Exception(f"Unable to find subject URI for {class_}")
         else:
-            subgraphs[s] = generate_entity_graph(g, s)
+            raise Exception(f"Found more than one URI for {class_}: {uris}")
 
-    return subgraphs
+        return uris[0]
+
+    def _mint_uris(self, class_: URIRef, session_maker: sessionmaker):
+        """
+        Examine Bibframe Works or Instances in the graph, and mint
+        Bluecore URIs for them as needed. This method takes into account that a resource 
+        with a non-Bluecore URI may already be in the database under in its
+        derivedFrom URI.
+        """
+        match class_:
+            case BF.Work:
+                subgraphs = self.works()
+                sqla_class = Work
+            case BF.Instance:
+                subgraphs = self.instances()
+                sqla_class = Instance
+            case _:
+                raise Exception("Can't mint URIs for class of type {class_}")
+
+        with session_maker() as session:
+            for sg in subgraphs:
+                uri = self._subject(sg, class_)
+
+                if self._is_bluecore_uri(uri):
+                    continue
+                else:
+                    resource = session.Query(sqla_class).where(sqla_class.data["derivedFrom"]["@id"] == uri).first()
+                    if resource is not None:
+                        self._add_derived_from(derived_from_uri=uri, bluecore_uri=resource.uri)
+                    else:
+                        derived_from_uri = uri
+                        bluecore_uri = self._mint_uri(class_)
+                        self._add_derived_from(derived_from_uri, bluecore_uri)
+
+    def _mint_uri(self, class_: URIRef) -> URIRef:
+        uuid = uuid4()
+        match class_:
+            case BF.Work:
+                type_of = "works"
+            case BF.Instance:
+                type_of = "instances"
+            case _:
+                raise Exception("Can't mint Bluecore URI for class of type {class_}")
+
+        return self.bluecore_namespace[f"{type_of}/{uuid}"]
+
+    def _add_derived_from(self, derived_from_uri, bluecore_uri) -> None:
+        """
+        Updates the supplied graph so that assertions involving the
+        derived_from_uri as the subject now use the bluecore_uri in its place, 
+        and a bibframe:derivedFrom assertion is added to record the relationship.
+        """
+        self.graph.update(
+            UPDATE_SPARQL,
+            initBindings={
+                "old_subject": derived_from_uri,
+                "bluecore_uri": bluecore_uri,
+            },
+        )
+        self.graph.add((URIRef(bluecore_uri), BF.derivedFrom, derived_from_uri))
 
 
-def _extract_others(
-    g1: rdflib.Graph, g2: rdflib.Graph
-) -> Generator[tuple[rdflib.URIRef, rdflib.Graph], None, None]:
-    """
-    Takes two graphs G1 and G2, and returns a list of tuples
-    (URI, Graph) where each represents a resource R that is found in G1, is
-    referenced by G2, and where R is not a Bibframe or MADS type.
-    """
+class BluecoreResource:
+    # should this functionality live on the slqa models?
+    
+    def __init__(self, graph: Graph):
+        self.graph = graph
 
-    # iterate through each object in the graph
-    for o in g2.objects():
-        # ignore the object if it:
-        # - is not a URIs (exclude BNodes, Literals)
-        # - is a resource from the Bibframe or MADS vocabularies
-        # - is a Bibframe Works and Instances that are is in g1
-        if (
-            not isinstance(o, rdflib.URIRef)
-            or _exclude_uri_from_other_resources(o)
-            or _is_work_or_instance(o, g1)
-        ):
-            continue
 
-        # otherwise return the object URI, and its graph
-        if o in g1.subjects():
-            yield o, generate_entity_graph(g1, o)
+def save_graph(conn, graph: Graph) -> Graph:
+    bg = BluecoreGraph(graph)
+    bg.save(conn)
+    return bg.graph
