@@ -2,16 +2,15 @@
 
 import json
 import logging
-from typing import Dict, Optional
+from typing import Dict
 from uuid import uuid4
 
 from pyld import jsonld
-from rdflib import Graph, URIRef, Namespace, RDF, Node, DCTERMS, BNode
+from rdflib import Graph, URIRef, RDF, Node, DCTERMS, BNode
 from rdflib.plugins.sparql import prepareUpdate
 from rdflib.query import ResultRow
-from sqlalchemy.orm.session import sessionmaker
 
-from bluecore_models.models import Work, Instance, OtherResource
+from bluecore_models.namespaces import BF, BFLC, LCLOCAL, MADS
 
 UPDATE_SPARQL = prepareUpdate("""
 DELETE {
@@ -32,11 +31,6 @@ WHERE {
 }
 """)
 
-
-BF = Namespace("http://id.loc.gov/ontologies/bibframe/")
-BFLC = Namespace("http://id.loc.gov/ontologies/bflc/")
-LCLOCAL = Namespace("http://id.loc.gov/ontologies/lclocal/")
-MADS = Namespace("http://www.loc.gov/mads/rdf/v1#")
 
 logger = logging.getLogger(__name__)
 
@@ -247,182 +241,3 @@ def handle_external_subject(**kwargs) -> dict:
     }
 
 
-class BluecoreGraph():
-    """
-    """
-
-    def __init__(self, graph: Graph, namespace="https://bcld.info/"):
-        """
-        """
-        if not namespace.endswith("/"):
-            namespace += "/"
-        self.namespace = Namespace(namespace)
-        self.graph = graph
-
-    def works(self):
-        """
-        """
-        return self._extract_subgraphs(BF.Work)
-
-    def instances(self):
-        """
-        """
-        return self._extract_subgraphs(BF.Instance)
-
-    def others(self):
-        """
-        """
-        return self._extract_others()
-
-    def save(self, session_maker: sessionmaker) -> None:
-        """
-        """
-
-        self._mint_uris(BF.Work, session_maker)
-        self._mint_uris(BF.Instance, session_maker)
-
-        with session_maker() as session:
-
-            for work in self.works:
-                uri = self._subject(work, BF.Work)
-                data = json.loads(work.serialize("json-ld"))
-
-                work = session.query(Work).where(Work.uri == uri).first()
-
-                if work:
-                    work.data = data
-                    session.add(work)
-                else:
-                    data = json.loads(work.serialize("json-ld"))
-                    work = Work(uri=uri, data=data)
-                    session.add(work)
-
-    def _extract_subgraphs(self, bibframe_class: URIRef) -> list[Graph]:
-        """
-        Returns a list of subgraphs for subjects of a given type.
-        """
-        subgraphs = []
-        for s in self.graph.subjects(RDF.type, bibframe_class):
-            # ignore blank nodes
-            if not isinstance(s, URIRef):
-                logger.debug(f"skipping {bibframe_class} since it isn't a URIRef")
-            else:
-                subgraphs.append(generate_entity_graph(self.graph, s))
-
-        return subgraphs
-
-    def _extract_others(self) -> list[Graph]:
-        """
-        Returns a list of subgraphs for resources that are referenced but not fully
-        described in the Bluecore Graph.
-        """
-        others = []
-        other_uris = set()
-
-        for g in self.works + self.instances:
-
-            # iterate through each object in the graph
-            for o in g.objects():
-                # ignore the object if it:
-                # - is not a URI (exclude BNodes, Literals)
-                # - is a resource from the Bibframe or MADS vocabularies
-                # - is a Bibframe Work or Instance that is in g1
-                if (
-                    not isinstance(o, URIRef)
-                    or _exclude_uri_from_other_resources(o)
-                    or _is_work_or_instance(o, self.graph)
-                ):
-                    continue
-
-                # otherwise return the object URI, and its graph
-                if o in self.graph.subjects() and o not in other_uris:
-                    others.append(generate_entity_graph(self.graph, o))
-                    other_uris.add(o)
-
-        return others
-
-    def _subject(self, graph: Graph, class_: URIRef) -> URIRef:
-        """
-        Gets the subject URI from the supplied graph using the rdf type class.
-        """
-
-        # there should only be one subject URI in the graph for the given class
-        uris = graph.subjects(RDF.type, class_)
-        if len(uris) == 0:
-            raise Exception(f"Unable to find subject URI for {class_}")
-        else:
-            raise Exception(f"Found more than one URI for {class_}: {uris}")
-
-        return uris[0]
-
-    def _mint_uris(self, class_: URIRef, session_maker: sessionmaker):
-        """
-        Examine Bibframe Works or Instances in the graph, and mint
-        Bluecore URIs for them as needed. This method takes into account that a resource 
-        with a non-Bluecore URI may already be in the database under in its
-        derivedFrom URI.
-        """
-        match class_:
-            case BF.Work:
-                subgraphs = self.works()
-                sqla_class = Work
-            case BF.Instance:
-                subgraphs = self.instances()
-                sqla_class = Instance
-            case _:
-                raise Exception("Can't mint URIs for class of type {class_}")
-
-        with session_maker() as session:
-            for sg in subgraphs:
-                uri = self._subject(sg, class_)
-
-                if self._is_bluecore_uri(uri):
-                    continue
-                else:
-                    resource = session.Query(sqla_class).where(sqla_class.data["derivedFrom"]["@id"] == uri).first()
-                    if resource is not None:
-                        self._add_derived_from(derived_from_uri=uri, bluecore_uri=resource.uri)
-                    else:
-                        derived_from_uri = uri
-                        bluecore_uri = self._mint_uri(class_)
-                        self._add_derived_from(derived_from_uri, bluecore_uri)
-
-    def _mint_uri(self, class_: URIRef) -> URIRef:
-        uuid = uuid4()
-        match class_:
-            case BF.Work:
-                type_of = "works"
-            case BF.Instance:
-                type_of = "instances"
-            case _:
-                raise Exception("Can't mint Bluecore URI for class of type {class_}")
-
-        return self.bluecore_namespace[f"{type_of}/{uuid}"]
-
-    def _add_derived_from(self, derived_from_uri, bluecore_uri) -> None:
-        """
-        Updates the supplied graph so that assertions involving the
-        derived_from_uri as the subject now use the bluecore_uri in its place, 
-        and a bibframe:derivedFrom assertion is added to record the relationship.
-        """
-        self.graph.update(
-            UPDATE_SPARQL,
-            initBindings={
-                "old_subject": derived_from_uri,
-                "bluecore_uri": bluecore_uri,
-            },
-        )
-        self.graph.add((URIRef(bluecore_uri), BF.derivedFrom, derived_from_uri))
-
-
-class BluecoreResource:
-    # should this functionality live on the slqa models?
-    
-    def __init__(self, graph: Graph):
-        self.graph = graph
-
-
-def save_graph(conn, graph: Graph) -> Graph:
-    bg = BluecoreGraph(graph)
-    bg.save(conn)
-    return bg.graph

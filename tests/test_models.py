@@ -119,7 +119,7 @@ def test_bibframe_other_resources(pg_session):
     with pg_session() as session:
         bibframe_other_resource = (
             session.query(BibframeOtherResources)
-            .where(BibframeOtherResources.id == 4)
+            .where(BibframeOtherResources.id == 1)
             .first()
         )
         assert bibframe_other_resource.other_resource is not None

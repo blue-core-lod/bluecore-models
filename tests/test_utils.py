@@ -2,9 +2,8 @@ import json
 from pathlib import Path
 
 import rdflib
-from rdflib import RDF, URIRef
+from rdflib import URIRef
 
-from bluecore_models.models import Work
 from bluecore_models.utils.graph import (
     BF,
     BFLC,
@@ -15,8 +14,6 @@ from bluecore_models.utils.graph import (
     init_graph,
     load_jsonld,
     _is_work_or_instance,
-    BluecoreGraph,
-    save_graph
 )
 
 
@@ -124,54 +121,3 @@ def test_is_work_or_instance():
     loc_graph.add((work_uri, rdflib.RDF.type, MADS.Resource))
     loc_graph.add((work_uri, rdflib.RDF.type, BF.Work))
     assert _is_work_or_instance(work_uri, loc_graph)
-
-
-def test_bluecore_graph():
-    g = rdflib.Graph()
-    g.parse("tests/23807141.ttl")
-    bg = BluecoreGraph(g)
-
-    assert len(bg.works) == 2, "found two Works"
-    assert len(bg.works[0])== 14, "found expected number of assertions for Work 1"
-    assert len(bg.works[1]) == 118, "found expected number of assertions for Work 2"
-
-    assert len(bg.instances) == 2, "found two Instances"
-    assert len(bg.instances[0]) == 11, "found expected number of assertions for Instance 1"
-    assert len(bg.instances[1]) == 68, "found expected number of assertions for Instance 2"
-
-    assert len(bg.others) == 32, "found expected number of Other Resources"
-    for other_graph in bg.others:
-        assert len(other_graph) > 0
-        for s, o in other_graph.subject_objects(RDF.type):
-            assert s not in BF, "Other resource URI not in Bibframe vocabulary"
-            assert s not in MADS, "Other resource URI not in MADS vocabulary"
-            assert o not in [BF.Work, BF.Instance], "OtherResource is not a Work or Instance"
-
-
-def test_jsonld_object(jsonld_object):
-    """
-    Test the jsonld_object fixture, which is a shell JSON-LD object with the
-    default context, that can be used in testing.
-    """
-    assert jsonld_object == {
-        "@context": {
-            "@vocab": "http://id.loc.gov/ontologies/bibframe/",
-            "bflc": "http://id.loc.gov/ontologies/bflc/",
-            "mads": "http://www.loc.gov/mads/rdf/v1#",
-        }
-    }
-
-
-def test_save_graph_work(jsonld_object, pg_session):
-    """
-    Test that a Work graph can be persisted to the database.
-    """
-    jsonld_object["@id"] = "https://bcld.info/works/123"
-    jsonld_object["@type"] = BF.Work
-    jsonld_object["title"] = {"mainTitle": "Gravity's Rainbow"}
-
-    save_graph(pg_session, load_jsonld(jsonld_object))
-
-    with pg_session() as session:
-        work = session.query(Work).where(Work.uri == "https://bcld.info/works/123").first()
-        assert work is not None
