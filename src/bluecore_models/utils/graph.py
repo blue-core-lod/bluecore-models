@@ -112,7 +112,7 @@ def _mint_uri(env_root: str, type_of: str) -> tuple:
 def _update_graph(**kwargs) -> Graph:
     """
     Updates graph using a Blue Core URI subject. If incoming subject is
-    an URI, create a new derivedFrom assertion. 
+    an URI, create a new derivedFrom assertion.
     """
     graph: Graph = kwargs["graph"]
     bluecore_uri: str = kwargs["bluecore_uri"]
@@ -154,9 +154,7 @@ def generate_entity_graph(graph: Graph, entity: Node) -> Graph:
     return entity_graph
 
 
-def generate_other_resources(
-    record_graph: Graph, entity_graph: Graph
-) -> list:
+def generate_other_resources(record_graph: Graph, entity_graph: Graph) -> list:
     """
     Takes a Record Graph and Entity Graph and returns a list of dictionaries
     where each dict contains the sub-graphs and URIs that referenced in the
@@ -239,5 +237,3 @@ def handle_external_subject(**kwargs) -> dict:
         "data": json.loads(modified_graph.serialize(format="json-ld")),
         "uuid": uuid,
     }
-
-

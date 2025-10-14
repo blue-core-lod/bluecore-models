@@ -1,4 +1,3 @@
-
 from typing import Optional
 
 import rdflib
@@ -110,4 +109,3 @@ def set_jsonld(target, value, oldvalue, initiator) -> Optional[dict]:
         return frame_jsonld(target.uri, value)
     else:
         return None
-

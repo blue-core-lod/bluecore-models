@@ -15,43 +15,36 @@ logger = logging.getLogger(__name__)
 
 
 def save_graph(session_maker: sessionmaker, graph: Graph) -> Graph:
-    """
-    """
+    """ """
     bg = BluecoreGraph(graph)
     bg.save(session_maker)
     return bg.graph
 
 
-class BluecoreGraph():
-    """
-    """
+class BluecoreGraph:
+    """ """
 
     def __init__(self, graph: Graph, namespace="https://bcld.info/"):
-        """
-        """
+        """ """
         if not namespace.endswith("/"):
             namespace += "/"
         self.namespace = Namespace(namespace)
         self.graph = graph
 
     def works(self):
-        """
-        """
+        """ """
         return self._extract_subgraphs(BF.Work)
 
     def instances(self):
-        """
-        """
+        """ """
         return self._extract_subgraphs(BF.Instance)
 
     def others(self):
-        """
-        """
+        """ """
         return self._extract_others()
 
     def save(self, session_maker: sessionmaker) -> None:
-        """
-        """
+        """ """
         self._mint_uris(BF.Work, session_maker)
         self._mint_uris(BF.Instance, session_maker)
         self._save(BF.Work, session_maker)
@@ -83,7 +76,6 @@ class BluecoreGraph():
 
             session.commit()
 
-
     def _extract_subgraphs(self, bibframe_class: URIRef) -> list[Graph]:
         """
         Returns a list of subgraphs for subjects of a given type.
@@ -107,7 +99,6 @@ class BluecoreGraph():
         other_uris = set()
 
         for g in self.works() + self.instances():
-
             # iterate through each object in the graph
             for o in g.objects():
                 # ignore the object if it:
@@ -128,7 +119,7 @@ class BluecoreGraph():
 
         return others
 
-    def _subject(self, graph: Graph, class_: URIRef) -> URIRef:
+    def _subject(self, graph: Graph, class_: URIRef) -> Node:
         """
         Gets the subject URI from the supplied graph using the rdf type class.
         """
@@ -145,7 +136,7 @@ class BluecoreGraph():
     def _mint_uris(self, class_: URIRef, session_maker: sessionmaker):
         """
         Examine Bibframe Works or Instances in the graph, and mint
-        Bluecore URIs for them as needed. This method takes into account that a resource 
+        Bluecore URIs for them as needed. This method takes into account that a resource
         with a non-Bluecore URI may already be in the database under in its
         derivedFrom URI.
         """
@@ -166,9 +157,15 @@ class BluecoreGraph():
                 if self._is_bluecore_uri(uri):
                     continue
                 else:
-                    resource = session.query(sqla_class).where(sqla_class.data["derivedFrom"]["@id"] == uri).first()
+                    resource = (
+                        session.query(sqla_class)
+                        .where(sqla_class.data["derivedFrom"]["@id"] == uri)
+                        .first()
+                    )
                     if resource is not None:
-                        self._add_derived_from(derived_from_uri=uri, bluecore_uri=resource.uri)
+                        self._add_derived_from(
+                            derived_from_uri=uri, bluecore_uri=resource.uri
+                        )
                     else:
                         derived_from_uri = uri
                         bluecore_uri = self._mint_uri(class_)
@@ -189,7 +186,7 @@ class BluecoreGraph():
     def _add_derived_from(self, derived_from_uri, bluecore_uri) -> None:
         """
         Updates the supplied graph so that assertions involving the
-        derived_from_uri as the subject now use the bluecore_uri in its place, 
+        derived_from_uri as the subject now use the bluecore_uri in its place,
         and a bibframe:derivedFrom assertion is added to record the relationship.
         """
         self.graph.update(
@@ -236,5 +233,3 @@ WHERE {
   }
 }
 """)
-
-
