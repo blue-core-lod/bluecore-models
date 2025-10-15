@@ -291,6 +291,9 @@ def test_work_jsonld_framing():
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
     assert isinstance(work.data["@context"], dict), "framing added @context"
+    assert (
+        work.data["note"]["rdfs:label"] == "In Korean, with abstract also in English."
+    )
 
 
 def test_instance_jsonld_framing():
@@ -310,6 +313,7 @@ def test_instance_jsonld_framing():
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
     assert isinstance(instance.data["@context"], dict), "framing added @context"
+    assert instance.data["note"]["rdfs:label"] == "illustrations"
 
 
 def test_other_resource_jsonld_framing():
