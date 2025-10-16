@@ -4,10 +4,10 @@ from uuid import uuid4
 
 from rdflib import Graph, URIRef, Namespace, Node
 from rdflib.plugins import sparql
-from sqlalchemy.orm.session import sessionmaker
+from sqlalchemy.orm.session import sessionmaker, Session
 
 from bluecore_models.namespaces import BF, MADS, RDF
-from bluecore_models.models import Work, Instance
+from bluecore_models.models import Work, Instance, OtherResource
 from bluecore_models.utils.graph import generate_entity_graph
 
 
@@ -15,14 +15,26 @@ logger = logging.getLogger(__name__)
 
 
 def save_graph(session_maker: sessionmaker, graph: Graph) -> Graph:
-    """ """
+    """
+    Use the supplied database sessionmaker to create a database session and
+    persist all the resources found in the Graph. The possibly modified graph is
+    returned, which will contain any new URIs that were minted, as well as
+    bibframe:derivedFrom assertions for the original URIs.
+    """
     bg = BluecoreGraph(graph)
     bg.save(session_maker)
     return bg.graph
 
 
 class BluecoreGraph:
-    """ """
+    """
+    The BluecoreGraph is instantiated using an existing rdflib Graph for a set
+    of Bibframe Works, Instances and "Other" Resources, which are all available
+    using methods that return them as subgraphs. The save method is then used to
+    persist the graph to a given database. If you want to change the default
+    namespace that is used for the bluecore instance you can pass that in with
+    the namespace parameter.
+    """
 
     def __init__(self, graph: Graph, namespace="https://bcld.info/"):
         """ """
@@ -31,27 +43,54 @@ class BluecoreGraph:
         self.namespace = Namespace(namespace)
         self.graph = graph
 
-    def works(self):
-        """ """
+    def works(self) -> list[Graph]:
+        """
+        Returns a list of Bibframe Work rdflib Graphs, where each graph is a
+        distinct Work.
+        """
+
         return self._extract_subgraphs(BF.Work)
 
-    def instances(self):
-        """ """
+    def instances(self) -> list[Graph]:
+        """
+        Returns a list of Bibframe Instance rdflib Graphs, where each graph is a
+        distinct Instance.
+        """
         return self._extract_subgraphs(BF.Instance)
 
-    def others(self):
-        """ """
+    def others(self) -> list[Graph]:
+        """
+        Return a list of "Other Resource" rdflib Graphs, where each graph is a
+        distinct resource.
+        """
         return self._extract_others()
 
     def save(self, session_maker: sessionmaker) -> None:
-        """ """
-        self._mint_uris(BF.Work, session_maker)
-        self._mint_uris(BF.Instance, session_maker)
-        self._save(BF.Work, session_maker)
-        self._save(BF.Instance, session_maker)
-        # XXX: need to persist other resources too!
+        """
+        Persists the graph to the database using the supplied sqlalchemy
+        sessionmaker. All the database modifications are made using a single
+        transaction.
+        """
+        with session_maker() as session:
+            # resolve URIs in the graph to their Bluecore equivalent
+            # or mint them as appropriate
+            self._mint_all_uris(BF.Work, session)
+            self._mint_all_uris(BF.Instance, session)
 
-    def _save(self, class_, session_maker):
+            # save resources from the graph to the database
+            self._save(BF.Work, session)
+            self._save(BF.Instance, session)
+            self._save("Other", session)  # there is no URI for Other Resources
+
+            self._link(session)
+
+            # all this is done as one transaction!
+            session.commit()
+
+    def _save(self, class_, session: Session) -> None:
+        """
+        Persist resources of the supplied type to the given database session.
+        """
         match class_:
             case BF.Work:
                 resources = self.works()
@@ -59,23 +98,46 @@ class BluecoreGraph:
             case BF.Instance:
                 resources = self.instances()
                 sqla_class = Instance
+            case "Other":
+                resources = self.others()
+                sqla_class = OtherResource
 
-        with session_maker() as session:
-            for g in resources:
-                uri = self._subject(g, class_)
-                data = json.loads(g.serialize(format="json-ld"))
+        for g in resources:
+            uri = self._subject(g, class_)
+            data = json.loads(g.serialize(format="json-ld"))
 
-                obj = session.query(sqla_class).where(sqla_class.uri == uri).first()
+            obj = session.query(sqla_class).where(sqla_class.uri == uri).first()
 
-                if obj:
-                    obj.data = data
-                    session.add(obj)
+            if obj:
+                obj.data = data
+                session.add(obj)
+            else:
+                if sqla_class == OtherResource:
+                    uuid = None
                 else:
-                    uuid = uri.split("/")[-1]
-                    obj = sqla_class(uri=str(uri), uuid=uuid, data=data)
-                    session.add(obj)
+                    uuid = str(uri).split("/")[-1]
 
-            session.commit()
+                obj = sqla_class(uri=str(uri), uuid=uuid, data=data)
+                session.add(obj)
+
+    def _link(self, session) -> None:
+        """
+        Save relations between Instances, Works and Other Resources in the graph.
+        """
+
+        # use bibframe:instanceOf assertions to link instances with works
+        for s, o in self.graph.subject_objects(BF.instanceOf):
+            instance = session.query(Instance).where(Instance.uri == s).first()
+            work = session.query(Work).where(Work.uri == o).first()
+            instance.work = work
+            session.add(instance)
+
+        # use bibframe:hasInstance to link works with instances
+        for s, o in self.graph.subject_objects(BF.hasInstance):
+            work = session.query(Work).where(Work.uri == s).first()
+            instance = session.query(Instance).where(Instance.uri == o).first()
+            instance.work = work
+            session.add(instance)
 
     def _extract_subgraphs(self, bibframe_class: URIRef) -> list[Graph]:
         """
@@ -126,7 +188,13 @@ class BluecoreGraph:
         """
 
         # there should only be one subject URI in the graph for the given class
-        uris = list(graph.subjects(RDF.type, class_))
+        if class_ != "Other":
+            uris = list(graph.subjects(RDF.type, class_))
+        else:
+            # TODO: this is a bit of a guess as to what the subject URI is for the
+            # OtherResource graph, which assumes there is one subject URI and ignores BNodes.
+            uris = list(set(filter(lambda s: isinstance(s, URIRef), graph.subjects())))
+
         if len(uris) == 0:
             raise Exception(f"Unable to find subject URI for {class_}")
         elif len(uris) != 1:
@@ -134,7 +202,7 @@ class BluecoreGraph:
 
         return uris[0]
 
-    def _mint_uris(self, class_: URIRef, session_maker: sessionmaker):
+    def _mint_all_uris(self, class_: URIRef, session: Session) -> None:
         """
         Examine Bibframe Works or Instances in the graph, and mint
         Bluecore URIs for them as needed. This method takes into account that a resource
@@ -151,26 +219,25 @@ class BluecoreGraph:
             case _:
                 raise Exception("Can't mint URIs for class of type {class_}")
 
-        with session_maker() as session:
-            for sg in subgraphs:
-                uri = self._subject(sg, class_)
+        for sg in subgraphs:
+            uri = self._subject(sg, class_)
 
-                if self._is_bluecore_uri(uri):
-                    continue
-                else:
-                    resource = (
-                        session.query(sqla_class)
-                        .where(sqla_class.data["derivedFrom"]["@id"] == uri)
-                        .first()
+            if self._is_bluecore_uri(uri):
+                continue
+            else:
+                resource = (
+                    session.query(sqla_class)
+                    .where(sqla_class.data["derivedFrom"]["@id"] == uri)
+                    .first()
+                )
+                if resource is not None:
+                    self._add_derived_from(
+                        derived_from_uri=uri, bluecore_uri=URIRef(resource.uri)
                     )
-                    if resource is not None:
-                        self._add_derived_from(
-                            derived_from_uri=uri, bluecore_uri=resource.uri
-                        )
-                    else:
-                        derived_from_uri = uri
-                        bluecore_uri = self._mint_uri(class_)
-                        self._add_derived_from(derived_from_uri, bluecore_uri)
+                else:
+                    derived_from_uri = uri
+                    bluecore_uri = self._mint_uri(class_)
+                    self._add_derived_from(derived_from_uri, bluecore_uri)
 
     def _mint_uri(self, class_: URIRef) -> URIRef:
         uuid = uuid4()
@@ -212,7 +279,7 @@ class BluecoreGraph:
                 return True
         return False
 
-    def _is_bluecore_uri(self, uri):
+    def _is_bluecore_uri(self, uri) -> bool:
         return uri in self.namespace
 
 
