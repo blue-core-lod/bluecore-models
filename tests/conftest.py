@@ -27,7 +27,6 @@ def create_test_rows():
 
     return Rows(
         Work(
-            id=1,
             uri="https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
             created_at=time_now,
             updated_at=time_now,
@@ -36,7 +35,6 @@ def create_test_rows():
             type="works",
         ),
         Instance(
-            id=2,
             uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
             created_at=time_now,
             updated_at=time_now,
@@ -46,7 +44,6 @@ def create_test_rows():
             work_id=1,
         ),
         OtherResource(
-            id=3,
             uri="https://bluecore.info/other-resource/sample",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -55,7 +52,6 @@ def create_test_rows():
             is_profile=False,
         ),
         BibframeOtherResources(
-            id=4,
             other_resource_id=3,
             bibframe_resource_id=1,
             created_at=datetime.now(UTC),

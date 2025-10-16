@@ -119,7 +119,7 @@ def test_bibframe_other_resources(pg_session):
     with pg_session() as session:
         bibframe_other_resource = (
             session.query(BibframeOtherResources)
-            .where(BibframeOtherResources.id == 4)
+            .where(BibframeOtherResources.id == 1)
             .first()
         )
         assert bibframe_other_resource.other_resource is not None
@@ -317,12 +317,14 @@ def test_instance_jsonld_framing():
 
 
 def test_other_resource_jsonld_framing():
-    other_json = [{"foo": "bar"}]
-    other = OtherResource(
-        uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
-        data=other_json,
+    other_json = {
+        "@id": "https://example.com/123",
+        "http://www.w3.org/2000/01/rdf-schema#label": "Other resource test",
+    }
+    other = OtherResource(uri="https://example.com/123", data=other_json)
+    assert other.data["rdfs:label"] == "Other resource test", (
+        "setting OtherResource.data frames json-ld"
     )
-    assert other_json == other.data, "setting OtherResource.data DOES NOT frame json-ld"
 
 
 def test_property_order():

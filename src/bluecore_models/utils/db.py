@@ -1,5 +1,3 @@
-"""Utilities for working with Blue Core Database"""
-
 from typing import Optional
 
 import rdflib
@@ -7,8 +5,8 @@ from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import object_session
 
 from bluecore_models.models.bf_classes import BibframeClass, ResourceBibframeClass
-from bluecore_models.models.version import Version, CURRENT_USER_ID
-from bluecore_models.utils.graph import get_bf_classes, frame_jsonld
+from bluecore_models.models.version import CURRENT_USER_ID, Version
+from bluecore_models.utils.graph import frame_jsonld, get_bf_classes
 
 
 def _new_bf_classs(connection, bf_class: rdflib.URIRef) -> int:

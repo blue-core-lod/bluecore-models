@@ -2,16 +2,15 @@
 
 import json
 import logging
-
-import rdflib
-from rdflib.query import ResultRow
-
-from pyld import jsonld
 from typing import Dict
-
 from uuid import uuid4
 
+from pyld import jsonld
+from rdflib import Graph, URIRef, RDF, Node, DCTERMS, BNode
 from rdflib.plugins.sparql import prepareUpdate
+from rdflib.query import ResultRow
+
+from bluecore_models.namespaces import BF, BFLC, LCLOCAL, MADS
 
 UPDATE_SPARQL = prepareUpdate("""
 DELETE {
@@ -33,17 +32,12 @@ WHERE {
 """)
 
 
-BF = rdflib.Namespace("http://id.loc.gov/ontologies/bibframe/")
-BFLC = rdflib.Namespace("http://id.loc.gov/ontologies/bflc/")
-LCLOCAL = rdflib.Namespace("http://id.loc.gov/ontologies/lclocal/")
-MADS = rdflib.Namespace("http://www.loc.gov/mads/rdf/v1#")
-
 logger = logging.getLogger(__name__)
 
 
-def init_graph() -> rdflib.Graph:
+def init_graph() -> Graph:
     """Initialize a new RDF graph with the necessary namespaces."""
-    new_graph = rdflib.Graph()
+    new_graph = Graph()
     new_graph.namespace_manager.bind("bf", BF)
     new_graph.namespace_manager.bind("bflc", BFLC)
     new_graph.namespace_manager.bind("mads", MADS)
@@ -51,7 +45,7 @@ def init_graph() -> rdflib.Graph:
     return new_graph
 
 
-def load_jsonld(jsonld_data: list | dict) -> rdflib.Graph:
+def load_jsonld(jsonld_data: list | dict) -> Graph:
     """
     Load a JSON-LD represented as a Python list or dict into a rdflib Graph.
     """
@@ -73,29 +67,29 @@ def load_jsonld(jsonld_data: list | dict) -> rdflib.Graph:
     return graph
 
 
-def _check_for_namespace(node: rdflib.Node) -> bool:
+def _check_for_namespace(node: Node) -> bool:
     """Check if a node is in the LCLOCAL or DCTERMS namespace."""
-    return node in LCLOCAL or node in rdflib.DCTERMS  # type: ignore
+    return node in LCLOCAL or node in DCTERMS  # type: ignore
 
 
-def _exclude_uri_from_other_resources(uri: rdflib.Node) -> bool:
+def _exclude_uri_from_other_resources(uri: Node) -> bool:
     """Checks if uri is in the BF, MADS, or RDF namespaces"""
-    return uri in BF or uri in MADS or uri in rdflib.RDF  # type: ignore
+    return uri in BF or uri in MADS or uri in RDF  # type: ignore
 
 
-def _expand_bnode(graph: rdflib.Graph, entity_graph: rdflib.Graph, bnode: rdflib.BNode):
+def _expand_bnode(graph: Graph, entity_graph: Graph, bnode: BNode):
     """Expand a blank node in the entity graph."""
     for pred, obj in graph.predicate_objects(subject=bnode):
         if _check_for_namespace(pred) or _check_for_namespace(obj):
             continue
         entity_graph.add((bnode, pred, obj))
-        if isinstance(obj, rdflib.BNode):
+        if isinstance(obj, BNode):
             _expand_bnode(graph, entity_graph, obj)
 
 
-def _is_work_or_instance(uri: rdflib.Node, graph: rdflib.Graph) -> bool:
+def _is_work_or_instance(uri: Node, graph: Graph) -> bool:
     """Checks if uri is a BIBFRAME Work or Instance"""
-    for class_ in graph.objects(subject=uri, predicate=rdflib.RDF.type):
+    for class_ in graph.objects(subject=uri, predicate=RDF.type):
         # In the future we may want to include Work and Instances subclasses
         # maybe through inference
         if class_ == BF.Work or class_ == BF.Instance:
@@ -115,12 +109,12 @@ def _mint_uri(env_root: str, type_of: str) -> tuple:
     return f"{env_root}/{type_of}/{uuid}", str(uuid)
 
 
-def _update_graph(**kwargs) -> rdflib.Graph:
+def _update_graph(**kwargs) -> Graph:
     """
     Updates graph using a Blue Core URI subject. If incoming subject is
-    an URI, create a new RDF triple.
+    an URI, create a new derivedFrom assertion.
     """
-    graph: rdflib.Graph = kwargs["graph"]
+    graph: Graph = kwargs["graph"]
     bluecore_uri: str = kwargs["bluecore_uri"]
     bluecore_type: str = kwargs["bluecore_type"]
 
@@ -131,7 +125,7 @@ def _update_graph(**kwargs) -> rdflib.Graph:
         case "instances" | "instance":
             object_uri = BF.Instance
 
-    external_subject = graph.value(predicate=rdflib.RDF.type, object=object_uri)
+    external_subject = graph.value(predicate=RDF.type, object=object_uri)
     if external_subject is None:
         raise ValueError(f"Cannot find external subject with a type of {object_uri}")
 
@@ -139,30 +133,28 @@ def _update_graph(**kwargs) -> rdflib.Graph:
         UPDATE_SPARQL,
         initBindings={
             "old_subject": external_subject,  # type: ignore
-            "bluecore_uri": rdflib.URIRef(bluecore_uri),  # type: ignore
+            "bluecore_uri": URIRef(bluecore_uri),  # type: ignore
         },
     )
 
-    if not isinstance(external_subject, rdflib.BNode):
-        graph.add((rdflib.URIRef(bluecore_uri), BF.derivedFrom, external_subject))
+    if not isinstance(external_subject, BNode):
+        graph.add((URIRef(bluecore_uri), BF.derivedFrom, external_subject))
     return graph
 
 
-def generate_entity_graph(graph: rdflib.Graph, entity: rdflib.Node) -> rdflib.Graph:
+def generate_entity_graph(graph: Graph, entity: Node) -> Graph:
     """Generate an entity graph from a larger RDF graph."""
     entity_graph = init_graph()
     for pred, obj in graph.predicate_objects(subject=entity):
         if _check_for_namespace(pred) or _check_for_namespace(obj):
             continue
         entity_graph.add((entity, pred, obj))
-        if isinstance(obj, rdflib.BNode):
+        if isinstance(obj, BNode):
             _expand_bnode(graph, entity_graph, obj)
     return entity_graph
 
 
-def generate_other_resources(
-    record_graph: rdflib.Graph, entity_graph: rdflib.Graph
-) -> list:
+def generate_other_resources(record_graph: Graph, entity_graph: Graph) -> list:
     """
     Takes a Record Graph and Entity Graph and returns a list of dictionaries
     where each dict contains the sub-graphs and URIs that referenced in the
@@ -198,7 +190,7 @@ def get_bf_classes(rdf_data: list | dict, uri: str) -> list:
     """Restrieves all of the resource's BIBFRAME classes from a graph."""
     graph = load_jsonld(rdf_data)
     classes = []
-    for class_ in graph.objects(subject=rdflib.URIRef(uri), predicate=rdflib.RDF.type):
+    for class_ in graph.objects(subject=URIRef(uri), predicate=RDF.type):
         if class_ in BF:  # type: ignore
             classes.append(class_)
     return classes
