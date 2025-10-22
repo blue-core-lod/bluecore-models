@@ -8,3 +8,4 @@ wheels/
 *swp
 # Virtual environments
 .venv
+*.log

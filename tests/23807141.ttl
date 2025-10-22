@@ -1,0 +1,320 @@
+@prefix bf: <http://id.loc.gov/ontologies/bibframe/> .
+@prefix bflc: <http://id.loc.gov/ontologies/bflc/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix lclocal: <http://id.loc.gov/ontologies/lclocal/> .
+@prefix mads: <http://www.loc.gov/mads/rdf/v1#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://id.loc.gov/authorities/subjects/sh2001009095> a mads:Topic ;
+    rdfs:label "Technological innovations"@en ;
+    bflc:marcKey "180  $xTechnological innovations" .
+
+<http://id.loc.gov/authorities/subjects/sh2002007911> a mads:Topic ;
+    rdfs:label "Management"@en ;
+    bflc:marcKey "180  $xManagement" .
+
+<http://id.loc.gov/authorities/subjects/sh2002012003> a mads:Topic ;
+    rdfs:label "Information technology"@en ;
+    bflc:marcKey "180  $xInformation technology" .
+
+<http://id.loc.gov/authorities/subjects/sh85018285> a mads:Topic ;
+    rdfs:label "Business enterprises"@en ;
+    bflc:marcKey "150 0$aBusiness enterprises" .
+
+<http://id.loc.gov/authorities/subjects/sh85065889> a bf:Topic ;
+    rdfs:label "Industrial management"@en ;
+    bflc:marcKey "150  $aIndustrial management" .
+
+<http://id.loc.gov/authorities/subjects/sh85080336> a mads:Topic ;
+    rdfs:label "Management"@en ;
+    bflc:marcKey "150 0$aManagement" .
+
+<http://id.loc.gov/entities/relationships/printversion> a bf:Relationship ;
+    rdfs:label "Print version" .
+
+<http://id.loc.gov/resources/instances/23804671> a bf:Instance ;
+    bf:carrier <http://id.loc.gov/vocabulary/carriers/nc> ;
+    bf:identifiedBy [ a bf:Lccn ;
+            rdf:value "  2024027742" ],
+        [ a bf:Isbn ;
+            bf:qualifier "paperback" ;
+            rdf:value "9798892790475" ] ;
+    bf:media <http://id.loc.gov/vocabulary/mediaTypes/n> ;
+    bf:publicationStatement "Boston, Massachusetts: Harvard Business Review Press, [2025]" .
+
+<http://id.loc.gov/resources/instances/23807141> a bf:Instance ;
+    bflc:projectedProvisionDate "2502" ;
+    bf:adminMetadata [ a bf:AdminMetadata ;
+            bf:date "2024-08-01T17:18:38"^^xsd:dateTime ;
+            bf:status <http://id.loc.gov/vocabulary/mstatus/c> ],
+        [ a bf:AdminMetadata ;
+            bf:agent <http://id.loc.gov/vocabulary/organizations/dlcmrc> ;
+            bf:date "2024-08-02T17:51:02.400885-04:00"^^xsd:dateTime ;
+            bf:generationProcess <https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.7.0> ;
+            bf:status <http://id.loc.gov/vocabulary/mstatus/c> ],
+        [ a bf:AdminMetadata ;
+            bflc:encodingLevel <http://id.loc.gov/vocabulary/menclvl/8> ;
+            bf:descriptionAuthentication <http://id.loc.gov/vocabulary/marcauthen/pcc> ;
+            bf:descriptionConventions <http://id.loc.gov/vocabulary/descriptionConventions/isbd>,
+                <http://id.loc.gov/vocabulary/descriptionConventions/rda> ;
+            bf:descriptionLanguage <http://id.loc.gov/vocabulary/languages/eng> ;
+            bf:descriptionLevel <http://id.loc.gov/ontologies/bibframe-2-3-0/> ;
+            bf:identifiedBy [ a bf:Local ;
+                    bf:assigner <http://id.loc.gov/vocabulary/organizations/dlc> ;
+                    rdf:value "23807141" ] ;
+            lclocal:d906 "=906     $a 7 $b cbc $c orignew $d 1 $e ecip $f 20 $g y-gencatlg" ;
+            lclocal:d925 "=925  0  $a acquire $e ecip ebook $x policy default" ;
+            lclocal:d955 "=955     $a ecip ebook 2024-08-01" ;
+            lclocal:d985 "=985     $a LC online resource $d 2024-08-01" ],
+        [ a bf:AdminMetadata ;
+            bf:agent <http://id.loc.gov/vocabulary/organizations/dlc> ;
+            bf:date "2024-07-31"^^xsd:date ;
+            bf:status <http://id.loc.gov/vocabulary/mstatus/n> ] ;
+    bf:carrier <http://id.loc.gov/vocabulary/carriers/cr> ;
+    bf:extent [ a bf:Extent ;
+            rdfs:label "1 online resource" ] ;
+    bf:identifiedBy [ a bf:Lccn ;
+            rdf:value "  2024027743" ],
+        [ a bf:Isbn ;
+            bf:qualifier "epub" ;
+            rdf:value "9798892790482" ],
+        [ a bf:Isbn ;
+            bf:qualifier "paperback" ;
+            bf:status <http://id.loc.gov/vocabulary/mstatus/cancinv> ;
+            rdf:value "9798892790475" ] ;
+    bf:instanceOf <http://id.loc.gov/resources/works/23807141> ;
+    bf:issuance <http://id.loc.gov/vocabulary/issuance/mono> ;
+    bf:media <http://id.loc.gov/vocabulary/mediaTypes/c> ;
+    bf:note [ a bf:Note ;
+            rdfs:label "Includes index" ],
+        [ a bf:Note,
+                <http://id.loc.gov/vocabulary/mnotetype/descsource> ;
+            rdfs:label "Description based on print version record and CIP data provided by publisher; resource not viewed" ] ;
+    bf:provisionActivity [ a bf:ProvisionActivity,
+                bf:Publication ;
+            bflc:simpleAgent "Harvard Business Review Press" ;
+            bflc:simpleDate "[2025]" ;
+            bflc:simplePlace "Boston, Massachusetts" ;
+            bf:date "2025"^^<http://id.loc.gov/datatypes/edtf> ;
+            bf:place <http://id.loc.gov/vocabulary/countries/mau> ] ;
+    bf:publicationStatement "Boston, Massachusetts: Harvard Business Review Press, [2025]" ;
+    bf:responsibilityStatement "Elisa Farri and Gabriele Rosani" ;
+    bf:title [ a bf:Title ;
+            bf:mainTitle "HBR guide to generative AI for managers" ] ;
+    dcterms:isPartOf <http://id.loc.gov/resources/instances> .
+
+<http://id.loc.gov/resources/works/23804671> a bf:Work ;
+    bf:contribution [ a bf:Contribution,
+                bf:PrimaryContribution ;
+            bf:agent <http://id.loc.gov/rwo/agents/n2024040883> ;
+            bf:role <http://id.loc.gov/vocabulary/relators/aut> ],
+        [ a bf:Contribution ;
+            bf:agent <http://id.loc.gov/rwo/agents/n2024040886> ;
+            bf:role <http://id.loc.gov/vocabulary/relators/aut> ] ;
+    bf:hasInstance <http://id.loc.gov/resources/instances/23804671> ;
+    bf:title [ a bf:Title ;
+            bf:mainTitle "HBR guide to generative AI for managers" ] .
+
+<http://id.loc.gov/resources/works/23807141> a bf:Monograph,
+        bf:Text,
+        bf:Work ;
+    bflc:aap "Farri, Elisa HBR guide to generative AI for managers" ;
+    bflc:aap-normalized "farrielisahbrguidetogenerativeaiformanagers" ;
+    bf:adminMetadata [ a bf:AdminMetadata ;
+            bf:agent <http://id.loc.gov/vocabulary/organizations/dlc> ;
+            bf:date "2024-07-31"^^xsd:date ;
+            bf:status <http://id.loc.gov/vocabulary/mstatus/n> ],
+        [ a bf:AdminMetadata ;
+            bf:date "2024-08-01T17:18:38"^^xsd:dateTime ;
+            bf:status <http://id.loc.gov/vocabulary/mstatus/c> ],
+        [ a bf:AdminMetadata ;
+            bf:agent <http://id.loc.gov/vocabulary/organizations/dlcmrc> ;
+            bf:date "2024-08-02T17:51:02.400885-04:00"^^xsd:dateTime ;
+            bf:generationProcess <https://github.com/lcnetdev/marc2bibframe2/releases/tag/v2.7.0> ;
+            bf:status <http://id.loc.gov/vocabulary/mstatus/c> ],
+        [ a bf:AdminMetadata ;
+            bflc:encodingLevel <http://id.loc.gov/vocabulary/menclvl/8> ;
+            bf:descriptionAuthentication <http://id.loc.gov/vocabulary/marcauthen/pcc> ;
+            bf:descriptionConventions <http://id.loc.gov/vocabulary/descriptionConventions/isbd>,
+                <http://id.loc.gov/vocabulary/descriptionConventions/rda> ;
+            bf:descriptionLanguage <http://id.loc.gov/vocabulary/languages/eng> ;
+            bf:descriptionLevel <http://id.loc.gov/ontologies/bibframe-2-3-0/> ;
+            bf:identifiedBy [ a bf:Local ;
+                    bf:assigner <http://id.loc.gov/vocabulary/organizations/dlc> ;
+                    rdf:value "23807141" ] ;
+            lclocal:d906 "=906     $a 7 $b cbc $c orignew $d 1 $e ecip $f 20 $g y-gencatlg" ;
+            lclocal:d925 "=925  0  $a acquire $e ecip ebook $x policy default" ;
+            lclocal:d955 "=955     $a ecip ebook 2024-08-01" ;
+            lclocal:d985 "=985     $a LC online resource $d 2024-08-01" ] ;
+    bf:classification [ a bf:ClassificationLcc ;
+            bf:assigner <http://id.loc.gov/vocabulary/organizations/dlc> ;
+            bf:classificationPortion "HD30.2" ;
+            bf:status <http://id.loc.gov/vocabulary/mstatus/uba> ],
+        [ a bf:ClassificationDdc ;
+            bf:assigner <http://id.loc.gov/vocabulary/organizations/dlc> ;
+            bf:classificationPortion "658.4/038" ;
+            bf:edition "full" ;
+            bf:source [ a bf:Source ;
+                    bf:code "23/eng/20240731" ] ] ;
+    bf:content <http://id.loc.gov/vocabulary/contentTypes/txt> ;
+    bf:contribution [ a bf:Contribution,
+                bf:PrimaryContribution ;
+            bf:agent <http://id.loc.gov/rwo/agents/n2024040883> ;
+            bf:role <http://id.loc.gov/vocabulary/relators/aut> ],
+        [ a bf:Contribution ;
+            bf:agent <http://id.loc.gov/rwo/agents/n2024040886> ;
+            bf:role <http://id.loc.gov/vocabulary/relators/aut> ] ;
+    bf:hasInstance <http://id.loc.gov/resources/instances/23807141> ;
+    bf:language <http://id.loc.gov/vocabulary/languages/eng> ;
+    bf:relation [ a bf:Relation ;
+            bf:associatedResource [ a bflc:Uncontrolled,
+                        bf:Series ;
+                    bf:status <http://id.loc.gov/vocabulary/mstatus/t> ;
+                    bf:title [ a bf:Title ;
+                            bf:mainTitle "HBR guides" ] ] ;
+            bf:relationship bf:hasSeries ],
+        [ a bf:Relation ;
+            bf:associatedResource <http://id.loc.gov/resources/works/23804671> ;
+            bf:relationship <http://id.loc.gov/entities/relationships/printversion>,
+                <http://id.loc.gov/vocabulary/relationship/otherphysicalformat> ] ;
+    bf:subject [ a bf:Topic,
+                mads:ComplexSubject ;
+            rdfs:label "Management--Technological innovations" ;
+            bflc:aap-normalized "managementtechnologicalinnovations" ;
+            bf:source <http://id.loc.gov/authorities/subjects> ;
+            mads:authoritativeLabel "Management--Technological innovations" ;
+            mads:componentList ( <http://id.loc.gov/authorities/subjects/sh85080336> <http://id.loc.gov/authorities/subjects/sh2001009095> ) ;
+            mads:isMemberOfMADSScheme <http://id.loc.gov/authorities/subjects> ],
+        [ a bf:Topic,
+                mads:ComplexSubject ;
+            rdfs:label "Business enterprises--Information technology--Management" ;
+            bflc:aap-normalized "businessenterprisesinformationtechnologymanagement" ;
+            bf:source <http://id.loc.gov/authorities/subjects> ;
+            mads:authoritativeLabel "Business enterprises--Information technology--Management" ;
+            mads:componentList ( <http://id.loc.gov/authorities/subjects/sh85018285> <http://id.loc.gov/authorities/subjects/sh2002012003> <http://id.loc.gov/authorities/subjects/sh2002007911> ) ;
+            mads:isMemberOfMADSScheme <http://id.loc.gov/authorities/subjects> ],
+        <http://id.loc.gov/authorities/subjects/sh85065889> ;
+    bf:summary [ a bf:Summary ;
+            rdfs:label "\"You're probably aware that generative AI can output quality text in any style and create stunning images in seconds. But smart managers are using gen AI for much more-business case development, data analysis, strategic exploration, and dozens of other applications. Soon, managers who develop their generative AI capabilities will be leaping ahead of managers who don't. Fortunately, you can start now and see results fast. The HBR Guide to Generative AI for Managers is packed with practical tips, prompts, case studies, and ideas to apply gen AI to dozens of managerial tasks right away and achieve incredible results. It's time for you to develop your gen AI-enabled mindset. This book will show you how. You'll learn how to: Understand key terms and concepts; identify the risks and rewards of generative AI; enhance your productivity; employ gen AI as both a copilot and a co-thinker; use the generative AI platform that best suits your needs; and leverage gen AI for business decisions and leading change. Arm yourself with the advice you need to succeed on the job with the most trusted brand in business. Packed with how-to essentials from leading experts, the HBR Guides provide smart answers to your most pressing work challenges\"-- Provided by publisher" ] ;
+    bf:supplementaryContent <http://id.loc.gov/vocabulary/msupplcont/index> ;
+    bf:title [ a bf:Title ;
+            bf:mainTitle "HBR guide to generative AI for managers" ],
+        [ a bf:VariantTitle ;
+            bf:mainTitle "Harvard business review guide to generative AI for managers" ],
+        [ a bf:VariantTitle ;
+            bf:mainTitle "Generative AI for managers" ;
+            bf:variantType "portion" ],
+        [ a bf:VariantTitle ;
+            bf:mainTitle "Artificial intelligence for managers" ] ;
+    dcterms:isPartOf <http://id.loc.gov/resources/works> .
+
+<http://id.loc.gov/vocabulary/carriers/cr> a bf:Carrier ;
+    rdfs:label "online resource" ;
+    bf:code "cr" .
+
+<http://id.loc.gov/vocabulary/carriers/nc> a bf:Carrier ;
+    rdfs:label "volume" ;
+    bf:code "nc" .
+
+<http://id.loc.gov/vocabulary/contentTypes/txt> a bf:Content ;
+    rdfs:label "text" ;
+    bf:code "txt" .
+
+<http://id.loc.gov/vocabulary/countries/mau> a bf:Place ;
+    rdfs:label "Massachusetts"@en ;
+    bf:code "mau"^^xsd:string .
+
+<http://id.loc.gov/vocabulary/issuance/mono> a bf:Issuance ;
+    rdfs:label "single unit" ;
+    bf:code "mono" .
+
+<http://id.loc.gov/vocabulary/mediaTypes/c> a bf:Media ;
+    rdfs:label "computer" ;
+    bf:code "c" .
+
+<http://id.loc.gov/vocabulary/mediaTypes/n> a bf:Media ;
+    rdfs:label "unmediated" ;
+    bf:code "n" .
+
+<http://id.loc.gov/vocabulary/mstatus/cancinv> a bf:Status ;
+    rdfs:label "canceled or invalid" ;
+    bf:code "cancinv" .
+
+<http://id.loc.gov/vocabulary/mstatus/t> a bf:Status ;
+    rdfs:label "transcribed" ;
+    bf:code "t" .
+
+<http://id.loc.gov/vocabulary/mstatus/uba> a bf:Status ;
+    rdfs:label "used by assigner" ;
+    bf:code "uba" .
+
+<http://id.loc.gov/vocabulary/msupplcont/index> a bf:SupplementaryContent ;
+    rdfs:label "index" ;
+    bf:code "index" .
+
+<http://id.loc.gov/vocabulary/relationship/otherphysicalformat> a bf:Relationship ;
+    rdfs:label "other physical format" ;
+    bf:code "otherphysicalformat" .
+
+<http://id.loc.gov/rwo/agents/n2024040883> a bf:Agent,
+        bf:Person ;
+    rdfs:label "Farri, Elisa" ;
+    bflc:marcKey "1001 $aFarri, Elisa" .
+
+<http://id.loc.gov/rwo/agents/n2024040886> a bf:Agent,
+        bf:Person ;
+    rdfs:label "Rosani, Gabriele" ;
+    bflc:marcKey "1001 $aRosani, Gabriele" .
+
+<http://id.loc.gov/vocabulary/descriptionConventions/isbd> a bf:DescriptionConventions ;
+    rdfs:label "ISBD: International standard bibliographic description" ;
+    bf:code "isbd" .
+
+<http://id.loc.gov/vocabulary/descriptionConventions/rda> a bf:DescriptionConventions ;
+    rdfs:label "Resource description and access" ;
+    bf:code "rda" .
+
+<http://id.loc.gov/vocabulary/marcauthen/pcc> a bf:DescriptionAuthentication ;
+    rdfs:label "Program for Cooperative Cataloging" ;
+    bf:code "pcc" .
+
+<http://id.loc.gov/vocabulary/menclvl/8> a bflc:EncodingLevel ;
+    rdfs:label "prepublication" ;
+    bf:code "8" .
+
+<http://id.loc.gov/vocabulary/mstatus/n> a bf:Status ;
+    rdfs:label "new" ;
+    bf:code "n" .
+
+<http://id.loc.gov/vocabulary/organizations/dlcmrc> a bf:Agent,
+        bf:Organization ;
+    rdfs:label "United States, Library of Congress, Network Development and MARC Standards Office" ;
+    bf:code "DLC-MRC"^^<http://id.loc.gov/datatypes/orgs/code>,
+        "US-dlcmrc"^^<http://id.loc.gov/datatypes/orgs/iso15511>,
+        "dlcmrc"^^<http://id.loc.gov/datatypes/orgs/normalized> .
+
+<http://id.loc.gov/vocabulary/languages/eng> a bf:Language ;
+    rdfs:label "English"@en ;
+    bf:code "eng"^^xsd:string .
+
+<http://id.loc.gov/authorities/subjects> a bf:Source,
+        mads:MADSScheme ;
+    rdfs:label "Library of Congress Subject Headings"@en .
+
+<http://id.loc.gov/vocabulary/mstatus/c> a bf:Status ;
+    rdfs:label "changed" ;
+    bf:code "c" .
+
+<http://id.loc.gov/vocabulary/relators/aut> a bf:Role ;
+    rdfs:label "Author" ;
+    bf:code "aut" .
+
+<http://id.loc.gov/vocabulary/organizations/dlc> a bf:Agent,
+        bf:Organization ;
+    rdfs:label "United States, Library of Congress" ;
+    bf:code "DLC"^^<http://id.loc.gov/datatypes/orgs/code>,
+        "US-dlc"^^<http://id.loc.gov/datatypes/orgs/iso15511>,
+        "dlc"^^<http://id.loc.gov/datatypes/orgs/normalized> .
+
