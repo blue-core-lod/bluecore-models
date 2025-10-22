@@ -18,7 +18,6 @@ from bluecore_models.utils.db import (
     add_bf_classes,
     add_version,
     update_bf_classes,
-    set_jsonld,
 )
 
 
@@ -57,6 +56,3 @@ def update_version_bf_classes(mapper, connection, target):
     """
     add_version(connection, target)
     update_bf_classes(connection, target)
-
-
-event.listen(Instance.data, "set", set_jsonld, retval=True)

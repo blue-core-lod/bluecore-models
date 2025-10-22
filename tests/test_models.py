@@ -89,6 +89,20 @@ def test_other_resource(pg_session):
         assert other_resource.is_profile is False
 
 
+def test_other_resource_profile(pg_session):
+    """
+    OtherResource "profiles" are not framed since they aren't necessarily JSON-LD
+    and won't have a URI associated with them.
+    """
+    with pg_session() as session:
+        session.add(OtherResource(is_profile=True, data={"foo": "bar"}))
+        session.commit()
+
+    with pg_session() as session:
+        other = session.query(OtherResource).order_by(OtherResource.id).all()[-1]
+        assert other.data["foo"] == "bar"
+
+
 def test_versions(pg_session, user_context):
     with pg_session() as session:
         version = session.query(Version).where(Version.id == 1).first()

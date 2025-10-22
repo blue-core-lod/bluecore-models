@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, ForeignKey, event
+from sqlalchemy import Boolean, DateTime, Integer, ForeignKey
 
 from sqlalchemy.orm import (
     mapped_column,
@@ -10,7 +10,6 @@ from sqlalchemy.orm import (
 
 from bluecore_models.models.base import Base
 from bluecore_models.models.resource import ResourceBase
-from bluecore_models.utils.db import set_jsonld
 
 
 class OtherResource(ResourceBase):
@@ -30,10 +29,6 @@ class OtherResource(ResourceBase):
 
     def __repr__(self):
         return f"<OtherResource {self.uri or self.id}>"
-
-
-# normalize JSON-LD as it is saved to the database
-event.listen(OtherResource.data, "set", set_jsonld, retval=True)
 
 
 class BibframeOtherResources(Base):
