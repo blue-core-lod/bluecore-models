@@ -1,6 +1,8 @@
 import logging
 import os
 
+import rdflib
+
 from typing import Union
 
 from pymilvus import model, MilvusClient
@@ -28,21 +30,13 @@ def init_collections(client: MilvusClient):
         )
 
 
-def create_embeddings(
-    version: Version, collection: str, client: Union[MilvusClient, None] = None
-):
-    if not client:
-        client = MilvusClient(uri=MILVUS_URI)
-
-    init_collections(client)
-
+def generate_vectors(graph: rdflib.Graph, resource_uri: str, version_id: int) -> list:
+    """
+    Takes a RDF graph, resource URL, and version id and returns a list of embeddings along with
+    metadata for ingestion into .
+    """
     embedding_func = model.DefaultEmbeddingFunction()
-
-    version_graph = load_jsonld(version.data)
-    version_id = version.id
-
-    resource_uri = version.resource.uri
-    skolemized_graph = version_graph.skolemize(basepath=f"{resource_uri}#")
+    skolemized_graph = graph.skolemize(basepath=f"{resource_uri}#")
 
     triples = [
         line.rstrip(".")
@@ -64,8 +58,25 @@ def create_embeddings(
             }
         )
 
+    return embeddings_data
+
+
+def create_embeddings(
+    version: Version, collection: str, client: Union[MilvusClient, None] = None
+):
+    if not client:
+        client = MilvusClient(uri=MILVUS_URI)
+
+    init_collections(client)
+
+    version_graph = load_jsonld(version.data)
+    version_id = version.id
+
+    resource_uri = version.resource.uri
+    embeddings_data = generate_vectors(version_graph, resource_uri, version_id)
+
     logging.info(
-        f"Creating embeddings for {resource_uri} version {version_id}, total vectors: {len(triple_vectors)}"
+        f"Creating embeddings for {resource_uri} version {version_id}, total vectors: {len(embeddings_data)}"
     )
     result = client.insert(collection_name=collection, data=embeddings_data)
     logging.info(f"Inserted {result['insert_count']} triple embeddings")
