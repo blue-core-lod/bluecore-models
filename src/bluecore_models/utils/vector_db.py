@@ -32,8 +32,8 @@ def init_collections(client: MilvusClient):
 
 def generate_vectors(graph: rdflib.Graph, resource_uri: str, version_id: int) -> list:
     """
-    Takes a RDF graph, resource URL, and version id and returns a list of embeddings along with
-    metadata for ingestion into .
+    Takes a RDF graph, resource URI, and version id and returns a list of embeddings along with
+    metadata for ingestion into vector database.
     """
     embedding_func = model.DefaultEmbeddingFunction()
     skolemized_graph = graph.skolemize(basepath=f"{resource_uri}#")
