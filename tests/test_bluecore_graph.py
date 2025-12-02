@@ -634,3 +634,38 @@ def test_other_resource_update(pg_session):
         )
         assert instance is not None
         assert len(instance.other_resources) == 1
+
+
+def test_instance_linking(pg_session):
+    """
+    Fails with Attribute Error when query for Instance returns None
+    """
+    # Start with empty database
+    with pg_session() as session:
+        session.query(Instance).delete()
+        session.query(Work).delete()
+        session.query(BibframeOtherResources).delete()
+        session.query(OtherResource).delete()
+        session.commit()
+
+    cbd_jsonld = [
+        {
+            "@context": jsonld_context,
+            "@id": "https://dev.bcld.info/works/4e2496b4-2c5b-491e-8369-a837138234de",
+            "@type": BF.Work,
+            "derivedFrom": "http://id.loc.gov/resources/works/24021036",
+            "hasInstance": "http://id.loc.gov/resources/instances/24021036",
+        },
+        {
+            "@context": jsonld_context,
+            "@id": "https://dev.bcld.info/instances/500da8ca-2a06-4c35-a028-15e37e0e0ddd",
+            "@type": BF.Instance,
+            "derivedFrom": "http://id.loc.gov/resources/instances/24021036",
+            "instanceOf": "http://id.loc.gov/resources/works/24021036",
+        },
+    ]
+
+    with pytest.raises(Exception) as e:
+        save_graph(pg_session, load_jsonld(cbd_jsonld))
+
+    assert str(e.value) == "'NoneType' object has no attribute 'work'"
