@@ -34,7 +34,7 @@ def test_bluecore_graph():
 
     instances = bg.instances()
     assert len(instances) == 2, "found two Instances"
-    assert len(instances[0]) == 11, "found expected number of assertions for Instance 1"
+    assert len(instances[0]) == 12, "found expected number of assertions for Instance 1"
     assert len(instances[1]) == 68, "found expected number of assertions for Instance 2"
 
     others = bg.others()
@@ -56,12 +56,7 @@ def test_save(pg_session):
     """
 
     # it is easier to evaluate if the database is empty of fixture data
-    with pg_session() as session:
-        session.query(Instance).delete()
-        session.query(Work).delete()
-        session.query(BibframeOtherResources).delete()
-        session.query(OtherResource).delete()
-        session.commit()
+    _remove_fixtures(pg_session)
 
     g = Graph()
     g.parse("tests/23807141.ttl")
@@ -85,7 +80,6 @@ def test_save(pg_session):
         others = session.query(OtherResource).all()
         assert len(others) == 32
         for other in others:
-            print(other)
             bfs = (
                 session.query(BibframeOtherResources)
                 .filter(BibframeOtherResources.other_resource == other)
@@ -634,3 +628,97 @@ def test_other_resource_update(pg_session):
         )
         assert instance is not None
         assert len(instance.other_resources) == 1
+
+
+def test_inference(pg_session):
+    """
+    If rdf:type assertions are missing from the graph they should be inferred
+    for resources involved in hasInstance and instanceOf assertions.
+    """
+    cbd_jsonld = {
+        "@context": jsonld_context,
+        "@id": "https://bcld.info/works/4e2496b4-2c5b-491e-8369-a837138234de",
+        "@type": BF.Work,
+        "title": {"mainTitle": "Gravity's Rainbow"},
+        "hasInstance": {
+            "@id": "https://bcld.info/instances/500da8ca-2a06-4c35-a028-15e37e0e0ddd",
+            "provisionActivity": {"date": "1993"},
+        },
+    }
+
+    save_graph(pg_session, load_jsonld(cbd_jsonld))
+
+    with pg_session() as session:
+        work = (
+            session.query(Work)
+            .where(
+                Work.uri
+                == "https://bcld.info/works/4e2496b4-2c5b-491e-8369-a837138234de"
+            )
+            .first()
+        )
+        assert work is not None
+
+        instance = (
+            session.query(Instance)
+            .where(
+                Instance.uri
+                == "https://bcld.info/instances/500da8ca-2a06-4c35-a028-15e37e0e0ddd",
+            )
+            .first()
+        )
+        assert instance is not None
+
+
+def test_instance_linking(pg_session):
+    """
+    Ensure that works and instances are linked correctly when external related
+    reources are used. In this case the hasInstance and instanceOf assertions
+    point at id.loc.gov resources. This test exercises the logic that looks in
+    the graph that is being saved for derivedFrom links.
+    """
+    # Start with empty database
+    _remove_fixtures(pg_session)
+
+    cbd_jsonld = [
+        {
+            "@context": jsonld_context,
+            "@id": "https://bcld.info/works/4e2496b4-2c5b-491e-8369-a837138234de",
+            "@type": BF.Work,
+            "derivedFrom": {"@id": "http://id.loc.gov/resources/works/24021036"},
+            "hasInstance": {"@id": "http://id.loc.gov/resources/instances/24021036"},
+        },
+        {
+            "@context": jsonld_context,
+            "@id": "https://bcld.info/instances/500da8ca-2a06-4c35-a028-15e37e0e0ddd",
+            "@type": BF.Instance,
+            "derivedFrom": {"@id": "http://id.loc.gov/resources/instances/24021036"},
+            "instanceOf": {"@id": "http://id.loc.gov/resources/works/24021036"},
+        },
+    ]
+
+    save_graph(pg_session, load_jsonld(cbd_jsonld))
+
+    with pg_session() as session:
+        works = session.query(Work).all()
+        assert len(works) == 1
+        assert (
+            works[0].uri
+            == "https://bcld.info/works/4e2496b4-2c5b-491e-8369-a837138234de"
+        )
+
+        instances = session.query(Instance).all()
+        assert len(instances) == 1
+        assert (
+            instances[0].uri
+            == "https://bcld.info/instances/500da8ca-2a06-4c35-a028-15e37e0e0ddd"
+        )
+
+
+def _remove_fixtures(pg_session):
+    with pg_session() as session:
+        session.query(Instance).delete()
+        session.query(Work).delete()
+        session.query(BibframeOtherResources).delete()
+        session.query(OtherResource).delete()
+        session.commit()

@@ -39,13 +39,14 @@ class BluecoreGraph:
 
     The heuristic that BluecoreGraph uses for updating the database:
 
-    1. Extract subgraphs for Works, Instances and Other Resources in the larger graph.
-    2. Examine each Work, Instance and Other Resource graph to see if it has a
+    1. Infer any missing assertions in the data that we rely on (notably rdf:type).
+    2. Extract subgraphs for Works, Instances and Other Resources in the larger graph.
+    3. Examine each Work, Instance and Other Resource graph to see if it has a
        Bluecore subject URI.
-    3. If it doesn't have a Bluecore subject URI mint one for it, update the graph
+    4. If it doesn't have a Bluecore subject URI mint one for it, update the graph
        to use it, and preserve the original URI as a bibframe:derivedFrom assertion.
-    4. Save (or update) each Work, Instance and Other Resource to the database.
-    5. Save relationships between the Works, Instances and Other Resources, being
+    5. Save (or update) each Work, Instance and Other Resource to the database.
+    6. Save relationships between the Works, Instances and Other Resources, being
        careful to remove existing many-to-many relations with Other Resources prior
        to adding new ones.
     """
@@ -63,6 +64,7 @@ class BluecoreGraph:
             namespace += "/"
         self.namespace = Namespace(namespace)
         self.graph = graph
+        self._infer()
 
     def works(self) -> list[Graph]:
         """
@@ -102,11 +104,38 @@ class BluecoreGraph:
             self._save(BF.Instance, session)
             self._save(None, session)  # there is no catchall URI for Other Resources
 
-            # link all the works, instaces and other resources together in the db
+            # link all the works, instances and other resources together in the db
             self._link(session)
 
             # all changes are part of one transaction!
             session.commit()
+
+    def _infer(self) -> None:
+        """
+        Infer some triples that we rely on, and which may be missing.
+        """
+
+        # create inverse properties
+        inverse_properties = [
+            (BF.hasInstance, BF.instanceOf),
+        ]
+        for pred1, pred2 in inverse_properties:
+            # add inverse of pred1
+            for s, o in self.graph.subject_objects(predicate=pred1):
+                self.graph.add((o, pred2, s))
+            # add inverse of pred2
+            for s, o in self.graph.subject_objects(predicate=pred2):
+                self.graph.add((o, pred1, s))
+
+        # now infer some resource types
+        type_rules = [
+            # (property, inferred Object type)
+            (BF.hasInstance, BF.Instance),
+            (BF.instanceOf, BF.Work),
+        ]
+        for predicate, object_type in type_rules:
+            for o in self.graph.objects(predicate=predicate):
+                self.graph.add((o, RDF.type, object_type))
 
     def _extract_subgraphs(self, bibframe_class: URIRef) -> list[Graph]:
         """
@@ -176,7 +205,7 @@ class BluecoreGraph:
 
         # ensure we've got a BNode or URIRef
         if not isinstance(uris[0], IdentifiedNode):
-            raise Exception("Found unexpected subject identifier: {uris[0]}")
+            raise Exception(f"Found unexpected subject identifier: {uris[0]}")
 
         return uris[0]
 
@@ -200,25 +229,36 @@ class BluecoreGraph:
             uri = self._subject(sg, class_)
 
             if self._is_bluecore_uri(uri):
-                # there's nothing to do here if its a bluecore URI
+                # there's nothing to do here if it's already a bluecore URI
                 continue
             else:
-                # look up the URI in the database to see if it has been
-                # previously saved with a derivedFrom assertion
-                # if this becomes slow we may want to add an postgres index
-                resource = (
-                    session.query(sqla_class)
-                    .where(sqla_class.data["derivedFrom"]["@id"] == uri)
-                    .first()
-                )
+                # first look in the graph we are saving for a derivedFrom assertion
+                # that indicates an already minted bluecore URI for the external URI
 
-                # if we found a resource then we can update our graph to use the
-                # bluecore URI that was found
-                if resource is not None:
-                    self._switch_uris(
-                        derived_from=uri, bluecore_uri=URIRef(resource.uri)
+                bluecore_uri = self.graph.value(predicate=BF.derivedFrom, object=uri)
+
+                # if not found look up the URI in the database to see if it has been
+                # previously saved with a derivedFrom assertion
+                # TODO: maybe we will need a db index for this eventually?
+
+                if bluecore_uri is None:
+                    resource = (
+                        session.query(sqla_class)
+                        .where(sqla_class.data["derivedFrom"]["@id"] == uri)
+                        .first()
                     )
-                # otherwise we need to create a new bluecore reource
+                    if resource is not None:
+                        bluecore_uri = resource.uri
+
+                # if we found an existing bluecore URI then we can update the graph to use it
+
+                if bluecore_uri is not None:
+                    self._switch_uris(
+                        derived_from=uri, bluecore_uri=URIRef(bluecore_uri)
+                    )
+
+                # otherwise we need to mint a new bluecore uri and update the graph
+
                 else:
                     derived_from = uri
                     bluecore_uri = self._mint_uri(class_)
@@ -315,18 +355,23 @@ class BluecoreGraph:
         """
 
         # use bibframe:instanceOf assertions to link instances with works
+        #
+        # Maybe we should have a simple inference step early on that infers missing
+        # bibframe:instanceOf assertions, and possible other inverse properties
+        # that we might rely on?
+
         for s, o in self.graph.subject_objects(BF.instanceOf):
             logger.info(f"linking {s} to {o}")
-            instance = session.query(Instance).where(Instance.uri == s).first()
-            work = session.query(Work).where(Work.uri == o).first()
+            instance = self._get_first(session, Instance, s)
+            work = self._get_first(session, Work, o)
             instance.work = work
             session.add(instance)
 
         # use bibframe:hasInstance to link works with instances
         for s, o in self.graph.subject_objects(BF.hasInstance):
             logger.info(f"linking {s} to {o}")
-            work = session.query(Work).where(Work.uri == s).first()
-            instance = session.query(Instance).where(Instance.uri == o).first()
+            work = self._get_first(session, Work, s)
+            instance = self._get_first(session, Instance, o)
             instance.work = work
             session.add(instance)
 
@@ -409,6 +454,17 @@ class BluecoreGraph:
             session.query(BibframeOtherResources).filter(
                 BibframeOtherResources.bibframe_resource == bf_resource
             ).delete()
+
+    def _get_first(self, session: Session, sqla_class: Instance | Work, uri: Node):
+        """
+        Look up the first object of the given type in the database and return it
+        or throw an exception.
+        """
+        obj = session.query(sqla_class).where(sqla_class.uri == uri).first()
+        if obj is None:
+            raise Exception(f"Unable to find in db: uri={uri}")
+
+        return obj
 
 
 UPDATE_SPARQL = sparql.prepareUpdate("""
