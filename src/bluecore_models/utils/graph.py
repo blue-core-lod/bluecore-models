@@ -77,8 +77,14 @@ def _exclude_uri_from_other_resources(uri: Node) -> bool:
     return uri in BF or uri in MADS or uri in RDF  # type: ignore
 
 
-def _expand_bnode(graph: Graph, entity_graph: Graph, bnode: BNode):
+def _expand_bnode(graph: Graph, entity_graph: Graph, bnode: BNode) -> None:
     """Expand a blank node in the entity graph."""
+
+    # if the blank node is already present in the entity graph there's no need to add it
+    # this prevents infinite recursion
+    if bnode in entity_graph.subjects():
+        return
+
     for pred, obj in graph.predicate_objects(subject=bnode):
         if _check_for_namespace(pred) or _check_for_namespace(obj):
             continue
