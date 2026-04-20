@@ -8,9 +8,14 @@ from uuid import UUID
 import contextlib
 import pytest
 
-from pytest_mock_resources import create_postgres_fixture, Rows, PostgresConfig
+from pytest_mock_resources import (
+    create_postgres_fixture,
+    PostgresConfig,
+    Rows,
+    StaticStatements,
+)
 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from bluecore_models.models import (
     Base,
@@ -23,6 +28,23 @@ from bluecore_models.models import (
 )
 
 logging.basicConfig(filename="test.log", level=logging.DEBUG)
+
+
+POSTGRES_BOOTSTRAP_DDL = [
+    "CREATE EXTENSION IF NOT EXISTS unaccent;",
+    """
+        CREATE OR REPLACE FUNCTION public.immutable_unaccent(regdictionary, text)
+            RETURNS text
+            LANGUAGE c IMMUTABLE PARALLEL SAFE STRICT AS
+        '$libdir/unaccent', 'unaccent_dict'
+        """,
+    """
+        CREATE OR REPLACE FUNCTION public.f_unaccent(text)
+            RETURNS text
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+        RETURN public.immutable_unaccent(regdictionary 'public.unaccent', $1)
+        """,
+]
 
 
 def create_test_rows():
@@ -68,11 +90,14 @@ def pmr_postgres_config():
     return PostgresConfig(image="postgres:16")
 
 
-engine = create_postgres_fixture(create_test_rows())
+engine = create_postgres_fixture(
+    StaticStatements(*POSTGRES_BOOTSTRAP_DDL),
+    create_test_rows(),
+)
 
 
 @pytest.fixture()
-def pg_session(engine):
+def pg_session(engine) -> sessionmaker[Session]:
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
 
