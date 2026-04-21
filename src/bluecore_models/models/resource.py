@@ -29,14 +29,17 @@ class ResourceBase(Base):
     Boost mainTitle with highest ranking order at A, and subtitle at B.
     Rest of the data is indexed without weights.
     All of them will be indexed with both 'simple' and 'english' configurations with unaccent.
+    jsonb_to_tsv is a custom function that extracts text from jsonb and converts to tsvector - see pg_ext_func.py.
     """
     data_vector: Mapped[bytes] = mapped_column(
         TSVECTOR,
         Computed(
-            "setweight(to_tsvector('simple', f_unaccent(coalesce(data->'title'->>'mainTitle', ''))), 'A') || "
-            "setweight(to_tsvector('english', f_unaccent(coalesce(data->'title'->>'mainTitle', ''))), 'A') || "
-            "setweight(to_tsvector('simple', f_unaccent(coalesce(data->'title'->>'subtitle', ''))), 'B') || "
-            "setweight(to_tsvector('english', f_unaccent(coalesce(data->'title'->>'subtitle', ''))), 'B') || "
+            "setweight(jsonb_to_tsv('simple', data->'title', 'mainTitle'), 'A') || "
+            "setweight(jsonb_to_tsv('english', data->'title', 'mainTitle'), 'A') || "
+            "setweight(jsonb_to_tsv('simple', data->'title', 'subtitle'), 'B') || "
+            "setweight(jsonb_to_tsv('english', data->'title', 'subtitle'), 'B') || "
+            "setweight(to_tsvector('simple', coalesce(uri, '')), 'C') || "
+            "setweight(to_tsvector('english', coalesce(uri, '')), 'C') || "
             "to_tsvector('simple', f_unaccent(coalesce(data::text, ''))) || "
             "to_tsvector('english', f_unaccent(coalesce(data::text, '')))",
             persisted=True,

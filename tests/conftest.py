@@ -26,25 +26,9 @@ from bluecore_models.models import (
     Work,
     BibframeOtherResources,
 )
+from bluecore_models.models.pg_ext_func import PG_EXT_FUNC
 
 logging.basicConfig(filename="test.log", level=logging.DEBUG)
-
-
-POSTGRES_BOOTSTRAP_DDL = [
-    "CREATE EXTENSION IF NOT EXISTS unaccent;",
-    """
-        CREATE OR REPLACE FUNCTION public.immutable_unaccent(regdictionary, text)
-            RETURNS text
-            LANGUAGE c IMMUTABLE PARALLEL SAFE STRICT AS
-        '$libdir/unaccent', 'unaccent_dict'
-        """,
-    """
-        CREATE OR REPLACE FUNCTION public.f_unaccent(text)
-            RETURNS text
-            LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
-        RETURN public.immutable_unaccent(regdictionary 'public.unaccent', $1)
-        """,
-]
 
 
 def create_test_rows():
@@ -91,7 +75,7 @@ def pmr_postgres_config():
 
 
 engine = create_postgres_fixture(
-    StaticStatements(*POSTGRES_BOOTSTRAP_DDL),
+    StaticStatements(*PG_EXT_FUNC),
     create_test_rows(),
 )
 

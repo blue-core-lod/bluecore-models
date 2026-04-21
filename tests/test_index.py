@@ -3,7 +3,6 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-
 from bluecore_models.models import ResourceBase, Work
 
 
@@ -27,8 +26,10 @@ def test_index_weights(pg_session: sessionmaker[Session]) -> None:
         search_query = func.to_tsquery(
             "simple", "Renewable <-> energy <-> policy <-> in <-> Korea"
         )
-        stmt = select(ResourceBase).where(
-            search_query.op("@@")(ResourceBase.data_vector)
+        stmt = (
+            select(ResourceBase)
+            .where(search_query.op("@@")(ResourceBase.data_vector))
+            .order_by(func.ts_rank(ResourceBase.data_vector, search_query).desc())
         )
         results = session.execute(stmt).scalars().all()
         assert len(results) == 2
