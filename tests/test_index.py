@@ -1,4 +1,4 @@
-import pytest
+import pytest  # noqa
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
