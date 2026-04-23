@@ -26,7 +26,7 @@ class ResourceBase(Base):
         onupdate=lambda: datetime.now(UTC),
     )
     """
-    Boost mainTitle with highest ranking order at A, and subtitle at B.
+    Boost mainTitle with highest ranking order at A, subtitle at B, and uri at C.
     Rest of the data is indexed without weights.
     All of them will be indexed with both 'simple' and 'english' configurations with unaccent.
     jsonb_to_tsv is a custom function that extracts text from jsonb and converts to tsvector - see pg_ext_func.py.
