@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Optional
 
-from sqlalchemy import Computed, DateTime, String, Uuid, event, text
+from sqlalchemy import Computed, DateTime, Index, String, Uuid, event, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,14 +25,43 @@ class ResourceBase(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
+    """
+    Boost mainTitle with highest ranking order at A, subtitle at B, and uri at C.
+    Rest of the data is indexed without weights.
+    All of them will be indexed with both 'simple' and 'english' configurations with unaccent.
+    jsonb_to_tsv is a custom function that extracts text from jsonb and converts to tsvector - see pg_ext_func.py.
+    """
     data_vector: Mapped[bytes] = mapped_column(
-        TSVECTOR, Computed(text("to_tsvector('english', data)"))
+        TSVECTOR,
+        Computed(
+            "setweight(jsonb_to_tsv('simple', data->'title', 'mainTitle'), 'A') || "
+            "setweight(jsonb_to_tsv('english', data->'title', 'mainTitle'), 'A') || "
+            "setweight(jsonb_to_tsv('simple', data->'title', 'subtitle'), 'B') || "
+            "setweight(jsonb_to_tsv('english', data->'title', 'subtitle'), 'B') || "
+            "setweight(to_tsvector('simple', coalesce(uri, '')), 'C') || "
+            "setweight(to_tsvector('english', coalesce(uri, '')), 'C') || "
+            "to_tsvector('simple', f_unaccent(coalesce(data::text, ''))) || "
+            "to_tsvector('english', f_unaccent(coalesce(data::text, '')))",
+            persisted=True,
+        ),
     )
 
     __mapper_args__ = {
         "polymorphic_on": type,
         "polymorphic_identity": "resource_base",
     }
+
+    __table_args__ = (
+        Index(
+            "index_resource_base_on_data_derivedfrom_id",
+            text("((data -> 'derivedFrom'::text) ->> '@id'::text)"),
+        ),
+        Index(
+            "index_resource_base_on_data_vector", data_vector, postgresql_using="gin"
+        ),
+        Index("index_resource_base_on_uuid", uuid),
+        Index("type_idx", type),
+    )
 
 
 # ==============================================================================

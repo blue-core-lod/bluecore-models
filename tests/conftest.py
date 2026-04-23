@@ -8,9 +8,14 @@ from uuid import UUID
 import contextlib
 import pytest
 
-from pytest_mock_resources import create_postgres_fixture, Rows, PostgresConfig
+from pytest_mock_resources import (
+    create_postgres_fixture,
+    PostgresConfig,
+    Rows,
+    StaticStatements,
+)
 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from bluecore_models.models import (
     Base,
@@ -21,6 +26,7 @@ from bluecore_models.models import (
     Work,
     BibframeOtherResources,
 )
+from bluecore_models.models.pg_ext_func import PG_EXT_FUNC
 
 logging.basicConfig(filename="test.log", level=logging.DEBUG)
 
@@ -68,11 +74,14 @@ def pmr_postgres_config():
     return PostgresConfig(image="postgres:16")
 
 
-engine = create_postgres_fixture(create_test_rows())
+engine = create_postgres_fixture(
+    StaticStatements(*PG_EXT_FUNC),
+    create_test_rows(),
+)
 
 
 @pytest.fixture()
-def pg_session(engine):
+def pg_session(engine) -> sessionmaker[Session]:
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
 
