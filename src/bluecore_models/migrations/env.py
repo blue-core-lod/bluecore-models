@@ -1,3 +1,4 @@
+import os
 import pathlib
 import sys
 
@@ -44,6 +45,10 @@ target_metadata = Base.metadata
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
+
+# Dynamically set the URL from an environment variable
+database_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://airflow:airflow@postgres/bluecore")
+config.set_main_option("sqlalchemy.url", database_url)
 
 
 def run_migrations_offline() -> None:
