@@ -65,7 +65,7 @@ def run_migrations_offline() -> None:
     """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=os.getenv("DATABASE_URL", "postgresql+psycopg2://airflow:airflow@localhost/bluecore"),
+        url=os.getenv("DATABASE_URL"),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
