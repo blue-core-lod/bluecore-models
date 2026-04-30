@@ -72,8 +72,9 @@ def run_migrations_offline() -> None:
 
 
 # Dynamically set the URL from an environment variable
-# database_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://airflow:airflow@localhost/bluecore")
-# config.set_main_option("sqlalchemy.url", database_url)
+# database_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://airflow:airflow@winner/bluecore")
+database_url = "postgresql+psycopg2://airflow:airflow@winner/bluecore"
+config.set_main_option("sqlalchemy.url", database_url)
 
 
 def run_migrations_online() -> None:
