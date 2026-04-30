@@ -47,8 +47,8 @@ target_metadata = Base.metadata
 # ... etc.
 
 # Dynamically set the URL from an environment variable
-database_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://airflow:airflow@postgres/bluecore")
-config.set_main_option("sqlalchemy.url", database_url)
+# database_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://airflow:airflow@localhost/bluecore")
+# config.set_main_option("sqlalchemy.url", database_url)
 
 
 def run_migrations_offline() -> None:
@@ -65,7 +65,7 @@ def run_migrations_offline() -> None:
     """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=os.getenv("DATABASE_URL", "postgresql+psycopg2://airflow:airflow@localhost/bluecore"),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
