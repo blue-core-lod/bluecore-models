@@ -46,10 +46,6 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-# Dynamically set the URL from an environment variable
-# database_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://airflow:airflow@localhost/bluecore")
-# config.set_main_option("sqlalchemy.url", database_url)
-
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -63,8 +59,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    # url = config.get_main_option("sqlalchemy.url")
-    url = os.getenv("DATABASE_URL")
+    url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -74,6 +69,11 @@ def run_migrations_offline() -> None:
 
     with context.begin_transaction():
         context.run_migrations()
+
+
+# Dynamically set the URL from an environment variable
+# database_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://airflow:airflow@localhost/bluecore")
+# config.set_main_option("sqlalchemy.url", database_url)
 
 
 def run_migrations_online() -> None:
