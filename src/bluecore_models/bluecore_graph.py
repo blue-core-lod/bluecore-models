@@ -329,6 +329,15 @@ class BluecoreGraph:
                 resources = self.others()
                 sqla_class = OtherResource
 
+        # Write shared Other Resources in a deterministic, sorted-by-URI order.
+        # Concurrent transactions then acquire locks on these hot rows in the
+        # same order and serialize instead of deadlocking. Works and Instances
+        # are distinct per file (and have randomly minted URIs), so they are
+        # left in their natural order.
+        # See https://github.com/blue-core-lod/bluecore-models/issues/94
+        if class_ is None:
+            resources = sorted(resources, key=lambda g: str(self._subject(g, class_)))
+
         for g in resources:
             uri = self._subject(g, class_)
             data = json.loads(g.serialize(format="json-ld"))
@@ -360,7 +369,12 @@ class BluecoreGraph:
         # bibframe:instanceOf assertions, and possible other inverse properties
         # that we might rely on?
 
-        for s, o in self.graph.subject_objects(BF.instanceOf):
+        # sort all the link iterations by URI so that, like _save, concurrent
+        # transactions acquire row locks in the same deterministic order.
+        for s, o in sorted(
+            self.graph.subject_objects(BF.instanceOf),
+            key=lambda pair: (str(pair[0]), str(pair[1])),
+        ):
             logger.info(f"linking {s} to {o}")
             instance = self._get_first(session, Instance, s)
             work = self._get_first(session, Work, o)
@@ -368,7 +382,10 @@ class BluecoreGraph:
             session.add(instance)
 
         # use bibframe:hasInstance to link works with instances
-        for s, o in self.graph.subject_objects(BF.hasInstance):
+        for s, o in sorted(
+            self.graph.subject_objects(BF.hasInstance),
+            key=lambda pair: (str(pair[0]), str(pair[1])),
+        ):
             logger.info(f"linking {s} to {o}")
             work = self._get_first(session, Work, s)
             instance = self._get_first(session, Instance, o)
@@ -384,10 +401,16 @@ class BluecoreGraph:
         self._delete_other_links(BF.Work, session)
         self._delete_other_links(BF.Instance, session)
 
-        work_graphs = self.works()
-        instance_graphs = self.instances()
+        work_graphs = sorted(
+            self.works(), key=lambda g: str(self._subject(g, BF.Work))
+        )
+        instance_graphs = sorted(
+            self.instances(), key=lambda g: str(self._subject(g, BF.Instance))
+        )
 
-        for other_graph in self.others():
+        for other_graph in sorted(
+            self.others(), key=lambda g: str(self._subject(g))
+        ):
             other_uri = self._subject(other_graph)
 
             # look at each Work graph and see if the Other Resource URI appears
