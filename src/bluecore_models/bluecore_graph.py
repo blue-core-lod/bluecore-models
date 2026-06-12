@@ -2,8 +2,10 @@ import json
 import logging
 from uuid import uuid4
 
+from psycopg2 import errors as psycopg2_errors
 from rdflib import Graph, URIRef, Namespace, Node, IdentifiedNode
 from rdflib.plugins import sparql
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm.session import sessionmaker, Session
 
 from bluecore_models.namespaces import BF, MADS, RDF
@@ -12,6 +14,16 @@ from bluecore_models.utils.graph import generate_entity_graph
 
 
 logger = logging.getLogger(__name__)
+
+# Postgres errors that mean "the transaction lost a race and can be safely
+# retried by re-running it from the start" (a graph save is self-contained).
+RETRYABLE_PG_ERRORS = (
+    psycopg2_errors.DeadlockDetected,
+    psycopg2_errors.SerializationFailure,
+)
+
+# How many times to attempt save() before giving up on serialization failures.
+SAVE_MAX_ATTEMPTS = 3
 
 
 def save_graph(
@@ -87,28 +99,48 @@ class BluecoreGraph:
         """
         return self._extract_others()
 
-    def save(self, session_maker: sessionmaker) -> None:
+    def save(
+        self, session_maker: sessionmaker, max_attempts: int = SAVE_MAX_ATTEMPTS
+    ) -> None:
         """
         Persists the graph to the database using the supplied sqlalchemy
         sessionmaker. All the database modifications are made using a single
         transaction.
+
+        Under concurrent writers a transaction can still lose a race and be
+        aborted by Postgres with a deadlock or serialization failure. Since a
+        graph save is self-contained and idempotent, we simply re-run the whole
+        thing on a fresh session up to max_attempts times.
         """
-        with session_maker() as session:
-            # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
-            # note: OtherResources keep their original URI
-            self._mint_all_uris(BF.Work, session)
-            self._mint_all_uris(BF.Instance, session)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                with session_maker() as session:
+                    # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
+                    # note: OtherResources keep their original URI
+                    self._mint_all_uris(BF.Work, session)
+                    self._mint_all_uris(BF.Instance, session)
 
-            # save resources from the graph to the database
-            self._save(BF.Work, session)
-            self._save(BF.Instance, session)
-            self._save(None, session)  # there is no catchall URI for Other Resources
+                    # save resources from the graph to the database
+                    self._save(BF.Work, session)
+                    self._save(BF.Instance, session)
+                    self._save(None, session)  # there is no catchall URI for Other Resources
 
-            # link all the works, instances and other resources together in the db
-            self._link(session)
+                    # link all the works, instances and other resources together in the db
+                    self._link(session)
 
-            # all changes are part of one transaction!
-            session.commit()
+                    # all changes are part of one transaction!
+                    session.commit()
+                return
+            except OperationalError as error:
+                if attempt < max_attempts and isinstance(
+                    error.orig, RETRYABLE_PG_ERRORS
+                ):
+                    logger.warning(
+                        f"retrying graph save after {type(error.orig).__name__} "
+                        f"(attempt {attempt} of {max_attempts})"
+                    )
+                    continue
+                raise
 
     def _infer(self) -> None:
         """
