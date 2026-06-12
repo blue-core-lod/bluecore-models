@@ -26,9 +26,7 @@ class Work(ResourceBase):
         Integer, ForeignKey("resource_base.id"), primary_key=True
     )
     hub_id: Mapped[int] = mapped_column(Integer, ForeignKey("hubs.id"), nullable=True)
-    hub: Mapped["Hub"] = relationship(
-        "Hub", foreign_keys=hub_id, backref="works"
-    )
+    hub: Mapped["Hub"] = relationship("Hub", foreign_keys=hub_id, backref="works")
 
     __mapper_args__ = {
         "polymorphic_identity": "works",

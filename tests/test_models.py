@@ -295,7 +295,10 @@ def test_hub(pg_session):
         version = session.query(Version).filter_by(resource_id=hub.id).first()
         assert hub.created_at == hub.updated_at
         assert version.created_at == hub.updated_at
-        assert hub.uri == "http://id.loc.gov/resources/hubs/62a26d82-4e65-c696-afed-b12d215a35b1"
+        assert (
+            hub.uri
+            == "http://id.loc.gov/resources/hubs/62a26d82-4e65-c696-afed-b12d215a35b1"
+        )
         assert hub.uuid == UUID("62a26d82-4e65-c696-afed-b12d215a35b1")
         assert hub.data
         assert hub.created_at
