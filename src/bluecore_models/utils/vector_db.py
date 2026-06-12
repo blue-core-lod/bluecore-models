@@ -28,6 +28,12 @@ def init_collections(client: MilvusClient):
             collection_name="instances",
             dimension=768,
         )
+    if not client.has_collection("hubs"):
+        logger.info("Creating hubs collection")
+        client.create_collection(
+            collection_name="hubs",
+            dimension=768,
+        )
 
 
 def generate_vectors(graph: rdflib.Graph, resource_uri: str, version_id: int) -> list:

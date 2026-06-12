@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from bluecore_models.models import (
     Base,
     ResourceBibframeClass,  # noqa
+    Hub,
     Instance,
     OtherResource,
     Version,  # noqa
@@ -65,6 +66,14 @@ def create_test_rows():
             bibframe_resource_id=1,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
+        ),
+        Hub(
+            uri="http://id.loc.gov/resources/hubs/62a26d82-4e65-c696-afed-b12d215a35b1",
+            created_at=time_now,
+            updated_at=time_now,
+            data=json.load(pathlib.Path("tests/blue-core-hub.jsonld").open()),
+            uuid=UUID("62a26d82-4e65-c696-afed-b12d215a35b1"),
+            type="hubs",
         ),
     )
 

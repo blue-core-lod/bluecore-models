@@ -76,3 +76,14 @@ jobs:
             - Bumped patch version to `${{ steps.bump_version.outputs.new_version }}`
           commit-message: 'Update dependencies and bump patch version to ${{ steps.bump_version.outputs.new_version }}'
           labels: dependencies
+
+      - name: Notify Slack
+        if: steps.check_changes.outputs.changed == 'true'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          PR_URL: ${{ steps.create_pr.outputs.pull-request-url }}
+          NEW_VERSION: ${{ steps.bump_version.outputs.new_version }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\": \"bluecore-workflows dependency update PR opened: <$PR_URL|v$NEW_VERSION>\"}" \
+            "$SLACK_WEBHOOK_URL"
