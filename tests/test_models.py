@@ -10,6 +10,7 @@ from bluecore_models.models import (
     Base,  # noqa
     BibframeClass,
     ResourceBibframeClass,
+    Hub,
     Instance,
     OtherResource,
     Version,
@@ -196,7 +197,7 @@ def test_work_with_other_resources(pg_session):
     """
     with pg_session() as session:
         new_work = Work(
-            id=4,
+            id=5,
             uri="https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
             data={
                 "@id": "https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
@@ -222,7 +223,7 @@ def test_work_with_other_resources(pg_session):
         session.commit()
 
         language = OtherResource(
-            id=5,
+            id=6,
             uri="http://id.loc.gov/vocabulary/languages/eng",
             data=[
                 {
@@ -248,7 +249,7 @@ def test_work_with_other_resources(pg_session):
             language_resource
         )  # Before this would add an duplicate Work version
         ctb_relator = OtherResource(
-            id=6,
+            id=7,
             uri="http://id.loc.gov/vocabulary/relators/ctb",
             data={
                 "@id": "http://id.loc.gov/vocabulary/relators/ctb",
@@ -262,7 +263,7 @@ def test_work_with_other_resources(pg_session):
         )
         session.add(ctb_relator_resource)
         person = OtherResource(
-            id=7,
+            id=8,
             uri="http://id.loc.gov/rwo/agents/no2012077908",
             data={
                 "@id": "http://id.loc.gov/rwo/agents/no2012077908",
@@ -286,6 +287,76 @@ def test_work_with_other_resources(pg_session):
         session.commit()
 
         assert len(new_work.versions) == 1, "Ensure only 1 version for work"
+
+
+def test_hub(pg_session):
+    with pg_session() as session:
+        hub = session.query(Hub).where(Hub.id == 4).first()
+        version = session.query(Version).filter_by(resource_id=hub.id).first()
+        assert hub.created_at == hub.updated_at
+        assert version.created_at == hub.updated_at
+        assert hub.uri == "http://id.loc.gov/resources/hubs/62a26d82-4e65-c696-afed-b12d215a35b1"
+        assert hub.uuid == UUID("62a26d82-4e65-c696-afed-b12d215a35b1")
+        assert hub.data
+        assert hub.created_at
+        assert hub.updated_at
+        assert len(hub.versions) == 1
+        assert len(hub.classes) == 2  # bf:Hub and bf:Work
+
+
+def test_updated_hub(pg_session):
+    with pg_session() as session:
+        hub = session.query(Hub).where(Hub.id == 4).first()
+        assert len(hub.versions) == 1
+        assert len(hub.classes) == 2
+        version_before_update = hub.versions[0]
+        assert version_before_update.created_at == hub.updated_at
+        hub_graph = load_jsonld(hub.data)
+        hub_uri = rdflib.URIRef(hub.uri)
+        hub_graph.remove((hub_uri, rdflib.RDF.type, BF.Work))
+        hub.data = json.loads(hub_graph.serialize(format="json-ld"))
+        session.add(hub)
+        session.commit()
+        assert len(hub.versions) == 2
+        assert len(hub.classes) == 1
+        latest_version = max(hub.versions, key=lambda version: version.id)
+        assert latest_version.created_at == hub.updated_at
+
+
+def test_hub_work_relationship(pg_session):
+    with pg_session() as session:
+        hub = session.query(Hub).where(Hub.id == 4).first()
+        work = Work(
+            uri="https://bluecore.info/works/hub-related-work",
+            data={
+                "@id": "https://bluecore.info/works/hub-related-work",
+                "@context": {"@vocab": "http://id.loc.gov/ontologies/bibframe/"},
+                "@type": "Work",
+                "title": [{"@type": "Title", "mainTitle": "A work belonging to a hub"}],
+            },
+            hub_id=hub.id,
+        )
+        session.add(work)
+        session.commit()
+        assert work.hub is not None
+        assert work.hub.uri == hub.uri
+        assert work in hub.works
+
+
+def test_hub_jsonld_framing():
+    hub_json = json.load(Path("tests/blue-core-hub.jsonld").open())
+    hub = Hub(
+        uri="http://id.loc.gov/resources/hubs/62a26d82-4e65-c696-afed-b12d215a35b1",
+        data=hub_json,
+    )
+    assert hub_json != hub.data, "setting Hub.data frames json-ld"
+    assert (
+        hub.data["@id"]
+        == "http://id.loc.gov/resources/hubs/62a26d82-4e65-c696-afed-b12d215a35b1"
+    ), "framing preserved @id"
+    assert "Hub" in hub.data["@type"], "framing compacted bf:Hub type"
+    assert "Work" in hub.data["@type"], "framing compacted bf:Work type"
+    assert isinstance(hub.data["@context"], dict), "framing added @context"
 
 
 def test_work_jsonld_framing():

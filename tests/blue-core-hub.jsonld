@@ -1,0 +1,336 @@
+[
+  {
+    "@id": "_:b19iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Identifier"
+    ],
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": [
+      {
+        "@value": "17955294"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/qualifier": [
+      {
+        "@value": "LC-ILSDB"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/source": [
+      {
+        "@id": "_:b25iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      }
+    ]
+  },
+  {
+    "@id": "_:b13iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/VariantTitle"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/mainTitle": [
+      {
+        "@language": "zxx-hang",
+        "@value": "정책 연구 시리즈"
+      }
+    ]
+  },
+  {
+    "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Agent",
+      "http://id.loc.gov/ontologies/bibframe/Organization"
+    ],
+    "http://www.w3.org/2000/01/rdf-schema#label": [
+      {
+        "@value": "United States, Library of Congress, Network Development and MARC Standards Office"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/code": [
+      {
+        "@type": "http://id.loc.gov/datatypes/orgs/code",
+        "@value": "DLC-MRC"
+      },
+      {
+        "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+        "@value": "dlcmrc"
+      },
+      {
+        "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+        "@value": "US-dlcmrc"
+      }
+    ]
+  },
+  {
+    "@id": "_:b25iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Source"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/code": [
+      {
+        "@value": "local"
+      }
+    ]
+  },
+  {
+    "@id": "_:b37iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/AdminMetadata"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/status": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/n"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/date": [
+      {
+        "@type": "http://www.w3.org/2001/XMLSchema#date",
+        "@value": "2013-11-26"
+      }
+    ]
+  },
+  {
+    "@id": "_:b29iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Note",
+      "http://id.loc.gov/vocabulary/mnotetype/descsource"
+    ],
+    "http://www.w3.org/2000/01/rdf-schema#label": [
+      {
+        "@value": "Created from bib ap."
+      }
+    ]
+  },
+  {
+    "@id": "http://id.loc.gov/vocabulary/menclvl/7",
+    "@type": [
+      "http://id.loc.gov/ontologies/bflc/EncodingLevel"
+    ],
+    "http://www.w3.org/2000/01/rdf-schema#label": [
+      {
+        "@value": "minimal"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/code": [
+      {
+        "@value": "7"
+      }
+    ]
+  },
+  {
+    "@id": "_:b88iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Local"
+    ],
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": [
+      {
+        "@value": "62a26d82-4e65-c696-afed-b12d215a35b1"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/assigner": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlc"
+      }
+    ]
+  },
+  {
+    "@id": "_:b47iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/AdminMetadata"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/status": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/c"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/date": [
+      {
+        "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "@value": "2018-02-20T13:27:21"
+      }
+    ]
+  },
+  {
+    "@id": "_:b9iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Title"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/mainTitle": [
+      {
+        "@value": "Chŏngch'aek yŏn'gu sirijŭ"
+      }
+    ]
+  },
+  {
+    "@id": "http://id.loc.gov/vocabulary/mstatus/c",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Status",
+      "http://id.loc.gov/ontologies/bibframe/Status"
+    ],
+    "http://www.w3.org/2000/01/rdf-schema#label": [
+      {
+        "@value": "changed"
+      },
+      {
+        "@value": "changed"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/code": [
+      {
+        "@value": "c"
+      },
+      {
+        "@value": "c"
+      }
+    ]
+  },
+  {
+    "@id": "http://id.loc.gov/vocabulary/organizations/dlc",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Organization"
+    ],
+    "http://www.w3.org/2000/01/rdf-schema#label": [
+      {
+        "@value": "United States, Library of Congress"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/code": [
+      {
+        "@type": "http://id.loc.gov/datatypes/orgs/code",
+        "@value": "DLC"
+      },
+      {
+        "@type": "http://id.loc.gov/datatypes/orgs/normalized",
+        "@value": "dlc"
+      },
+      {
+        "@type": "http://id.loc.gov/datatypes/orgs/iso15511",
+        "@value": "US-dlc"
+      }
+    ]
+  },
+  {
+    "@id": "_:b57iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/AdminMetadata"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/status": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/mstatus/c"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/agent": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/organizations/dlcmrc"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/generationProcess": [
+      {
+        "@id": "https://github.com/lcnetdev/marc2bibframe2/tree/v2.10-dev"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/date": [
+      {
+        "@type": "http://www.w3.org/2001/XMLSchema#dateTime",
+        "@value": "2025-04-25T07:18:10.274737-04:00"
+      }
+    ]
+  },
+  {
+    "@id": "http://id.loc.gov/resources/hubs/62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Work",
+      "http://id.loc.gov/ontologies/bibframe/Hub"
+    ],
+    "http://id.loc.gov/ontologies/bflc/aap": [
+      {
+        "@value": "Chŏngch'aek yŏn'gu sirijŭ"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bflc/aap-normalized": [
+      {
+        "@value": "chŏngch'aekyŏn'gusirijŭ"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/title": [
+      {
+        "@id": "_:b9iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      },
+      {
+        "@id": "_:b13iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bflc/marcKey": [
+      {
+        "@value": "1300 $aChŏngch'aek yŏn'gu sirijŭ ;"
+      },
+      {
+        "@language": "zxx-hang",
+        "@value": "1300 $a정책 연구 시리즈"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/identifiedBy": [
+      {
+        "@id": "_:b19iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/note": [
+      {
+        "@id": "_:b29iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      }
+    ],
+    "http://purl.org/dc/terms/isPartOf": [
+      {
+        "@id": "http://id.loc.gov/resources/hubs"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/adminMetadata": [
+      {
+        "@id": "_:b37iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      },
+      {
+        "@id": "_:b47iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      },
+      {
+        "@id": "_:b57iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      },
+      {
+        "@id": "_:b79iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      }
+    ]
+  },
+  {
+    "@id": "_:b79iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/AdminMetadata"
+    ],
+    "http://id.loc.gov/ontologies/bibframe/descriptionLevel": [
+      {
+        "@id": "http://id.loc.gov/ontologies/bibframe-2-5-0/"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bflc/encodingLevel": [
+      {
+        "@id": "http://id.loc.gov/vocabulary/menclvl/7"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/identifiedBy": [
+      {
+        "@id": "_:b88iddOtlocdOtgovresourceshubs62a26d82-4e65-c696-afed-b12d215a35b1"
+      }
+    ]
+  },
+  {
+    "@id": "http://id.loc.gov/vocabulary/mstatus/n",
+    "@type": [
+      "http://id.loc.gov/ontologies/bibframe/Status"
+    ],
+    "http://www.w3.org/2000/01/rdf-schema#label": [
+      {
+        "@value": "new"
+      }
+    ],
+    "http://id.loc.gov/ontologies/bibframe/code": [
+      {
+        "@value": "n"
+      }
+    ]
+  }
+]

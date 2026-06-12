@@ -4,6 +4,7 @@ from bluecore_models.models.bf_classes import (
     BibframeClass as BibframeClass,
     ResourceBibframeClass as ResourceBibframeClass,
 )
+from bluecore_models.models.hub import Hub as Hub
 from bluecore_models.models.instance import Instance as Instance
 from bluecore_models.models.version import Version as Version
 from bluecore_models.models.work import Work as Work
