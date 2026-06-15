@@ -127,8 +127,8 @@ def test_save_retries_on_deadlock(pg_session):
 SHARED_OTHER_URI = "http://id.loc.gov/test/shared-authority"
 
 
-def _work_referencing_shared_other(work_uuid: str) -> Graph:
-    """A minimal Work graph that references the single shared Other Resource."""
+def _work_referencing_shared_other(work_uuid: str, other_uri: str) -> Graph:
+    """A minimal Work graph that references the given shared Other Resource."""
     return load_jsonld(
         {
             "@context": jsonld_context,
@@ -136,7 +136,7 @@ def _work_referencing_shared_other(work_uuid: str) -> Graph:
             "@type": BF.Work,
             "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
             "subject": {
-                "@id": SHARED_OTHER_URI,
+                "@id": other_uri,
                 "@type": "Topic",
                 "rdfs:label": "Shared Authority",
             },
@@ -146,19 +146,20 @@ def _work_referencing_shared_other(work_uuid: str) -> Graph:
 
 def test_concurrent_first_time_create_of_same_uri(pg_session):
     """
-    Replace the SELECT-then-INSERT get-or-create with an atomic upsert
-    (INSERT ... ON CONFLICT (uri) DO NOTHING/UPDATE).
+    Acceptance criterion #3: concurrent first-time creation of the same Other
+    Resource uri must not raise a unique-constraint error.
 
     Several concurrent writers each save a distinct Work that references the
     SAME brand-new Other Resource. The current code does
     `session.query(...).where(uri == ...).first()` then INSERTs on a miss, so
     multiple writers miss and all INSERT the same uri -> a unique-constraint
-    IntegrityError.
+    IntegrityError. A barrier lines the writers up so they all run their
+    get-or-create before any commits, which makes the race fire reliably
+    against the current code.
 
-    A barrier lines the writers up so they all run their get-or-create before
-    any commits, which makes the race fire reliably against the current code.
-    With an atomic upsert, concurrent first-time creation must instead leave
-    exactly one row and raise nothing.
+    Each round uses a fresh, never-before-seen authority uri so that every
+    round is a genuine *first-time* creation (the acceptance scenario), run
+    several times to make the race reliably reproducible.
     """
     _remove_fixtures(pg_session)
 
@@ -168,14 +169,13 @@ def test_concurrent_first_time_create_of_same_uri(pg_session):
     failures_lock = threading.Lock()
 
     for round_num in range(rounds):
-        # each round must be a genuine first-time create, so start empty
-        _remove_fixtures(pg_session)
+        other_uri = f"{SHARED_OTHER_URI}/{round_num}"
 
         barrier = threading.Barrier(writers)
 
-        def writer(idx: int) -> None:
+        def writer(idx: int, other_uri: str = other_uri) -> None:
             work_uuid = f"{round_num:02d}{idx:02d}0000-0000-0000-0000-000000000000"
-            graph = _work_referencing_shared_other(work_uuid)
+            graph = _work_referencing_shared_other(work_uuid, other_uri)
             barrier.wait()  # all writers do get-or-create before anyone commits
             try:
                 save_graph(pg_session, graph)
@@ -197,16 +197,18 @@ def test_concurrent_first_time_create_of_same_uri(pg_session):
         f"but {len(failures)} writer(s) failed: {failures[:5]}"
     )
 
+    # every round's authority should have been created exactly once
     with pg_session() as session:
-        others = (
-            session.query(OtherResource)
-            .where(OtherResource.uri == SHARED_OTHER_URI)
-            .all()
-        )
-        assert len(others) == 1, (
-            "concurrent first-time creation should yield exactly one row, "
-            f"found {len(others)}"
-        )
+        for round_num in range(rounds):
+            others = (
+                session.query(OtherResource)
+                .where(OtherResource.uri == f"{SHARED_OTHER_URI}/{round_num}")
+                .all()
+            )
+            assert len(others) == 1, (
+                "concurrent first-time creation should yield exactly one row for "
+                f"{SHARED_OTHER_URI}/{round_num}, found {len(others)}"
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ from uuid import uuid4
 from psycopg2 import errors as psycopg2_errors
 from rdflib import Graph, URIRef, Namespace, Node, IdentifiedNode
 from rdflib.plugins import sparql
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm.session import sessionmaker, Session
 
 from bluecore_models.namespaces import BF, MADS, RDF
@@ -17,9 +17,16 @@ logger = logging.getLogger(__name__)
 
 # Postgres errors that mean "the transaction lost a race and can be safely
 # retried by re-running it from the start" (a graph save is self-contained).
+#
+# - DeadlockDetected / SerializationFailure: two writers locked shared rows in a
+#   conflicting way; Postgres aborted one of them.
+# - UniqueViolation: two writers both did get-or-create on the same brand-new
+#   shared Other Resource uri and both tried to INSERT it. On a retry the SELECT
+#   finds the row the winner committed and takes the update/no-op path instead.
 RETRYABLE_PG_ERRORS = (
     psycopg2_errors.DeadlockDetected,
     psycopg2_errors.SerializationFailure,
+    psycopg2_errors.UniqueViolation,
 )
 
 # How many times to attempt save() before giving up on serialization failures.
@@ -131,7 +138,7 @@ class BluecoreGraph:
                     # all changes are part of one transaction!
                     session.commit()
                 return
-            except OperationalError as error:
+            except (OperationalError, IntegrityError) as error:
                 if attempt < max_attempts and isinstance(
                     error.orig, RETRYABLE_PG_ERRORS
                 ):
