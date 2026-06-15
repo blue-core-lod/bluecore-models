@@ -84,6 +84,7 @@ class _FlakySessionMaker:
         self.calls += 1
         session = self._real(*args, **kwargs)
         if self.calls <= self._fail_times:
+
             def boom():
                 raise OperationalError(
                     "UPDATE resource_base SET data=%(data)s::JSONB ...",
@@ -233,7 +234,9 @@ def _seed_authorities(pg_session) -> None:
         session.commit()
 
 
-def _work_referencing_all_authorities(work_uuid: str, order: list[str], salt: str) -> Graph:
+def _work_referencing_all_authorities(
+    work_uuid: str, order: list[str], salt: str
+) -> Graph:
     """
     A Work that references every shared authority (as a subject), in the given
     order, with labels that differ from the seed so a real UPDATE is forced on
@@ -255,7 +258,7 @@ def _work_referencing_all_authorities(work_uuid: str, order: list[str], salt: st
 
 def test_concurrent_writers_sharing_authorities_no_deadlock(pg_session):
     """
-    Two or more concurrent save_graph() writers loading records that 
+    Two or more concurrent save_graph() writers loading records that
     share authorities must complete without DeadlockDetected.
 
     Each round launches several writers concurrently. Every writer saves a

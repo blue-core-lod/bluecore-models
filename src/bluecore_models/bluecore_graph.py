@@ -127,7 +127,9 @@ class BluecoreGraph:
                     # save resources from the graph to the database
                     self._save(BF.Work, session)
                     self._save(BF.Instance, session)
-                    self._save(None, session)  # there is no catchall URI for Other Resources
+                    self._save(
+                        None, session
+                    )  # there is no catchall URI for Other Resources
 
                     # link all the works, instances and other resources together in the db
                     self._link(session)
@@ -438,16 +440,12 @@ class BluecoreGraph:
         self._delete_other_links(BF.Work, session)
         self._delete_other_links(BF.Instance, session)
 
-        work_graphs = sorted(
-            self.works(), key=lambda g: str(self._subject(g, BF.Work))
-        )
+        work_graphs = sorted(self.works(), key=lambda g: str(self._subject(g, BF.Work)))
         instance_graphs = sorted(
             self.instances(), key=lambda g: str(self._subject(g, BF.Instance))
         )
 
-        for other_graph in sorted(
-            self.others(), key=lambda g: str(self._subject(g))
-        ):
+        for other_graph in sorted(self.others(), key=lambda g: str(self._subject(g))):
             other_uri = self._subject(other_graph)
 
             # look at each Work graph and see if the Other Resource URI appears
