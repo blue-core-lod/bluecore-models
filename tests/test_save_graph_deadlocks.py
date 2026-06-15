@@ -30,7 +30,7 @@ def _remove_fixtures(pg_session):
 
 
 # ---------------------------------------------------------------------------
-# #1 Deterministic write ordering
+# Deterministic write ordering
 # ---------------------------------------------------------------------------
 def test_save_writes_other_resources_in_sorted_order(pg_session, monkeypatch):
     """
@@ -39,8 +39,7 @@ def test_save_writes_other_resources_in_sorted_order(pg_session, monkeypatch):
     same order and serialize instead of deadlocking.
 
     We spy on Session.add and assert the Other Resources are added in
-    ascending-URI order. Currently they are added in arbitrary rdflib graph
-    order, so this fails.
+    ascending-URI order.
     """
     _remove_fixtures(pg_session)
 
@@ -66,7 +65,7 @@ def test_save_writes_other_resources_in_sorted_order(pg_session, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# #5 Built-in serialization-failure retry
+# Built-in serialization-failure retry
 # ---------------------------------------------------------------------------
 class _FlakySessionMaker:
     """
@@ -102,8 +101,7 @@ def test_save_retries_on_deadlock(pg_session):
     automatic re-run of the whole per-graph save, since it is self-contained.
 
     With a session whose first commit() raises a deadlock, save() should retry
-    on a fresh session and ultimately persist the Work. The current code has no
-    retry, so the OperationalError propagates and nothing is saved.
+    on a fresh session and ultimately persist the Work.
     """
     _remove_fixtures(pg_session)
 
@@ -122,7 +120,7 @@ def test_save_retries_on_deadlock(pg_session):
 
 
 # ---------------------------------------------------------------------------
-# #3 Atomic upsert instead of SELECT-then-INSERT (get-or-create race)
+# Atomic upsert instead of SELECT-then-INSERT (get-or-create race)
 # ---------------------------------------------------------------------------
 SHARED_OTHER_URI = "http://id.loc.gov/test/shared-authority"
 
@@ -146,9 +144,6 @@ def _work_referencing_shared_other(work_uuid: str, other_uri: str) -> Graph:
 
 def test_concurrent_first_time_create_of_same_uri(pg_session):
     """
-    Acceptance criterion #3: concurrent first-time creation of the same Other
-    Resource uri must not raise a unique-constraint error.
-
     Several concurrent writers each save a distinct Work that references the
     SAME brand-new Other Resource. The current code does
     `session.query(...).where(uri == ...).first()` then INSERTs on a miss, so
@@ -266,11 +261,7 @@ def test_concurrent_writers_sharing_authorities_no_deadlock(pg_session):
     Each round launches several writers concurrently. Every writer saves a
     distinct Work that references the SAME set of pre-seeded shared authorities,
     but in a different (shuffled) order and with distinct label data so each
-    save takes a write lock on every hot row. Because the current code locks
-    those rows in arbitrary graph order, concurrent writers acquire them in
-    conflicting orders and Postgres raises DeadlockDetected (verified to occur
-    in every round against the current implementation).
-
+    save takes a write lock on every hot row.
     """
     _remove_fixtures(pg_session)
     _seed_authorities(pg_session)

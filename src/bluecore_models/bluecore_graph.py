@@ -15,9 +15,6 @@ from bluecore_models.utils.graph import generate_entity_graph
 
 logger = logging.getLogger(__name__)
 
-# Postgres errors that mean "the transaction lost a race and can be safely
-# retried by re-running it from the start" (a graph save is self-contained).
-#
 # - DeadlockDetected / SerializationFailure: two writers locked shared rows in a
 #   conflicting way; Postgres aborted one of them.
 # - UniqueViolation: two writers both did get-or-create on the same brand-new
@@ -373,7 +370,6 @@ class BluecoreGraph:
         # same order and serialize instead of deadlocking. Works and Instances
         # are distinct per file (and have randomly minted URIs), so they are
         # left in their natural order.
-        # See https://github.com/blue-core-lod/bluecore-models/issues/94
         if class_ is None:
             resources = sorted(resources, key=lambda g: str(self._subject(g, class_)))
 
@@ -386,6 +382,8 @@ class BluecoreGraph:
             if obj:
                 obj.data = data
                 logger.info(f"updating {uri}")
+                # Sqlalchemy ORM already does a comparison between the retrieved object
+                # and new object and will only do an UPDATE if they are different
                 session.add(obj)
             else:
                 if sqla_class == OtherResource:
