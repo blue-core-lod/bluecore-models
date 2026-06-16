@@ -131,6 +131,12 @@ def _update_graph(**kwargs) -> Graph:
         case "instances" | "instance":
             object_uri = BF.Instance
 
+        case "hubs" | "hub":
+            object_uri = BF.Hub
+
+        case _:
+            raise ValueError(f"Unsupported bluecore_type: {bluecore_type}")
+
     external_subject = graph.value(predicate=RDF.type, object=object_uri)
     if external_subject is None:
         raise ValueError(f"Cannot find external subject with a type of {object_uri}")

@@ -1,3 +1,5 @@
+"""Module for BIBFRAME Hubs"""
+
 from sqlalchemy import (
     event,
     ForeignKey,
@@ -7,11 +9,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import (
     mapped_column,
     Mapped,
-    relationship,
 )
 
 from bluecore_models.models.resource import ResourceBase
-from bluecore_models.models.hub import Hub
 from bluecore_models.utils.db import (
     add_bf_classes,
     add_version,
@@ -19,24 +19,22 @@ from bluecore_models.utils.db import (
 )
 
 
-class Work(ResourceBase):
-    __tablename__ = "works"
+class Hub(ResourceBase):
+    __tablename__ = "hubs"
 
     id: Mapped[int] = mapped_column(
         Integer, ForeignKey("resource_base.id"), primary_key=True
     )
-    hub_id: Mapped[int] = mapped_column(Integer, ForeignKey("hubs.id"), nullable=True)
-    hub: Mapped["Hub"] = relationship("Hub", foreign_keys=hub_id, backref="works")
 
     __mapper_args__ = {
-        "polymorphic_identity": "works",
+        "polymorphic_identity": "hubs",
     }
 
     def __repr__(self):
-        return f"<Work {self.uri}>"
+        return f"<Hub {self.uri}>"
 
 
-@event.listens_for(Work, "after_insert")
+@event.listens_for(Hub, "after_insert")
 def create_version_bf_classes(mapper, connection, target):
     """
     Creates a Version and associated Bibframe Classes
@@ -45,7 +43,7 @@ def create_version_bf_classes(mapper, connection, target):
     add_bf_classes(connection, target)
 
 
-@event.listens_for(Work, "after_update")
+@event.listens_for(Hub, "after_update")
 def update_version_bf_classes(mapper, connection, target):
     """
     Updates a Version and associated Bibframe Classes
