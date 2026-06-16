@@ -62,7 +62,7 @@ jobs:
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Create Pull Request
-        if: steps.check_changes.outputs.changed == 'true'
+        if: steps.check_changes.outputs.changed == 'true' && success()
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -78,7 +78,7 @@ jobs:
           labels: dependencies
 
       - name: Notify Slack
-        if: steps.check_changes.outputs.changed == 'true'
+        if: steps.check_changes.outputs.changed == 'true' && success()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           PR_URL: ${{ steps.create_pr.outputs.pull-request-url }}
@@ -87,4 +87,15 @@ jobs:
         run: |
           curl -X POST -H 'Content-type: application/json' \
             --data "{\"text\": \"$REPO_NAME dependency update PR opened: <$PR_URL|v$NEW_VERSION>\"}" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Notify Slack on test failure
+        if: steps.check_changes.outputs.changed == 'true' && failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\": \"$REPO_NAME dependency update failed: <$RUN_URL|view run>\"}" \
             "$SLACK_WEBHOOK_URL"
