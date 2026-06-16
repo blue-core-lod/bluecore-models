@@ -2,9 +2,12 @@ import json
 import logging
 from uuid import uuid4
 
+from psycopg2 import errors as psycopg2_errors
 from rdflib import Graph, URIRef, Namespace, Node, IdentifiedNode
 from rdflib.plugins import sparql
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm.session import sessionmaker, Session
+from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
 from bluecore_models.namespaces import BF, MADS, RDF
 from bluecore_models.models import Work, Instance, OtherResource, BibframeOtherResources
@@ -12,6 +15,31 @@ from bluecore_models.utils.graph import generate_entity_graph
 
 
 logger = logging.getLogger(__name__)
+
+# - DeadlockDetected / SerializationFailure: two writers locked shared rows in a
+#   conflicting way; Postgres aborted one of them.
+# - UniqueViolation: two writers both did get-or-create on the same brand-new
+#   shared Other Resource uri and both tried to INSERT it. On a retry the SELECT
+#   finds the row the winner committed and takes the update/no-op path instead.
+RETRYABLE_PG_ERRORS = (
+    psycopg2_errors.DeadlockDetected,
+    psycopg2_errors.SerializationFailure,
+    psycopg2_errors.UniqueViolation,
+)
+
+# How many times to attempt save() before giving up on serialization failures.
+SAVE_MAX_ATTEMPTS = 3
+
+
+def _is_retryable_pg_error(error: BaseException) -> bool:
+    """
+    A graph save is only retried when Postgres aborted the transaction with one
+    of the retryable errors above (surfaced by sqlalchemy as an OperationalError
+    or IntegrityError wrapping the psycopg2 error in .orig).
+    """
+    return isinstance(error, (OperationalError, IntegrityError)) and isinstance(
+        error.orig, RETRYABLE_PG_ERRORS
+    )
 
 
 def save_graph(
@@ -87,28 +115,56 @@ class BluecoreGraph:
         """
         return self._extract_others()
 
-    def save(self, session_maker: sessionmaker) -> None:
+    def save(
+        self, session_maker: sessionmaker, max_attempts: int = SAVE_MAX_ATTEMPTS
+    ) -> None:
         """
         Persists the graph to the database using the supplied sqlalchemy
         sessionmaker. All the database modifications are made using a single
         transaction.
+
+        Under concurrent writers a transaction can still lose a race and be
+        aborted by Postgres with a deadlock or serialization failure. Since a
+        graph save is self-contained and idempotent, we simply re-run the whole
+        thing on a fresh session up to max_attempts times.
         """
-        with session_maker() as session:
-            # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
-            # note: OtherResources keep their original URI
-            self._mint_all_uris(BF.Work, session)
-            self._mint_all_uris(BF.Instance, session)
 
-            # save resources from the graph to the database
-            self._save(BF.Work, session)
-            self._save(BF.Instance, session)
-            self._save(None, session)  # there is no catchall URI for Other Resources
+        def log_retry(retry_state) -> None:
+            error = retry_state.outcome.exception()
+            logger.warning(
+                f"retrying graph save after {type(error.orig).__name__} "
+                f"(attempt {retry_state.attempt_number} of {max_attempts})"
+            )
 
-            # link all the works, instances and other resources together in the db
-            self._link(session)
+        try:
+            for attempt in Retrying(
+                retry=retry_if_exception(_is_retryable_pg_error),
+                stop=stop_after_attempt(max_attempts),
+                before_sleep=log_retry,
+                reraise=True,
+            ):
+                with attempt:
+                    with session_maker() as session:
+                        # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
+                        # note: OtherResources keep their original URI
+                        self._mint_all_uris(BF.Work, session)
+                        self._mint_all_uris(BF.Instance, session)
 
-            # all changes are part of one transaction!
-            session.commit()
+                        # save resources from the graph to the database
+                        self._save(BF.Work, session)
+                        self._save(BF.Instance, session)
+                        self._save(
+                            None, session
+                        )  # there is no catchall URI for Other Resources
+
+                        # link all the works, instances and other resources together in the db
+                        self._link(session)
+
+                        # all changes are part of one transaction!
+                        session.commit()
+        except (OperationalError, IntegrityError) as error:
+            logger.error(f"Exceeded {max_attempts} attempts with error {error}")
+            raise
 
     def _infer(self) -> None:
         """
@@ -329,6 +385,12 @@ class BluecoreGraph:
                 resources = self.others()
                 sqla_class = OtherResource
 
+        # Write Works, Instances, and shared Other Resources in a deterministic,
+        # sorted-by-URI order. Concurrent transactions then acquire locks on
+        # these hot rows in the same order and serialize instead of deadlocking.
+        if class_ is None:
+            resources = sorted(resources, key=lambda g: str(self._subject(g, class_)))
+
         for g in resources:
             uri = self._subject(g, class_)
             data = json.loads(g.serialize(format="json-ld"))
@@ -338,6 +400,8 @@ class BluecoreGraph:
             if obj:
                 obj.data = data
                 logger.info(f"updating {uri}")
+                # Sqlalchemy ORM already does a comparison between the retrieved object
+                # and new object and will only do an UPDATE if they are different
                 session.add(obj)
             else:
                 if sqla_class == OtherResource:
@@ -360,7 +424,12 @@ class BluecoreGraph:
         # bibframe:instanceOf assertions, and possible other inverse properties
         # that we might rely on?
 
-        for s, o in self.graph.subject_objects(BF.instanceOf):
+        # sort all the link iterations by URI so that, like _save, concurrent
+        # transactions acquire row locks in the same deterministic order.
+        for s, o in sorted(
+            self.graph.subject_objects(BF.instanceOf),
+            key=lambda pair: (str(pair[0]), str(pair[1])),
+        ):
             logger.info(f"linking {s} to {o}")
             instance = self._get_first(session, Instance, s)
             work = self._get_first(session, Work, o)
@@ -368,7 +437,10 @@ class BluecoreGraph:
             session.add(instance)
 
         # use bibframe:hasInstance to link works with instances
-        for s, o in self.graph.subject_objects(BF.hasInstance):
+        for s, o in sorted(
+            self.graph.subject_objects(BF.hasInstance),
+            key=lambda pair: (str(pair[0]), str(pair[1])),
+        ):
             logger.info(f"linking {s} to {o}")
             work = self._get_first(session, Work, s)
             instance = self._get_first(session, Instance, o)
@@ -384,10 +456,12 @@ class BluecoreGraph:
         self._delete_other_links(BF.Work, session)
         self._delete_other_links(BF.Instance, session)
 
-        work_graphs = self.works()
-        instance_graphs = self.instances()
+        work_graphs = sorted(self.works(), key=lambda g: str(self._subject(g, BF.Work)))
+        instance_graphs = sorted(
+            self.instances(), key=lambda g: str(self._subject(g, BF.Instance))
+        )
 
-        for other_graph in self.others():
+        for other_graph in sorted(self.others(), key=lambda g: str(self._subject(g))):
             other_uri = self._subject(other_graph)
 
             # look at each Work graph and see if the Other Resource URI appears
