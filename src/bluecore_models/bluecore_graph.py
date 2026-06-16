@@ -145,8 +145,9 @@ class BluecoreGraph:
                         f"retrying graph save after {type(error.orig).__name__} "
                         f"(attempt {attempt} of {max_attempts})"
                     )
-                    continue
-                raise
+                else:
+                    logger.error(f"Exceeded {max_attempts} attempts with error {error}")
+                    raise
 
     def _infer(self) -> None:
         """
@@ -367,11 +368,9 @@ class BluecoreGraph:
                 resources = self.others()
                 sqla_class = OtherResource
 
-        # Write shared Other Resources in a deterministic, sorted-by-URI order.
-        # Concurrent transactions then acquire locks on these hot rows in the
-        # same order and serialize instead of deadlocking. Works and Instances
-        # are distinct per file (and have randomly minted URIs), so they are
-        # left in their natural order.
+        # Write Works, Instances, and shared Other Resources in a deterministic,
+        # sorted-by-URI order. Concurrent transactions then acquire locks on
+        # these hot rows in the same order and serialize instead of deadlocking.
         if class_ is None:
             resources = sorted(resources, key=lambda g: str(self._subject(g, class_)))
 
