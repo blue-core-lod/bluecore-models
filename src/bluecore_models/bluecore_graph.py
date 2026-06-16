@@ -7,6 +7,7 @@ from rdflib import Graph, URIRef, Namespace, Node, IdentifiedNode
 from rdflib.plugins import sparql
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm.session import sessionmaker, Session
+from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
 from bluecore_models.namespaces import BF, MADS, RDF
 from bluecore_models.models import Work, Instance, OtherResource, BibframeOtherResources
@@ -28,6 +29,17 @@ RETRYABLE_PG_ERRORS = (
 
 # How many times to attempt save() before giving up on serialization failures.
 SAVE_MAX_ATTEMPTS = 3
+
+
+def _is_retryable_pg_error(error: BaseException) -> bool:
+    """
+    A graph save is only retried when Postgres aborted the transaction with one
+    of the retryable errors above (surfaced by sqlalchemy as an OperationalError
+    or IntegrityError wrapping the psycopg2 error in .orig).
+    """
+    return isinstance(error, (OperationalError, IntegrityError)) and isinstance(
+        error.orig, RETRYABLE_PG_ERRORS
+    )
 
 
 def save_graph(
@@ -116,38 +128,43 @@ class BluecoreGraph:
         graph save is self-contained and idempotent, we simply re-run the whole
         thing on a fresh session up to max_attempts times.
         """
-        for attempt in range(1, max_attempts + 1):
-            try:
-                with session_maker() as session:
-                    # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
-                    # note: OtherResources keep their original URI
-                    self._mint_all_uris(BF.Work, session)
-                    self._mint_all_uris(BF.Instance, session)
 
-                    # save resources from the graph to the database
-                    self._save(BF.Work, session)
-                    self._save(BF.Instance, session)
-                    self._save(
-                        None, session
-                    )  # there is no catchall URI for Other Resources
+        def log_retry(retry_state) -> None:
+            error = retry_state.outcome.exception()
+            logger.warning(
+                f"retrying graph save after {type(error.orig).__name__} "
+                f"(attempt {retry_state.attempt_number} of {max_attempts})"
+            )
 
-                    # link all the works, instances and other resources together in the db
-                    self._link(session)
+        try:
+            for attempt in Retrying(
+                retry=retry_if_exception(_is_retryable_pg_error),
+                stop=stop_after_attempt(max_attempts),
+                before_sleep=log_retry,
+                reraise=True,
+            ):
+                with attempt:
+                    with session_maker() as session:
+                        # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
+                        # note: OtherResources keep their original URI
+                        self._mint_all_uris(BF.Work, session)
+                        self._mint_all_uris(BF.Instance, session)
 
-                    # all changes are part of one transaction!
-                    session.commit()
-                return
-            except (OperationalError, IntegrityError) as error:
-                if attempt < max_attempts and isinstance(
-                    error.orig, RETRYABLE_PG_ERRORS
-                ):
-                    logger.warning(
-                        f"retrying graph save after {type(error.orig).__name__} "
-                        f"(attempt {attempt} of {max_attempts})"
-                    )
-                else:
-                    logger.error(f"Exceeded {max_attempts} attempts with error {error}")
-                    raise
+                        # save resources from the graph to the database
+                        self._save(BF.Work, session)
+                        self._save(BF.Instance, session)
+                        self._save(
+                            None, session
+                        )  # there is no catchall URI for Other Resources
+
+                        # link all the works, instances and other resources together in the db
+                        self._link(session)
+
+                        # all changes are part of one transaction!
+                        session.commit()
+        except (OperationalError, IntegrityError) as error:
+            logger.error(f"Exceeded {max_attempts} attempts with error {error}")
+            raise
 
     def _infer(self) -> None:
         """
