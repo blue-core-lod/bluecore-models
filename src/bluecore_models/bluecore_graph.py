@@ -10,7 +10,7 @@ from sqlalchemy.orm.session import sessionmaker, Session
 from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
 from bluecore_models.namespaces import BF, MADS, RDF
-from bluecore_models.models import Work, Instance, OtherResource, BibframeOtherResources
+from bluecore_models.models import Work, Instance, Hub, OtherResource, BibframeOtherResources
 from bluecore_models.utils.graph import generate_entity_graph
 
 
@@ -59,7 +59,7 @@ def save_graph(
 class BluecoreGraph:
     """
     The BluecoreGraph is instantiated using an existing rdflib Graph for a set
-    of Bibframe Works, Instances and "Other" Resources, which are all available
+    of Bibframe Hubs, Works, Instances and "Other" Resources, which are all available
     using methods that return them as subgraphs. The save method is then used to
     persist the graph to a given database. If you want to change the default
     namespace that is used for the bluecore instance you can pass that in with
@@ -68,12 +68,14 @@ class BluecoreGraph:
     The heuristic that BluecoreGraph uses for updating the database:
 
     1. Infer any missing assertions in the data that we rely on (notably rdf:type).
-    2. Extract subgraphs for Works, Instances and Other Resources in the larger graph.
-    3. Examine each Work, Instance and Other Resource graph to see if it has a
+    2. Extract subgraphs for Hubs, Works, Instances and Other Resources in the larger
+       graph. Note: LC catalog data types Hubs as both bf:Hub and bf:Work; they are
+       extracted as Hubs and excluded from Works to avoid double-processing.
+    3. Examine each Hub, Work, Instance and Other Resource graph to see if it has a
        Bluecore subject URI.
     4. If it doesn't have a Bluecore subject URI mint one for it, update the graph
        to use it, and preserve the original URI as a bibframe:derivedFrom assertion.
-    5. Save (or update) each Work, Instance and Other Resource to the database.
+    5. Save (or update) each Hub, Work, Instance and Other Resource to the database.
     6. Save relationships between the Works, Instances and Other Resources, being
        careful to remove existing many-to-many relations with Other Resources prior
        to adding new ones.
@@ -97,9 +99,21 @@ class BluecoreGraph:
     def works(self) -> list[Graph]:
         """
         Returns a list of Bibframe Work rdflib Graphs, where each graph is for a
-        distinct Work.
+        distinct Work. Excludes Hubs, which LC catalog data types as both bf:Hub
+        and bf:Work; they are handled separately by hubs().
         """
-        return self._extract_subgraphs(BF.Work)
+        return [
+            generate_entity_graph(self.graph, s)
+            for s in self.graph.subjects(RDF.type, BF.Work)
+            if (s, RDF.type, BF.Hub) not in self.graph
+        ]
+
+    def hubs(self) -> list[Graph]:
+        """
+        Returns a list of Bibframe Hub rdflib Graphs, where each graph is for a
+        distinct Hub.
+        """
+        return self._extract_subgraphs(BF.Hub)
 
     def instances(self) -> list[Graph]:
         """
@@ -147,10 +161,12 @@ class BluecoreGraph:
                     with session_maker() as session:
                         # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
                         # note: OtherResources keep their original URI
+                        self._mint_all_uris(BF.Hub, session)
                         self._mint_all_uris(BF.Work, session)
                         self._mint_all_uris(BF.Instance, session)
 
                         # save resources from the graph to the database
+                        self._save(BF.Hub, session)
                         self._save(BF.Work, session)
                         self._save(BF.Instance, session)
                         self._save(
@@ -272,6 +288,9 @@ class BluecoreGraph:
         URI may already be in the database under in its derivedFrom URI.
         """
         match class_:
+            case BF.Hub:
+                subgraphs = self.hubs()
+                sqla_class = Hub
             case BF.Work:
                 subgraphs = self.works()
                 sqla_class = Work
@@ -326,6 +345,8 @@ class BluecoreGraph:
         """
         uuid = uuid4()
         match class_:
+            case BF.Hub:
+                type_of = "hubs"
             case BF.Work:
                 type_of = "works"
             case BF.Instance:
@@ -375,6 +396,9 @@ class BluecoreGraph:
         the type is None then Other Resources are saved.
         """
         match class_:
+            case BF.Hub:
+                resources = self.hubs()
+                sqla_class = Hub
             case BF.Work:
                 resources = self.works()
                 sqla_class = Work
