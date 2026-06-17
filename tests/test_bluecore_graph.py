@@ -5,7 +5,13 @@ from rdflib import Graph
 
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
-from bluecore_models.models import Work, Instance, OtherResource, BibframeOtherResources
+from bluecore_models.models import (
+    Work,
+    Instance,
+    Hub,
+    OtherResource,
+    BibframeOtherResources,
+)
 from bluecore_models.namespaces import BF, MADS, RDF
 from bluecore_models.utils.graph import load_jsonld
 
@@ -713,6 +719,122 @@ def test_instance_linking(pg_session):
             instances[0].uri
             == "https://bcld.info/instances/500da8ca-2a06-4c35-a028-15e37e0e0ddd"
         )
+
+
+def test_hub_not_in_works():
+    """
+    A resource typed as both bf:Hub and bf:Work should appear in hubs() but not
+    works(). This verifies the Hub exclusion added to works().
+    """
+    g = load_jsonld(
+        {
+            "@context": jsonld_context,
+            "@id": "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03",
+            "@type": [BF.Hub, BF.Work],
+            "title": {"mainTitle": "Hub Record", "@type": "Title"},
+        }
+    )
+    bg = BluecoreGraph(g)
+
+    assert len(bg.hubs()) == 1
+    assert len(bg.works()) == 0
+
+
+def test_hub(pg_session):
+    """
+    Test that a bluecore Hub graph can be persisted to the database.
+    """
+    jsonld_object = {
+        "@context": jsonld_context,
+        "@id": "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03",
+        "@type": [BF.Hub, BF.Work],
+        "title": {"mainTitle": "Hub Record", "@type": "Title"},
+    }
+
+    save_graph(pg_session, load_jsonld(jsonld_object))
+
+    with pg_session() as session:
+        hub = (
+            session.query(Hub)
+            .where(
+                Hub.uri == "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03"
+            )
+            .first()
+        )
+        assert hub is not None
+        assert hub.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
+        assert "Hub" in hub.data["@type"]
+        assert hub.data["title"]["mainTitle"] == "Hub Record"
+
+
+def test_non_bluecore_hub(pg_session, monkeypatch, mocker):
+    """
+    Test that a Hub graph from a non-bluecore URI can be persisted to the database,
+    with the original URI preserved in a derivedFrom assertion.
+    """
+    monkeypatch.setattr(
+        bluecore_graph,
+        "uuid4",
+        lambda *args, **kwargs: "7dbb7674-7373-473f-9014-b9a993a2dd03",
+    )
+
+    uuid_spy = mocker.spy(bluecore_graph, "uuid4")
+
+    jsonld_object = {
+        "@context": jsonld_context,
+        "@id": "https://example.com/hubs/1234",
+        "@type": [BF.Hub, BF.Work],
+        "title": {"mainTitle": "Hub Record", "@type": "Title"},
+    }
+
+    assert uuid_spy.call_count == 0
+    save_graph(pg_session, load_jsonld(jsonld_object))
+    assert uuid_spy.call_count == 1
+
+    with pg_session() as session:
+        hub = (
+            session.query(Hub)
+            .where(
+                Hub.uri == "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03"
+            )
+            .first()
+        )
+        assert hub is not None
+        assert hub.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
+        assert "Hub" in hub.data["@type"]
+        assert hub.data["title"]["mainTitle"] == "Hub Record"
+        assert hub.data["derivedFrom"]["@id"] == "https://example.com/hubs/1234"
+
+    # saving the same JSON-LD again shouldn't mint a new URI
+    save_graph(pg_session, load_jsonld(jsonld_object))
+    assert uuid_spy.call_count == 1
+
+
+def test_hub_update(pg_session):
+    """
+    Test that a bluecore Hub graph can be updated in the database.
+    """
+    jsonld_object = {
+        "@context": jsonld_context,
+        "@id": "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03",
+        "@type": [BF.Hub, BF.Work],
+        "title": {"@type": "Title", "mainTitle": "Hub Record"},
+    }
+
+    save_graph(pg_session, load_jsonld(jsonld_object))
+
+    jsonld_object["note"] = {"@type": "Note", "rdfs:label": "Updated note"}
+    save_graph(pg_session, load_jsonld(jsonld_object))
+
+    with pg_session() as session:
+        hub = (
+            session.query(Hub)
+            .where(
+                Hub.uri == "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03"
+            )
+            .first()
+        )
+        assert hub.data["note"]["rdfs:label"] == "Updated note"
 
 
 def _remove_fixtures(pg_session):
