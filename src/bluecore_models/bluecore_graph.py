@@ -10,7 +10,13 @@ from sqlalchemy.orm.session import sessionmaker, Session
 from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
 from bluecore_models.namespaces import BF, MADS, RDF
-from bluecore_models.models import Work, Instance, Hub, OtherResource, BibframeOtherResources
+from bluecore_models.models import (
+    Work,
+    Instance,
+    Hub,
+    OtherResource,
+    BibframeOtherResources,
+)
 from bluecore_models.utils.graph import generate_entity_graph
 
 

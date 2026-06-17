@@ -5,7 +5,13 @@ from rdflib import Graph
 
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
-from bluecore_models.models import Work, Instance, Hub, OtherResource, BibframeOtherResources
+from bluecore_models.models import (
+    Work,
+    Instance,
+    Hub,
+    OtherResource,
+    BibframeOtherResources,
+)
 from bluecore_models.namespaces import BF, MADS, RDF
 from bluecore_models.utils.graph import load_jsonld
 
@@ -720,12 +726,14 @@ def test_hub_not_in_works():
     A resource typed as both bf:Hub and bf:Work should appear in hubs() but not
     works(). This verifies the Hub exclusion added to works().
     """
-    g = load_jsonld({
-        "@context": jsonld_context,
-        "@id": "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03",
-        "@type": [BF.Hub, BF.Work],
-        "title": {"mainTitle": "Hub Record", "@type": "Title"},
-    })
+    g = load_jsonld(
+        {
+            "@context": jsonld_context,
+            "@id": "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03",
+            "@type": [BF.Hub, BF.Work],
+            "title": {"mainTitle": "Hub Record", "@type": "Title"},
+        }
+    )
     bg = BluecoreGraph(g)
 
     assert len(bg.hubs()) == 1
@@ -748,7 +756,9 @@ def test_hub(pg_session):
     with pg_session() as session:
         hub = (
             session.query(Hub)
-            .where(Hub.uri == "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03")
+            .where(
+                Hub.uri == "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03"
+            )
             .first()
         )
         assert hub is not None
@@ -784,7 +794,9 @@ def test_non_bluecore_hub(pg_session, monkeypatch, mocker):
     with pg_session() as session:
         hub = (
             session.query(Hub)
-            .where(Hub.uri == "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03")
+            .where(
+                Hub.uri == "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03"
+            )
             .first()
         )
         assert hub is not None
@@ -817,7 +829,9 @@ def test_hub_update(pg_session):
     with pg_session() as session:
         hub = (
             session.query(Hub)
-            .where(Hub.uri == "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03")
+            .where(
+                Hub.uri == "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03"
+            )
             .first()
         )
         assert hub.data["note"]["rdfs:label"] == "Updated note"
