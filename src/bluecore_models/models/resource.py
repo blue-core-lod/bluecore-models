@@ -1,5 +1,6 @@
+import os
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Any
 
 from sqlalchemy import Computed, DateTime, Index, String, Uuid, event, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
@@ -7,6 +8,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from bluecore_models.models.base import Base
 from bluecore_models.utils.graph import frame_jsonld
+
+CONTEXT_URL = os.getenv("BLUECORE_CONTEXT_URL", "https://bcld.info/context.jsonld")
 
 
 class ResourceBase(Base):
@@ -77,7 +80,7 @@ def set_created_and_updated(mapper, connection, target):
         target.updated_at = now
 
 
-def set_jsonld(target, value, oldvalue, initiator) -> Optional[dict]:
+def set_jsonld(target, value, oldvalue, initiator) -> dict[str, Any] | None:
     """
     An ORM event handler that ensures JSON-LD data is framed prior to persisting it
     to the database. Note the ordering of properties used in constructors
@@ -102,7 +105,7 @@ def set_jsonld(target, value, oldvalue, initiator) -> Optional[dict]:
             "For automatic jsonld framing to work you must ensure the uri property is set before the data property, even when constructing an object."
         )
     elif value is not None:
-        return frame_jsonld(target.uri, value)
+        return frame_jsonld(target.uri, value, CONTEXT_URL)
     else:
         return None
 

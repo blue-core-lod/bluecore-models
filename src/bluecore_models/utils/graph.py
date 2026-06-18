@@ -2,11 +2,12 @@
 
 import json
 import logging
-from typing import Dict
+from typing import Any
 from uuid import uuid4
 
 from pyld import jsonld
-from rdflib import Graph, URIRef, RDF, Node, DCTERMS, BNode
+from rdflib import DCTERMS, RDF, BNode, Graph, Node, URIRef
+from rdflib.graph import _ObjectType
 from rdflib.plugins.sparql import prepareUpdate
 from rdflib.query import ResultRow
 
@@ -31,6 +32,8 @@ WHERE {
 }
 """)
 
+DEFAULT_CONTEXT_URL = "https://bcld.info/context.jsonld"
+CONTEXT = json.load(open("src/bluecore_models/utils/context.jsonld"))
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +48,7 @@ def init_graph() -> Graph:
     return new_graph
 
 
-def load_jsonld(jsonld_data: list | dict) -> Graph:
+def load_jsonld(jsonld_data: list[Any] | dict[str, Any]) -> Graph:
     """
     Load a JSON-LD represented as a Python list or dict into a rdflib Graph.
     """
@@ -58,6 +61,7 @@ def load_jsonld(jsonld_data: list | dict) -> Graph:
             for obj in jsonld_data:
                 graph.parse(data=obj, format="json-ld")
         case dict():
+            # jsonld_data["@context"] = CONTEXT
             graph.parse(data=jsonld_data, format="json-ld")  # type: ignore
         case _:
             raise ValueError(
@@ -103,7 +107,7 @@ def _is_work_or_instance(uri: Node, graph: Graph) -> bool:
     return False
 
 
-def _mint_uri(env_root: str, type_of: str) -> tuple:
+def _mint_uri(env_root: str, type_of: str) -> tuple[str, str]:
     """
     Mints a Work or Instance URI based on the environment.
     """
@@ -115,7 +119,7 @@ def _mint_uri(env_root: str, type_of: str) -> tuple:
     return f"{env_root}/{type_of}/{uuid}", str(uuid)
 
 
-def _update_graph(**kwargs) -> Graph:
+def _update_graph(**kwargs: Any) -> Graph:
     """
     Updates graph using a Blue Core URI subject. If incoming subject is
     an URI, create a new derivedFrom assertion.
@@ -166,13 +170,15 @@ def generate_entity_graph(graph: Graph, entity: Node) -> Graph:
     return entity_graph
 
 
-def generate_other_resources(record_graph: Graph, entity_graph: Graph) -> list:
+def generate_other_resources(
+    record_graph: Graph, entity_graph: Graph
+) -> list[dict[str, Any]]:
     """
     Takes a Record Graph and Entity Graph and returns a list of dictionaries
     where each dict contains the sub-graphs and URIs that referenced in the
     entity graph and present in the record graph.
     """
-    other_resources = []
+    other_resources: list[dict[str, Any]] = []
     logger.info(f"Size of entity graph {len(entity_graph)}")
     for row in entity_graph.query("""
       SELECT DISTINCT ?object
@@ -198,37 +204,31 @@ def generate_other_resources(record_graph: Graph, entity_graph: Graph) -> list:
     return other_resources
 
 
-def get_bf_classes(rdf_data: list | dict, uri: str) -> list:
+def get_bf_classes(rdf_data: list[Any] | dict[str, Any], uri: str) -> list[_ObjectType]:
     """Restrieves all of the resource's BIBFRAME classes from a graph."""
     graph = load_jsonld(rdf_data)
-    classes = []
+    classes: list[_ObjectType] = []
     for class_ in graph.objects(subject=URIRef(uri), predicate=RDF.type):
         if class_ in BF:  # type: ignore
             classes.append(class_)
     return classes
 
 
-def frame_jsonld(bluecore_uri: str, jsonld_data: list | dict) -> dict:
+def frame_jsonld(
+    bluecore_uri: str,
+    jsonld_data: list[Any] | dict[str, Any],
+    context_url: str = DEFAULT_CONTEXT_URL,
+) -> dict[str, Any]:
     """Frames the JSON-LD data to a specific structure."""
-    context: Dict[str, str] = {
-        "@vocab": "http://id.loc.gov/ontologies/bibframe/",
-        "bflc": "http://id.loc.gov/ontologies/bflc/",
-        "mads": "http://www.loc.gov/mads/rdf/v1#",
-        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
-    }
-    doc = jsonld.frame(
+    framed: dict[str, Any] = jsonld.frame(
         jsonld_data,
-        {
-            "@context": context,
-            "@id": bluecore_uri,
-            "@embed": "@always",
-        },
+        context_url,
     )
+    framed["@context"] = context_url
+    return framed
 
-    return doc
 
-
-def handle_external_subject(**kwargs) -> dict:
+def handle_external_subject(**kwargs: Any) -> dict[str, Any]:
     """
     Handles external subject terms in new Blue Core descriptions
     """
