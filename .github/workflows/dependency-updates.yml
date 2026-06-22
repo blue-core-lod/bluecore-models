@@ -62,6 +62,7 @@ jobs:
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Create Pull Request
+        id: create_pr
         if: steps.check_changes.outputs.changed == 'true' && success()
         uses: peter-evans/create-pull-request@v7
         with:
