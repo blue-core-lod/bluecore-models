@@ -16,6 +16,7 @@ sys.path = ["", str(src.absolute())] + sys.path[1:]
 from bluecore_models.models import (  # noqa: E402
     Base,
     ResourceBase,  # noqa: F401
+    Hub,  # noqa: F401
     Instance,  # noqa: F401
     Work,  # noqa: F401
     BibframeClass,  # noqa: F401
