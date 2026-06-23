@@ -5,19 +5,17 @@ from uuid import UUID, uuid1
 import pytest  # noqa
 import rdflib
 
-
 from bluecore_models.models import (
     Base,  # noqa
     BibframeClass,
-    ResourceBibframeClass,
+    BibframeOtherResources,
     Hub,
     Instance,
     OtherResource,
+    ResourceBibframeClass,
     Version,
     Work,
-    BibframeOtherResources,
 )
-
 from bluecore_models.utils.graph import BF, load_jsonld
 
 
@@ -84,7 +82,7 @@ def test_other_resource(pg_session):
             session.query(OtherResource).where(OtherResource.id == 3).first()
         )
         assert other_resource.uri.startswith("https://bluecore.info/other-resource")
-        assert other_resource.data
+        assert other_resource.data["rdfs:label"] == "test"
         assert other_resource.created_at
         assert other_resource.updated_at
         assert other_resource.is_profile is False
@@ -201,11 +199,6 @@ def test_work_with_other_resources(pg_session):
             uri="https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
             data={
                 "@id": "https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
-                "@context": {
-                    "bflc": "http://id.loc.gov/ontologies/bflc/",
-                    "mads": "http://www.loc.gov/mads/rdf/v1#",
-                    "@vocab": "http://id.loc.gov/ontologies/bibframe/",
-                },
                 "title": [{"@type": "Title", "mainTitle": "Hannah Arendt and the law"}],
                 "language": {"@id": "http://id.loc.gov/vocabulary/languages/eng"},
                 "contribution": [
@@ -333,7 +326,6 @@ def test_hub_work_relationship(pg_session):
             uri="https://bluecore.info/works/hub-related-work",
             data={
                 "@id": "https://bluecore.info/works/hub-related-work",
-                "@context": {"@vocab": "http://id.loc.gov/ontologies/bibframe/"},
                 "@type": "Work",
                 "title": [{"@type": "Title", "mainTitle": "A work belonging to a hub"}],
             },
@@ -359,7 +351,7 @@ def test_hub_jsonld_framing():
     ), "framing preserved @id"
     assert "Hub" in hub.data["@type"], "framing compacted bf:Hub type"
     assert "Work" in hub.data["@type"], "framing compacted bf:Work type"
-    assert isinstance(hub.data["@context"], dict), "framing added @context"
+    assert hub.data.get("@context") is None, "framing removed @context"
 
 
 def test_work_jsonld_framing():
@@ -378,7 +370,7 @@ def test_work_jsonld_framing():
         work.data["title"][0]["mainTitle"][0]
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
-    assert isinstance(work.data["@context"], dict), "framing added @context"
+    assert work.data.get("@context") is None, "framing removed @context"
     assert (
         work.data["note"]["rdfs:label"] == "In Korean, with abstract also in English."
     )
@@ -400,7 +392,7 @@ def test_instance_jsonld_framing():
         instance.data["title"]["mainTitle"][0]
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
-    assert isinstance(instance.data["@context"], dict), "framing added @context"
+    assert instance.data.get("@context") is None, "framing removed @context"
     assert instance.data["note"]["rdfs:label"] == "illustrations"
 
 

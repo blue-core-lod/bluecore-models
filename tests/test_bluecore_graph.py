@@ -6,22 +6,14 @@ from rdflib import Graph
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
 from bluecore_models.models import (
-    Work,
-    Instance,
-    Hub,
-    OtherResource,
     BibframeOtherResources,
+    Hub,
+    Instance,
+    OtherResource,
+    Work,
 )
 from bluecore_models.namespaces import BF, MADS, RDF
-from bluecore_models.utils.graph import load_jsonld
-
-
-jsonld_context = {
-    "@vocab": "http://id.loc.gov/ontologies/bibframe/",
-    "bflc": "http://id.loc.gov/ontologies/bflc/",
-    "mads": "http://www.loc.gov/mads/rdf/v1#",
-    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
-}
+from bluecore_models.utils.graph import CONTEXT, load_jsonld
 
 
 def test_bluecore_graph():
@@ -111,7 +103,7 @@ def test_work(pg_session):
     Test that a bluecore Work graph can be persisted to the database.
     """
     jsonld_object = {
-        "@context": jsonld_context,
+        # "@context": CONTEXT, # it should parse with or without @context
         "@id": "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": BF.Work,
         "title": {"mainTitle": "Gravity's Rainbow", "@type": "Title"},
@@ -149,7 +141,7 @@ def test_non_bluecore_work(pg_session, monkeypatch, mocker):
     uuid_spy = mocker.spy(bluecore_graph, "uuid4")
 
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://example.com/1234",
         "@type": BF.Work,
         "title": {"mainTitle": "Gravity's Rainbow", "@type": "Title"},
@@ -192,7 +184,7 @@ def test_namespace(pg_session, monkeypatch, mocker):
     )
 
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://example.com/1234",
         "@type": BF.Work,
         "title": {"mainTitle": "Gravity's Rainbow", "@type": "Title"},
@@ -218,7 +210,7 @@ def test_invalid_namespace(pg_session):
     """
 
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://example.com/1234",
         "@type": BF.Work,
         "title": {"mainTitle": "Gravity's Rainbow", "@type": "Title"},
@@ -240,7 +232,7 @@ def test_work_update(pg_session):
 
     # save an initial work
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": BF.Work,
         "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
@@ -267,7 +259,7 @@ def test_work_update(pg_session):
 
 def test_instance(pg_session):
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/instances/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": BF.Instance,
         "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
@@ -304,7 +296,7 @@ def test_non_bluecore_instance(pg_session, monkeypatch):
     )
 
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://example.com/1234",
         "@type": BF.Instance,
         "title": {"mainTitle": "Gravity's Rainbow", "@type": "Title"},
@@ -335,7 +327,7 @@ def test_instance_update(pg_session):
 
     # save an initial instance
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/instances/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": BF.Instance,
         "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
@@ -362,7 +354,7 @@ def test_instance_update(pg_session):
 
 def test_work_instances(pg_session):
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": BF.Work,
         "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
@@ -438,7 +430,7 @@ def test_work_instance_bnode(pg_session, monkeypatch):
     )
 
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": BF.Work,
         "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
@@ -477,7 +469,7 @@ def test_other_resources(pg_session):
     """
 
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": BF.Work,
         "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
@@ -596,7 +588,7 @@ def test_other_resource_update(pg_session):
     """
 
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/instances/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": "Instance",
         "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
@@ -610,7 +602,7 @@ def test_other_resource_update(pg_session):
     save_graph(pg_session, load_jsonld(jsonld_object))
 
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/instances/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": "Instance",
         "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
@@ -642,7 +634,7 @@ def test_inference(pg_session):
     for resources involved in hasInstance and instanceOf assertions.
     """
     cbd_jsonld = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/works/4e2496b4-2c5b-491e-8369-a837138234de",
         "@type": BF.Work,
         "title": {"mainTitle": "Gravity's Rainbow"},
@@ -688,14 +680,14 @@ def test_instance_linking(pg_session):
 
     cbd_jsonld = [
         {
-            "@context": jsonld_context,
+            "@context": CONTEXT,
             "@id": "https://bcld.info/works/4e2496b4-2c5b-491e-8369-a837138234de",
             "@type": BF.Work,
             "derivedFrom": {"@id": "http://id.loc.gov/resources/works/24021036"},
             "hasInstance": {"@id": "http://id.loc.gov/resources/instances/24021036"},
         },
         {
-            "@context": jsonld_context,
+            "@context": CONTEXT,
             "@id": "https://bcld.info/instances/500da8ca-2a06-4c35-a028-15e37e0e0ddd",
             "@type": BF.Instance,
             "derivedFrom": {"@id": "http://id.loc.gov/resources/instances/24021036"},
@@ -728,7 +720,7 @@ def test_hub_not_in_works():
     """
     g = load_jsonld(
         {
-            "@context": jsonld_context,
+            "@context": CONTEXT,
             "@id": "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03",
             "@type": [BF.Hub, BF.Work],
             "title": {"mainTitle": "Hub Record", "@type": "Title"},
@@ -745,7 +737,7 @@ def test_hub(pg_session):
     Test that a bluecore Hub graph can be persisted to the database.
     """
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": [BF.Hub, BF.Work],
         "title": {"mainTitle": "Hub Record", "@type": "Title"},
@@ -781,7 +773,7 @@ def test_non_bluecore_hub(pg_session, monkeypatch, mocker):
     uuid_spy = mocker.spy(bluecore_graph, "uuid4")
 
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://example.com/hubs/1234",
         "@type": [BF.Hub, BF.Work],
         "title": {"mainTitle": "Hub Record", "@type": "Title"},
@@ -815,7 +807,7 @@ def test_hub_update(pg_session):
     Test that a bluecore Hub graph can be updated in the database.
     """
     jsonld_object = {
-        "@context": jsonld_context,
+        "@context": CONTEXT,
         "@id": "https://bcld.info/hubs/7dbb7674-7373-473f-9014-b9a993a2dd03",
         "@type": [BF.Hub, BF.Work],
         "title": {"@type": "Title", "mainTitle": "Hub Record"},
