@@ -242,7 +242,7 @@ class BluecoreGraph:
                 if (
                     not isinstance(o, URIRef)
                     or self._exclude_uri_from_other_resources(o)
-                    or self._is_work_or_instance(o, self.graph)
+                    or self._is_bibframe_resource(o, self.graph)
                 ):
                     continue
 
@@ -384,12 +384,12 @@ class BluecoreGraph:
         """Checks if uri is in the BF, MADS, or RDF namespaces"""
         return uri in BF or uri in MADS or uri in RDF  # type: ignore
 
-    def _is_work_or_instance(self, uri: Node, graph: Graph) -> bool:
+    def _is_bibframe_resource(self, uri: Node, graph: Graph) -> bool:
         """Checks if uri is a BIBFRAME Work or Instance"""
         for class_ in graph.objects(subject=uri, predicate=RDF.type):
-            # In the future we may want to include Work and Instances subclasses
-            # maybe through inference
-            if class_ == BF.Work or class_ == BF.Instance:
+            # In the future we may want to include Work, Instance and Hub subclasses
+            # maybe through inference?
+            if class_ in [BF.Work, BF.Instance, BF.Hub]:
                 return True
         return False
 
@@ -456,6 +456,7 @@ class BluecoreGraph:
 
         # sort all the link iterations by URI so that, like _save, concurrent
         # transactions acquire row locks in the same deterministic order.
+
         for s, o in sorted(
             self.graph.subject_objects(BF.instanceOf),
             key=lambda pair: (str(pair[0]), str(pair[1])),

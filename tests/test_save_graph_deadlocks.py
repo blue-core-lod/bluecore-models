@@ -54,7 +54,7 @@ def test_save_writes_other_resources_in_sorted_order(pg_session, monkeypatch):
     monkeypatch.setattr(Session, "add", spy_add)
 
     g = Graph()
-    g.parse("tests/23807141.ttl")
+    g.parse("tests/data/23807141.ttl")
     BluecoreGraph(g).save(pg_session)
 
     assert len(added_other_uris) > 1, "sanity: multiple Other Resources were written"
@@ -109,7 +109,7 @@ def test_save_retries_on_deadlock(pg_session):
     flaky = _FlakySessionMaker(pg_session, fail_times=1)
 
     g = Graph()
-    g.parse("tests/23807141.ttl")
+    g.parse("tests/data/23807141.ttl")
 
     # should NOT raise: the deadlock on the first attempt is retried
     BluecoreGraph(g).save(flaky)
