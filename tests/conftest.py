@@ -1,31 +1,28 @@
+import contextlib
 import json
 import logging
 import pathlib
-
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from uuid import UUID
 
-import contextlib
 import pytest
-
 from pytest_mock_resources import (
-    create_postgres_fixture,
     PostgresConfig,
     Rows,
     StaticStatements,
+    create_postgres_fixture,
 )
-
 from sqlalchemy.orm import Session, sessionmaker
 
 from bluecore_models.models import (
     Base,
-    ResourceBibframeClass,  # noqa
+    BibframeOtherResources,
     Hub,
     Instance,
     OtherResource,
+    ResourceBibframeClass,  # noqa
     Version,  # noqa
     Work,
-    BibframeOtherResources,
 )
 from bluecore_models.models.pg_ext_func import PG_EXT_FUNC
 
@@ -57,7 +54,10 @@ def create_test_rows():
             uri="https://bluecore.info/other-resource/sample",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            data={"description": "Sample Other Resource"},
+            data={
+                "@id": "https://bluecore.info/other-resource/sample",
+                "http://www.w3.org/2000/01/rdf-schema#label": "test",
+            },
             type="other_resources",
             is_profile=False,
         ),

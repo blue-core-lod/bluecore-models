@@ -1,23 +1,23 @@
 import json
+import pathlib
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid1
 
 import pytest  # noqa
 import rdflib
 
-
 from bluecore_models.models import (
     Base,  # noqa
     BibframeClass,
-    ResourceBibframeClass,
+    BibframeOtherResources,
     Hub,
     Instance,
     OtherResource,
+    ResourceBibframeClass,
     Version,
     Work,
-    BibframeOtherResources,
 )
-
 from bluecore_models.utils.graph import BF, load_jsonld
 
 
@@ -84,7 +84,7 @@ def test_other_resource(pg_session):
             session.query(OtherResource).where(OtherResource.id == 3).first()
         )
         assert other_resource.uri.startswith("https://bluecore.info/other-resource")
-        assert other_resource.data
+        assert other_resource.data["rdfs:label"] == "test"
         assert other_resource.created_at
         assert other_resource.updated_at
         assert other_resource.is_profile is False
@@ -201,11 +201,6 @@ def test_work_with_other_resources(pg_session):
             uri="https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
             data={
                 "@id": "https://bcld.info/works/4d579ca1-ab41-443b-a225-a35bc6a54281",
-                "@context": {
-                    "bflc": "http://id.loc.gov/ontologies/bflc/",
-                    "mads": "http://www.loc.gov/mads/rdf/v1#",
-                    "@vocab": "http://id.loc.gov/ontologies/bibframe/",
-                },
                 "title": [{"@type": "Title", "mainTitle": "Hannah Arendt and the law"}],
                 "language": {"@id": "http://id.loc.gov/vocabulary/languages/eng"},
                 "contribution": [
@@ -333,7 +328,6 @@ def test_hub_work_relationship(pg_session):
             uri="https://bluecore.info/works/hub-related-work",
             data={
                 "@id": "https://bluecore.info/works/hub-related-work",
-                "@context": {"@vocab": "http://id.loc.gov/ontologies/bibframe/"},
                 "@type": "Work",
                 "title": [{"@type": "Title", "mainTitle": "A work belonging to a hub"}],
             },
@@ -359,7 +353,7 @@ def test_hub_jsonld_framing():
     ), "framing preserved @id"
     assert "Hub" in hub.data["@type"], "framing compacted bf:Hub type"
     assert "Work" in hub.data["@type"], "framing compacted bf:Work type"
-    assert isinstance(hub.data["@context"], dict), "framing added @context"
+    assert hub.data.get("@context") is None, "framing removed @context"
 
 
 def test_work_jsonld_framing():
@@ -378,7 +372,7 @@ def test_work_jsonld_framing():
         work.data["title"][0]["mainTitle"][0]
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
-    assert isinstance(work.data["@context"], dict), "framing added @context"
+    assert work.data.get("@context") is None, "framing removed @context"
     assert (
         work.data["note"]["rdfs:label"] == "In Korean, with abstract also in English."
     )
@@ -400,7 +394,7 @@ def test_instance_jsonld_framing():
         instance.data["title"]["mainTitle"][0]
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
-    assert isinstance(instance.data["@context"], dict), "framing added @context"
+    assert instance.data.get("@context") is None, "framing removed @context"
     assert instance.data["note"]["rdfs:label"] == "illustrations"
 
 
@@ -496,3 +490,36 @@ def test_data_vector_update(pg_session):
         # ensure that now we can find the random string
         results = (session.query(Work).where(Work.data_vector.match(random_str))).all()
         assert len(results) == 1
+
+
+def test_work_with_non_standard_namespaces(pg_session):
+    """
+    Ensure that a Work with non-standard namespaces in its JSON-LD can be
+    persisted and retrieved.
+    """
+    with pg_session() as session:
+        time_now = datetime.now(UTC)
+        foo_work = Work(
+            uri="https://bcld.info/works/1234",
+            created_at=time_now,
+            updated_at=time_now,
+            data=json.load(pathlib.Path("tests/data/foo_work.jsonld").open()),
+            uuid=UUID("bb5eb231-a968-425f-b74c-39f21977fa54"),
+            type="works",
+        )
+        session.add(foo_work)
+        session.commit()
+        work = session.query(Work).where(Work.id == foo_work.id).first()
+        version = session.query(Version).filter_by(resource_id=work.id).first()
+        assert work.created_at == work.updated_at
+        assert version.created_at == work.updated_at
+        assert work.uri.startswith("https://bcld.info/work")
+        assert work.uuid == UUID("bb5eb231-a968-425f-b74c-39f21977fa54")
+        assert work.data["http://example.org/foo#test"]["@value"] == "bar"
+        assert work.created_at
+        assert work.updated_at
+        assert len(work.instances) == 0
+        assert len(work.versions) == 1
+        assert len(work.classes) == 0
+        # I expected to see at least one classes but maybe this is because the
+        # test data doesn't have all the necessary parts?

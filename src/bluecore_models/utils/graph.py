@@ -1,14 +1,25 @@
 """Utility functions for working with RDF graphs."""
 
 import logging
-from typing import Dict
+from typing import Any
 
 from pyld import jsonld
-from rdflib import Graph, URIRef, RDF, Node, DCTERMS, BNode
+from rdflib import DCTERMS, RDF, BNode, Graph, Node, URIRef
 
 from bluecore_models.namespaces import BF, BFLC, LCLOCAL, MADS
 
 logger = logging.getLogger(__name__)
+
+CONTEXT: dict[str, Any] = {
+    "@vocab": "http://id.loc.gov/ontologies/bibframe/",
+    "bflc": "http://id.loc.gov/ontologies/bflc/",
+    "mads": "http://www.loc.gov/mads/rdf/v1#",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "hasInstance": {"@type": "@id"},
+    "hasWork": {"@type": "@id"},
+    "instanceOf": {"@type": "@id"},
+}
 
 
 def init_graph() -> Graph:
@@ -21,7 +32,7 @@ def init_graph() -> Graph:
     return new_graph
 
 
-def load_jsonld(jsonld_data: list | dict) -> Graph:
+def load_jsonld(jsonld_data: list[Any] | dict[str, Any]) -> Graph:
     """
     Load a JSON-LD represented as a Python list or dict into a rdflib Graph.
     """
@@ -34,6 +45,8 @@ def load_jsonld(jsonld_data: list | dict) -> Graph:
             for obj in jsonld_data:
                 graph.parse(data=obj, format="json-ld")
         case dict():
+            if "@context" not in jsonld_data:
+                jsonld_data["@context"] = CONTEXT
             graph.parse(data=jsonld_data, format="json-ld")  # type: ignore
         case _:
             raise ValueError(
@@ -76,7 +89,7 @@ def generate_entity_graph(graph: Graph, entity: Node) -> Graph:
     return entity_graph
 
 
-def get_bf_classes(rdf_data: list | dict, uri: str) -> list:
+def get_bf_classes(rdf_data: list[Any] | dict[str, Any], uri: str) -> list:
     """Restrieves all of the resource's BIBFRAME classes from a graph."""
     graph = load_jsonld(rdf_data)
     classes = []
@@ -86,21 +99,15 @@ def get_bf_classes(rdf_data: list | dict, uri: str) -> list:
     return classes
 
 
-def frame_jsonld(bluecore_uri: str, jsonld_data: list | dict) -> dict:
+def frame_jsonld(
+    bluecore_uri: str, jsonld_data: list[Any] | dict[str, Any]
+) -> dict[str, Any]:
     """Frames the JSON-LD data to a specific structure."""
-    context: Dict[str, str] = {
-        "@vocab": "http://id.loc.gov/ontologies/bibframe/",
-        "bflc": "http://id.loc.gov/ontologies/bflc/",
-        "mads": "http://www.loc.gov/mads/rdf/v1#",
-        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
-    }
-    doc = jsonld.frame(
+    return jsonld.frame(
         jsonld_data,
         {
-            "@context": context,
+            "@context": CONTEXT,
             "@id": bluecore_uri,
             "@embed": "@always",
         },
     )
-
-    return doc
