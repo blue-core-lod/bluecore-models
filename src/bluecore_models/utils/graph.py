@@ -1,7 +1,7 @@
 """Utility functions for working with RDF graphs."""
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from pyld import jsonld
 from rdflib import DCTERMS, RDF, BNode, Graph, Node, URIRef
@@ -10,7 +10,7 @@ from bluecore_models.namespaces import BF, BFLC, LCLOCAL, MADS
 
 logger = logging.getLogger(__name__)
 
-CONTEXT: Dict[str, Any] = {
+CONTEXT: dict[str, Any] = {
     "@vocab": "http://id.loc.gov/ontologies/bibframe/",
     "bflc": "http://id.loc.gov/ontologies/bflc/",
     "mads": "http://www.loc.gov/mads/rdf/v1#",
