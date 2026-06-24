@@ -102,7 +102,7 @@ def set_jsonld(target, value, oldvalue, initiator) -> dict[str, Any] | None:
             "For automatic jsonld framing to work you must ensure the uri property is set before the data property, even when constructing an object."
         )
     elif value is not None:
-        if isinstance(value, dict) and "@context" not in value:
+        if isinstance(value, dict):
             # Our data in DB contains compact JSON-LD with namespaces.
             # But we removed the @context, so it doesn't know where those namespaces came from.
             # Add back the @context so that framing works properly.
