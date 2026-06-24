@@ -1,3 +1,4 @@
+import json
 import uuid
 
 import pytest
@@ -30,7 +31,7 @@ def test_bluecore_graph():
     other resources.
     """
     g = Graph()
-    g.parse("tests/23807141.ttl")
+    g.parse("tests/data/23807141.ttl")
     bg = BluecoreGraph(g)
 
     works = bg.works()
@@ -65,7 +66,7 @@ def test_save(pg_session):
     _remove_fixtures(pg_session)
 
     g = Graph()
-    g.parse("tests/23807141.ttl")
+    g.parse("tests/data/23807141.ttl")
     bg = BluecoreGraph(g)
     bg.save(pg_session)
 
@@ -96,7 +97,7 @@ def test_save(pg_session):
     # loading the same graph again should overlay on the existing database
     # resources instead of creating new Work, Instance or Other Resource rows
     g = Graph()
-    g.parse("tests/23807141.ttl")
+    g.parse("tests/data/23807141.ttl")
     bg = BluecoreGraph(g)
     bg.save(pg_session)
 
@@ -808,6 +809,17 @@ def test_non_bluecore_hub(pg_session, monkeypatch, mocker):
     # saving the same JSON-LD again shouldn't mint a new URI
     save_graph(pg_session, load_jsonld(jsonld_object))
     assert uuid_spy.call_count == 1
+
+
+def test_hubs_are_not_other_resources(pg_session):
+    """
+    This JSON-LD contains a Hub along with Works, Instances and Other Resources.
+    If the Hub isn't distinguished from Other Resources it could result in it
+    being added to the database twice, which will cause a unique constraint
+    violation.
+    """
+    g = load_jsonld(json.load(open("tests/data/19167709.cbd.jsonld")))
+    save_graph(pg_session, g)
 
 
 def test_hub_update(pg_session):
