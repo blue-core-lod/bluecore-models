@@ -17,8 +17,7 @@ from bluecore_models.models import (
     OtherResource,
     BibframeOtherResources,
 )
-from bluecore_models.utils.graph import generate_entity_graph
-
+from bluecore_models.utils.graph import generate_admin_metadata, generate_entity_graph
 
 logger = logging.getLogger(__name__)
 
@@ -313,30 +312,33 @@ class BluecoreGraph:
                 # there's nothing to do here if it's already a bluecore URI
                 continue
             else:
-                # first look in the graph we are saving for a derivedFrom assertion
-                # that indicates an already minted bluecore URI for the external URI
+                # first look in the graph we are saving for an adminMetadata
+                # derivedFrom assertion that indicates an already minted bluecore
+                # URI for the external URI
 
-                bluecore_uri = self.graph.value(predicate=BF.derivedFrom, object=uri)
+                bluecore_uri = self._derived_from_subject(uri)
 
                 # if not found look up the URI in the database to see if it has been
-                # previously saved with a derivedFrom assertion
+                # previously saved with an adminMetadata derivedFrom assertion
                 # TODO: maybe we will need a db index for this eventually?
 
                 if bluecore_uri is None:
                     resource = (
                         session.query(sqla_class)
-                        .where(sqla_class.data["derivedFrom"]["@id"] == uri)
+                        .where(
+                            sqla_class.data.contains(
+                                {"adminMetadata": [{"derivedFrom": {"@id": str(uri)}}]}
+                            )
+                        )
                         .first()
                     )
                     if resource is not None:
-                        bluecore_uri = resource.uri
+                        bluecore_uri = URIRef(resource.uri)
 
                 # if we found an existing bluecore URI then we can update the graph to use it
 
                 if bluecore_uri is not None:
-                    self._switch_uris(
-                        derived_from=uri, bluecore_uri=URIRef(bluecore_uri)
-                    )
+                    self._switch_uris(derived_from=uri, bluecore_uri=bluecore_uri)
 
                 # otherwise we need to mint a new bluecore uri and update the graph
 
@@ -362,7 +364,26 @@ class BluecoreGraph:
 
         return self.namespace[f"{type_of}/{uuid}"]
 
-    def _switch_uris(self, derived_from: IdentifiedNode, bluecore_uri: URIRef) -> None:
+    def _derived_from_subject(self, source_uri: Node) -> Node | None:
+        """
+        Looks in the graph for a resource whose bf:adminMetadata records a
+        bf:derivedFrom assertion for the supplied source URI, returning that
+        resource's URI (or None if there isn't one). The derivedFrom assertion
+        lives on the AdminMetadata blank node rather than the resource itself.
+        """
+        for admin_metadata in self.graph.subjects(
+            predicate=BF.derivedFrom, object=source_uri
+        ):
+            subject = self.graph.value(
+                predicate=BF.adminMetadata, object=admin_metadata
+            )
+            if subject is not None:
+                return subject
+        return None
+
+    def _switch_uris(
+        self, derived_from: IdentifiedNode, bluecore_uri: Node | URIRef
+    ) -> None:
         """
         Updates the supplied graph so that assertions involving the
         derived_from as the subject now use the bluecore_uri in its place.
@@ -373,12 +394,14 @@ class BluecoreGraph:
             UPDATE_SPARQL,
             initBindings={
                 "old_subject": derived_from,
-                "bluecore_uri": bluecore_uri,
+                "bluecore_uri": bluecore_uri,  # type: ignore
             },
         )
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):
-            self.graph.add((bluecore_uri, BF.derivedFrom, derived_from))
+            generate_admin_metadata(
+                bluecore_uri=bluecore_uri, graph=self.graph, source_uri=derived_from
+            )
 
     def _exclude_uri_from_other_resources(self, uri: Node) -> bool:
         """Checks if uri is in the BF, MADS, or RDF namespaces"""

@@ -1,10 +1,11 @@
 """Utility functions for working with RDF graphs."""
 
+import datetime
 import logging
 from typing import Any
 
 from pyld import jsonld
-from rdflib import DCTERMS, RDF, BNode, Graph, Node, URIRef
+from rdflib import BNode, DCTERMS, Graph, Literal, Node, RDF, URIRef, XSD
 
 from bluecore_models.namespaces import BF, BFLC, LCLOCAL, MADS
 
@@ -75,6 +76,95 @@ def _expand_bnode(graph: Graph, entity_graph: Graph, bnode: BNode) -> None:
         entity_graph.add((bnode, pred, obj))
         if isinstance(obj, BNode):
             _expand_bnode(graph, entity_graph, obj)
+
+
+def _remove_bnode(graph: Graph, bnode: BNode) -> None:
+    """Recursively removes a blank node and any blank nodes it references."""
+    for pred, obj in list(graph.predicate_objects(subject=bnode)):
+        graph.remove((bnode, pred, obj))
+        # remove any nested blank nodes (e.g. bf:agent [ a bf:Agent ... ])
+        if isinstance(obj, BNode):
+            _remove_bnode(graph, obj)
+
+
+def _remove_admin_metadata(graph: Graph, subject: URIRef | None = None):
+    """
+    Removes existing AdminMetadata nodes. If a subject is supplied only that
+    resource's AdminMetadata is removed; otherwise all AdminMetadata in the graph
+    is removed. Scoping to a subject matters when the graph holds more than one
+    resource, so regenerating one resource's AdminMetadata doesn't wipe another's.
+    """
+    for s, admin_metadata in graph.subject_objects(predicate=BF.adminMetadata):
+        if subject is not None and s != subject:
+            continue
+        if not isinstance(admin_metadata, BNode):
+            continue
+        # remove all triples describing the AdminMetadata blank node (and any nested ones)
+        _remove_bnode(graph, admin_metadata)
+        # remove the link from the resource to the AdminMetadata node
+        graph.remove((s, BF.adminMetadata, admin_metadata))
+
+
+def generate_admin_metadata(**kwargs):
+    """
+    Generates two bf:AdminMetadata blank nodes for incoming RDF resources that are
+    derived from existing RDF resources
+    """
+    desc_auth: URIRef = kwargs.get(
+        "desc_authentication", URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc")
+    )
+    desc_lang: URIRef = kwargs.get(
+        "desc_language", URIRef("http://id.loc.gov/vocabulary/languages/eng")
+    )
+    desc_level: URIRef = kwargs.get(
+        "desc_level", URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/")
+    )
+    graph: Graph = kwargs["graph"]
+    bluecore_uri: URIRef = kwargs["bluecore_uri"]
+    remove_existing: bool = kwargs.get("remove_existing", True)
+    source_uri: URIRef = kwargs["source_uri"]
+    status: URIRef = kwargs.get(
+        "status", URIRef("http://id.loc.gov/vocabulary/mstatus/c")
+    )
+
+    time_stamp = datetime.datetime.now(datetime.UTC)
+
+    if remove_existing:
+        _remove_admin_metadata(graph, bluecore_uri)
+
+    # First bf:AdminMetadata
+    first_admin_metadata = BNode()
+    graph.add((bluecore_uri, BF.adminMetadata, first_admin_metadata))
+    graph.add((first_admin_metadata, RDF.type, BF.AdminMetadata))
+    graph.add(
+        (
+            first_admin_metadata,
+            BF.date,
+            Literal(time_stamp.isoformat(), datatype=XSD.dateTime),
+        )
+    )
+    graph.add((first_admin_metadata, BF.derivedFrom, source_uri))
+    graph.add((first_admin_metadata, BF.status, status))
+
+    # Second bf:AdminMetadata
+    second_admin_metadata = BNode()
+    graph.add((bluecore_uri, BF.adminMetadata, second_admin_metadata))
+    graph.add((second_admin_metadata, RDF.type, BF.AdminMetadata))
+    # imported lazily to avoid a circular import with bluecore_models.models
+    from bluecore_models.models.version import CURRENT_USER_ID
+
+    try:
+        cataloger_id = CURRENT_USER_ID.get()
+    finally:
+        if not cataloger_id:
+            cataloger_id = "Unknown"
+    graph.add((second_admin_metadata, BFLC.catalogerId, Literal(cataloger_id)))
+    graph.add((second_admin_metadata, BF.descriptionAuthentication, desc_auth))
+    graph.add(
+        (second_admin_metadata, BF.date, Literal(time_stamp.strftime("%Y-%m-%d")))
+    )
+    graph.add((second_admin_metadata, BF.descriptionLanguage, desc_lang))
+    graph.add((second_admin_metadata, BF.descriptionLevel, desc_level))
 
 
 def generate_entity_graph(graph: Graph, entity: Node) -> Graph:
