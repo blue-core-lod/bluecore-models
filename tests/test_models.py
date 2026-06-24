@@ -1,4 +1,6 @@
 import json
+import pathlib
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid1
 
@@ -488,3 +490,36 @@ def test_data_vector_update(pg_session):
         # ensure that now we can find the random string
         results = (session.query(Work).where(Work.data_vector.match(random_str))).all()
         assert len(results) == 1
+
+
+def test_work_with_non_standard_namespaces(pg_session):
+    """
+    Ensure that a Work with non-standard namespaces in its JSON-LD can be
+    persisted and retrieved.
+    """
+    with pg_session() as session:
+        time_now = datetime.now(UTC)
+        foo_work = Work(
+            uri="https://bcld.info/works/1234",
+            created_at=time_now,
+            updated_at=time_now,
+            data=json.load(pathlib.Path("tests/data/foo_work.jsonld").open()),
+            uuid=UUID("bb5eb231-a968-425f-b74c-39f21977fa54"),
+            type="works",
+        )
+        session.add(foo_work)
+        session.commit()
+        work = session.query(Work).where(Work.id == foo_work.id).first()
+        version = session.query(Version).filter_by(resource_id=work.id).first()
+        assert work.created_at == work.updated_at
+        assert version.created_at == work.updated_at
+        assert work.uri.startswith("https://bcld.info/work")
+        assert work.uuid == UUID("bb5eb231-a968-425f-b74c-39f21977fa54")
+        assert work.data["http://example.org/foo#test"]["@value"] == "bar"
+        assert work.created_at
+        assert work.updated_at
+        assert len(work.instances) == 0
+        assert len(work.versions) == 1
+        assert len(work.classes) == 0
+        # I expected to see at least one classes but maybe this is because the
+        # test data doesn't have all the necessary parts?

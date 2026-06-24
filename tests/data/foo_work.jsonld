@@ -1,0 +1,48 @@
+{
+    "@context": {
+        "bf": "http://loc.gov",
+        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#",
+        "foo": "http://example.org/foo#",
+        "bf:title": {
+            "@type": "@id"
+        },
+        "bf:hasInstance": {
+            "@type": "@id"
+        }
+    },
+    "@graph": [
+        {
+            "@id": "https://bcld.info/works/1234",
+            "@type": "bf:Work",
+            "bf:title": {
+                "@id": "_:workTitle"
+            },
+            "bf:contribution": {
+                "@id": "_:workAuthor"
+            },
+            "bf:hasInstance": {
+                "@id": "http://loc.gov"
+            },
+            "foo:test": {
+                "@type": "xsd:string",
+                "@value": "bar"
+            }
+        },
+        {
+            "@id": "_:workTitle",
+            "@type": "bf:Title",
+            "bf:mainTitle": "The Elements of Style"
+        },
+        {
+            "@id": "_:workAuthor",
+            "@type": "bf:Contribution",
+            "bf:agent": {
+                "@id": "http://loc.gov"
+            },
+            "bf:role": {
+                "@id": "http://loc.gov"
+            }
+        }
+    ]
+}
