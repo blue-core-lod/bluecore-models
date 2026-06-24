@@ -339,7 +339,7 @@ def test_hub_work_relationship(pg_session):
 
 
 def test_hub_jsonld_framing():
-    hub_json = json.load(Path("tests/blue-core-hub.jsonld").open())
+    hub_json = json.load(Path("tests/data/blue-core-hub.jsonld").open())
     hub = Hub(
         uri="http://id.loc.gov/resources/hubs/62a26d82-4e65-c696-afed-b12d215a35b1",
         data=hub_json,
@@ -355,7 +355,7 @@ def test_hub_jsonld_framing():
 
 
 def test_work_jsonld_framing():
-    work_json = json.load(Path("tests/blue-core-work.jsonld").open())
+    work_json = json.load(Path("tests/data/blue-core-work.jsonld").open())
     work = Work(
         uri="https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
         data=work_json,
@@ -377,7 +377,7 @@ def test_work_jsonld_framing():
 
 
 def test_instance_jsonld_framing():
-    instance_json = json.load(Path("tests/blue-core-instance.jsonld").open())
+    instance_json = json.load(Path("tests/data/blue-core-instance.jsonld").open())
     instance = Instance(
         uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
         data=instance_json,

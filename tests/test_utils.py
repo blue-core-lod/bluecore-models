@@ -24,7 +24,7 @@ def test_init_graph():
 
 
 def test_load_jsonld():
-    graph = load_jsonld(json.load(Path("tests/23807141.jsonld").open()))
+    graph = load_jsonld(json.load(Path("tests/data/23807141.jsonld").open()))
     assert graph.namespace_manager.store.namespace("bf") == URIRef(BF)
     assert graph.namespace_manager.store.namespace("bflc") == URIRef(BFLC)
     assert graph.namespace_manager.store.namespace("mads") == URIRef(MADS)
@@ -32,7 +32,7 @@ def test_load_jsonld():
 
 
 def test_generate_entity_graph():
-    loc_graph = load_jsonld(json.load(Path("tests/23807141.jsonld").open()))
+    loc_graph = load_jsonld(json.load(Path("tests/data/23807141.jsonld").open()))
 
     work_uri = URIRef("http://id.loc.gov/resources/works/23807141")
     dcterm_part_of = loc_graph.value(
