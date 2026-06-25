@@ -2,7 +2,7 @@ import json
 import uuid
 
 import pytest
-from rdflib import Graph
+from rdflib import Graph, URIRef
 
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
@@ -15,6 +15,22 @@ from bluecore_models.models import (
 )
 from bluecore_models.namespaces import BF, MADS, RDF
 from bluecore_models.utils.graph import CONTEXT, load_jsonld
+
+
+def _derived_from_ids(data: dict) -> list[str]:
+    """
+    Collect every bf:derivedFrom @id recorded in a resource's adminMetadata
+    nodes. derivedFrom now lives on the generated AdminMetadata rather than as a
+    top-level assertion on the resource.
+    """
+    admin_metadata = data.get("adminMetadata", [])
+    if isinstance(admin_metadata, dict):
+        admin_metadata = [admin_metadata]
+    return [
+        am["derivedFrom"]["@id"]
+        for am in admin_metadata
+        if isinstance(am, dict) and "derivedFrom" in am
+    ]
 
 
 def test_bluecore_graph():
@@ -63,21 +79,25 @@ def test_save(pg_session):
     bg.save(pg_session)
 
     with pg_session() as session:
-        # two works are there, and they are linked to Other Resources
+        # two works are there, and they are linked to Other Resources. The counts
+        # reflect that deriving these (non-bluecore) resources regenerates their
+        # AdminMetadata: the original AdminMetadata's Other Resources are removed
+        # and the generated AdminMetadata's are added (descriptionAuthentication,
+        # descriptionLanguage, descriptionLevel and status).
         works = session.query(Work).order_by(Work.id).all()
         assert len(works) == 2
-        assert len(works[0].other_resources) == 3
-        assert len(works[1].other_resources) == 25
+        assert len(works[0].other_resources) == 6
+        assert len(works[1].other_resources) == 20
 
         # two instances are there, and they are linked to Other Resources
         instances = session.query(Instance).order_by(Instance.id).all()
         assert len(instances) == 2
-        assert len(instances[0].other_resources) == 2
-        assert len(instances[1].other_resources) == 14
+        assert len(instances[0].other_resources) == 5
+        assert len(instances[1].other_resources) == 8
 
         # other resources are there and linked to works and instances
         others = session.query(OtherResource).all()
-        assert len(others) == 32
+        assert len(others) == 27
         for other in others:
             bfs = (
                 session.query(BibframeOtherResources)
@@ -96,7 +116,7 @@ def test_save(pg_session):
     with pg_session() as session:
         assert len(session.query(Work).order_by(Work.id).all()) == 2
         assert len(session.query(Instance).order_by(Instance.id).all()) == 2
-        assert len(session.query(OtherResource).all()) == 32
+        assert len(session.query(OtherResource).all()) == 27
 
 
 def test_work(pg_session):
@@ -165,7 +185,7 @@ def test_non_bluecore_work(pg_session, monkeypatch, mocker):
         assert work.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
         assert work.data["@type"] == "Work"
         assert work.data["title"]["mainTitle"] == "Gravity's Rainbow"
-        assert work.data["derivedFrom"]["@id"] == "https://example.com/1234"
+        assert "https://example.com/1234" in _derived_from_ids(work.data)
 
     # saving the same JSON-LD again shouldn't cause a new bluecore URI to be
     # minted since the existing Work will be found using the derivedFrom
@@ -318,7 +338,7 @@ def test_non_bluecore_instance(pg_session, monkeypatch):
         assert instance.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
         assert instance.data["@type"] == "Instance"
         assert instance.data["title"]["mainTitle"] == "Gravity's Rainbow"
-        assert instance.data["derivedFrom"]["@id"] == "https://example.com/1234"
+        assert "https://example.com/1234" in _derived_from_ids(instance.data)
 
 
 def test_instance_update(pg_session):
@@ -684,14 +704,22 @@ def test_instance_linking(pg_session):
             "@context": CONTEXT,
             "@id": "https://bcld.info/works/4e2496b4-2c5b-491e-8369-a837138234de",
             "@type": BF.Work,
-            "derivedFrom": {"@id": "http://id.loc.gov/resources/works/24021036"},
+            "adminMetadata": {
+                "@type": "AdminMetadata",
+                "derivedFrom": {"@id": "http://id.loc.gov/resources/works/24021036"},
+            },
             "hasInstance": {"@id": "http://id.loc.gov/resources/instances/24021036"},
         },
         {
             "@context": CONTEXT,
             "@id": "https://bcld.info/instances/500da8ca-2a06-4c35-a028-15e37e0e0ddd",
             "@type": BF.Instance,
-            "derivedFrom": {"@id": "http://id.loc.gov/resources/instances/24021036"},
+            "adminMetadata": {
+                "@type": "AdminMetadata",
+                "derivedFrom": {
+                    "@id": "http://id.loc.gov/resources/instances/24021036"
+                },
+            },
             "instanceOf": {"@id": "http://id.loc.gov/resources/works/24021036"},
         },
     ]
@@ -796,7 +824,7 @@ def test_non_bluecore_hub(pg_session, monkeypatch, mocker):
         assert hub.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
         assert "Hub" in hub.data["@type"]
         assert hub.data["title"]["mainTitle"] == "Hub Record"
-        assert hub.data["derivedFrom"]["@id"] == "https://example.com/hubs/1234"
+        assert "https://example.com/hubs/1234" in _derived_from_ids(hub.data)
 
     # saving the same JSON-LD again shouldn't mint a new URI
     save_graph(pg_session, load_jsonld(jsonld_object))
@@ -839,6 +867,63 @@ def test_hub_update(pg_session):
             .first()
         )
         assert hub.data["note"]["rdfs:label"] == "Updated note"
+
+
+def test_admin_metadata(pg_session):
+    """
+    Tests removal of old adminMetadata and the generation of BC
+    specific adminMetadata.
+
+    The generated adminMetadata is split across two AdminMetadata blank nodes per
+    resource: bf:derivedFrom lives on the first node and bf:descriptionAuthentication
+    on the second. So for each Instance we collect those predicates across *all* of
+    its adminMetadata nodes rather than assuming they sit on a single node.
+    """
+    g = Graph()
+    g.parse("tests/data/23807141.ttl")
+
+    existing_admin_metadata = [
+        r for r in g.subjects(predicate=RDF.type, object=BF.AdminMetadata)
+    ]
+
+    assert len(existing_admin_metadata) == 8
+
+    # the original Instance URIs are preserved as bf:derivedFrom assertions once
+    # the resources are minted Bluecore URIs
+    original_instance_uris = set(g.subjects(predicate=RDF.type, object=BF.Instance))
+    assert original_instance_uris
+
+    updated_graph = save_graph(pg_session, g)
+
+    instances = list(updated_graph.subjects(predicate=RDF.type, object=BF.Instance))
+    # the original Instance URIs have been replaced by minted Bluecore URIs
+    assert instances
+
+    for instance in instances:
+        admin_metadata = list(
+            updated_graph.objects(subject=instance, predicate=BF.adminMetadata)
+        )
+        assert len(admin_metadata) == 2
+
+        # gather the predicates we care about across every adminMetadata node
+        description_authentications = set()
+        derived_from = set()
+        for node in admin_metadata:
+            description_authentications.update(
+                updated_graph.objects(
+                    subject=node, predicate=BF.descriptionAuthentication
+                )
+            )
+            derived_from.update(
+                updated_graph.objects(subject=node, predicate=BF.derivedFrom)
+            )
+
+        assert description_authentications == {
+            URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc")
+        }
+        # each Instance records exactly one derivedFrom, pointing at its original URI
+        assert len(derived_from) == 1
+        assert derived_from <= original_instance_uris
 
 
 def _remove_fixtures(pg_session):

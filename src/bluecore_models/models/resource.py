@@ -52,9 +52,16 @@ class ResourceBase(Base):
     }
 
     __table_args__ = (
+        # btree expression index supporting equality lookups by the bf:derivedFrom
+        # @id recorded in a resource's nested adminMetadata, used for dedup. The
+        # derivedFrom assertion lives on one of the adminMetadata array elements
+        # (position not guaranteed), so we index jsonb_path_query_first(...), which
+        # is IMMUTABLE and returns the single derivedFrom @id regardless of position.
         Index(
-            "index_resource_base_on_data_derivedfrom_id",
-            text("((data -> 'derivedFrom'::text) ->> '@id'::text)"),
+            "index_resource_base_on_data_derivedFrom_id",
+            text(
+                "(jsonb_path_query_first(data, '$.adminMetadata[*].derivedFrom.\"@id\"') #>> '{}')"
+            ),
         ),
         Index(
             "index_resource_base_on_data_vector", data_vector, postgresql_using="gin"
