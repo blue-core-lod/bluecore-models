@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Computed, DateTime, Index, String, Uuid, event, text
+from sqlalchemy import Computed, DateTime, Index, String, Uuid, event
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -52,9 +52,15 @@ class ResourceBase(Base):
     }
 
     __table_args__ = (
+        # GIN index supporting JSONB containment (@>) lookups against data, used
+        # to find an existing resource by the bf:derivedFrom @id recorded in its
+        # nested adminMetadata. jsonb_path_ops is smaller/faster than the default
+        # jsonb_ops and supports the containment operator we query with.
         Index(
-            "index_resource_base_on_data_derivedfrom_id",
-            text("((data -> 'derivedFrom'::text) ->> '@id'::text)"),
+            "index_resource_base_on_data_gin",
+            "data",
+            postgresql_using="gin",
+            postgresql_ops={"data": "jsonb_path_ops"},
         ),
         Index(
             "index_resource_base_on_data_vector", data_vector, postgresql_using="gin"
