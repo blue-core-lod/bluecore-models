@@ -1,15 +1,17 @@
+import datetime
 import json
 import logging
 from uuid import uuid4
 
 from psycopg2 import errors as psycopg2_errors
-from rdflib import Graph, URIRef, Namespace, Node, IdentifiedNode
+from rdflib import BNode, Graph, IdentifiedNode, Literal, Namespace, Node, URIRef, XSD
 from rdflib.plugins import sparql
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm.session import sessionmaker, Session
 from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
-from bluecore_models.namespaces import BF, MADS, RDF
+from bluecore_models.namespaces import BF, BFLC, MADS, RDF
 from bluecore_models.models import (
     Work,
     Instance,
@@ -17,7 +19,8 @@ from bluecore_models.models import (
     OtherResource,
     BibframeOtherResources,
 )
-from bluecore_models.utils.graph import generate_admin_metadata, generate_entity_graph
+from bluecore_models.models.version import CURRENT_USER_ID
+from bluecore_models.utils.graph import generate_entity_graph
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +255,83 @@ class BluecoreGraph:
 
         return others
 
+    def _generate_admin_metadata(
+        self,
+        bluecore_uri: URIRef,
+        source_uri: URIRef,
+        status: URIRef = URIRef("http://id.loc.gov/vocabulary/mstatus/c"),
+        agent: URIRef = URIRef("http://id.loc.gov/vocabulary/organizations/bcld"),
+        desc_auth: URIRef = URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc"),
+        desc_lang: URIRef = URIRef("http://id.loc.gov/vocabulary/languages/eng"),
+        desc_level: URIRef = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/"),
+    ):
+        """
+        Generates two bf:AdminMetadata blank nodes for incoming RDF resources that are
+        derived from existing RDF resources
+        """
+
+        time_stamp = datetime.datetime.now(datetime.UTC)
+
+        self._remove_admin_metadata(self.graph, bluecore_uri)
+
+        # First bf:AdminMetadata
+        first_admin_metadata = BNode()
+        self.graph.add((bluecore_uri, BF.adminMetadata, first_admin_metadata))
+        self.graph.add((first_admin_metadata, RDF.type, BF.AdminMetadata))
+        self.graph.add((first_admin_metadata, BF.agent, agent))
+        self.graph.add(
+            (
+                first_admin_metadata,
+                BF.date,
+                Literal(time_stamp.isoformat(), datatype=XSD.dateTime),
+            )
+        )
+        self.graph.add((first_admin_metadata, BF.derivedFrom, source_uri))
+        self.graph.add((first_admin_metadata, BF.status, status))
+
+        # Second bf:AdminMetadata
+        second_admin_metadata = BNode()
+        self.graph.add((bluecore_uri, BF.adminMetadata, second_admin_metadata))
+        self.graph.add((second_admin_metadata, RDF.type, BF.AdminMetadata))
+
+        try:
+            cataloger_id = CURRENT_USER_ID.get()
+        finally:
+            if not cataloger_id:
+                cataloger_id = "Unknown"
+        self.graph.add((second_admin_metadata, BFLC.catalogerId, Literal(cataloger_id)))
+        self.graph.add((second_admin_metadata, BF.descriptionAuthentication, desc_auth))
+        self.graph.add(
+            (second_admin_metadata, BF.date, Literal(time_stamp.strftime("%Y-%m-%d")))
+        )
+        self.graph.add((second_admin_metadata, BF.descriptionLanguage, desc_lang))
+        self.graph.add((second_admin_metadata, BF.descriptionLevel, desc_level))
+
+    def _remove_bnode(self, graph: Graph, bnode: BNode) -> None:
+        """Recursively removes a blank node and any blank nodes it references."""
+        for pred, obj in list(graph.predicate_objects(subject=bnode)):
+            graph.remove((bnode, pred, obj))
+            # remove any nested blank nodes (e.g. bf:agent [ a bf:Agent ... ])
+            if isinstance(obj, BNode):
+                self._remove_bnode(graph, obj)
+
+    def _remove_admin_metadata(self, graph: Graph, subject: URIRef | None = None):
+        """
+        Removes existing AdminMetadata nodes. If a subject is supplied only that
+        resource's AdminMetadata is removed; otherwise all AdminMetadata in the graph
+        is removed. Scoping to a subject matters when the graph holds more than one
+        resource, so regenerating one resource's AdminMetadata doesn't wipe another's.
+        """
+        for s, admin_metadata in graph.subject_objects(predicate=BF.adminMetadata):
+            if subject is not None and s != subject:
+                continue
+            if not isinstance(admin_metadata, BNode):
+                continue
+            # remove all triples describing the AdminMetadata blank node (and any nested ones)
+            self._remove_bnode(graph, admin_metadata)
+            # remove the link from the resource to the AdminMetadata node
+            graph.remove((s, BF.adminMetadata, admin_metadata))
+
     def _subject(self, graph: Graph, class_: Node | None = None) -> IdentifiedNode:
         """
         Gets the subject from the supplied graph using the RDF type class. The
@@ -320,25 +400,28 @@ class BluecoreGraph:
 
                 # if not found look up the URI in the database to see if it has been
                 # previously saved with an adminMetadata derivedFrom assertion
-                # TODO: maybe we will need a db index for this eventually?
 
                 if bluecore_uri is None:
                     resource = (
                         session.query(sqla_class)
                         .where(
-                            sqla_class.data.contains(
-                                {"adminMetadata": [{"derivedFrom": {"@id": str(uri)}}]}
-                            )
+                            func.jsonb_path_query_first(
+                                sqla_class.data,
+                                '$.adminMetadata[*].derivedFrom."@id"',
+                            ).op("#>>")("{}")
+                            == str(uri)
                         )
                         .first()
                     )
                     if resource is not None:
-                        bluecore_uri = URIRef(resource.uri)
+                        bluecore_uri = resource.uri
 
                 # if we found an existing bluecore URI then we can update the graph to use it
 
                 if bluecore_uri is not None:
-                    self._switch_uris(derived_from=uri, bluecore_uri=bluecore_uri)
+                    self._switch_uris(
+                        derived_from=uri, bluecore_uri=URIRef(bluecore_uri)
+                    )
 
                 # otherwise we need to mint a new bluecore uri and update the graph
 
@@ -364,7 +447,7 @@ class BluecoreGraph:
 
         return self.namespace[f"{type_of}/{uuid}"]
 
-    def _derived_from_subject(self, source_uri: Node) -> Node | None:
+    def _derived_from_subject(self, source_uri: Node) -> URIRef | None:
         """
         Looks in the graph for a resource whose bf:adminMetadata records a
         bf:derivedFrom assertion for the supplied source URI, returning that
@@ -381,9 +464,7 @@ class BluecoreGraph:
                 return subject
         return None
 
-    def _switch_uris(
-        self, derived_from: IdentifiedNode, bluecore_uri: Node | URIRef
-    ) -> None:
+    def _switch_uris(self, derived_from: IdentifiedNode, bluecore_uri: URIRef) -> None:
         """
         Updates the supplied graph so that assertions involving the
         derived_from as the subject now use the bluecore_uri in its place.
@@ -392,16 +473,11 @@ class BluecoreGraph:
         """
         self.graph.update(
             UPDATE_SPARQL,
-            initBindings={
-                "old_subject": derived_from,
-                "bluecore_uri": bluecore_uri,  # type: ignore
-            },
+            initBindings={"old_subject": derived_from, "bluecore_uri": bluecore_uri},
         )
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):
-            generate_admin_metadata(
-                bluecore_uri=bluecore_uri, graph=self.graph, source_uri=derived_from
-            )
+            self._generate_admin_metadata(bluecore_uri, derived_from)
 
     def _exclude_uri_from_other_resources(self, uri: Node) -> bool:
         """Checks if uri is in the BF, MADS, or RDF namespaces"""

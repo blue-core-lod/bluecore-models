@@ -2,7 +2,7 @@ import json
 import uuid
 
 import pytest
-from rdflib import Graph
+from rdflib import Graph, URIRef
 
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
@@ -867,6 +867,63 @@ def test_hub_update(pg_session):
             .first()
         )
         assert hub.data["note"]["rdfs:label"] == "Updated note"
+
+
+def test_admin_metadata(pg_session):
+    """
+    Tests removal of old adminMetadata and the generation of BC
+    specific adminMetadata.
+
+    The generated adminMetadata is split across two AdminMetadata blank nodes per
+    resource: bf:derivedFrom lives on the first node and bf:descriptionAuthentication
+    on the second. So for each Instance we collect those predicates across *all* of
+    its adminMetadata nodes rather than assuming they sit on a single node.
+    """
+    g = Graph()
+    g.parse("tests/data/23807141.ttl")
+
+    existing_admin_metadata = [
+        r for r in g.subjects(predicate=RDF.type, object=BF.AdminMetadata)
+    ]
+
+    assert len(existing_admin_metadata) == 8
+
+    # the original Instance URIs are preserved as bf:derivedFrom assertions once
+    # the resources are minted Bluecore URIs
+    original_instance_uris = set(g.subjects(predicate=RDF.type, object=BF.Instance))
+    assert original_instance_uris
+
+    updated_graph = save_graph(pg_session, g)
+
+    instances = list(updated_graph.subjects(predicate=RDF.type, object=BF.Instance))
+    # the original Instance URIs have been replaced by minted Bluecore URIs
+    assert instances
+
+    for instance in instances:
+        admin_metadata = list(
+            updated_graph.objects(subject=instance, predicate=BF.adminMetadata)
+        )
+        assert len(admin_metadata) == 2
+
+        # gather the predicates we care about across every adminMetadata node
+        description_authentications = set()
+        derived_from = set()
+        for node in admin_metadata:
+            description_authentications.update(
+                updated_graph.objects(
+                    subject=node, predicate=BF.descriptionAuthentication
+                )
+            )
+            derived_from.update(
+                updated_graph.objects(subject=node, predicate=BF.derivedFrom)
+            )
+
+        assert description_authentications == {
+            URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc")
+        }
+        # each Instance records exactly one derivedFrom, pointing at its original URI
+        assert len(derived_from) == 1
+        assert derived_from <= original_instance_uris
 
 
 def _remove_fixtures(pg_session):

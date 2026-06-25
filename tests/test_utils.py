@@ -8,7 +8,6 @@ from bluecore_models.utils.graph import (
     BF,
     BFLC,
     MADS,
-    generate_admin_metadata,
     generate_entity_graph,
     init_graph,
     load_jsonld,
@@ -30,61 +29,6 @@ def test_load_jsonld():
     assert graph.namespace_manager.store.namespace("bflc") == URIRef(BFLC)
     assert graph.namespace_manager.store.namespace("mads") == URIRef(MADS)
     assert len(graph) == 324
-
-
-def test_generate_admin_metadata():
-    from bluecore_models.bluecore_graph import UPDATE_SPARQL
-
-    loc_graph = load_jsonld(json.load(Path("tests/data/23807141.jsonld").open()))
-    instance_uri = URIRef("http://id.loc.gov/resources/instances/23807141")
-
-    instance_graph = generate_entity_graph(loc_graph, instance_uri)
-
-    assert len(instance_graph) == 68
-
-    existing_admin_metadata = [
-        r
-        for r in instance_graph.subjects(
-            predicate=rdflib.RDF.type, object=BF.AdminMetadata
-        )
-    ]
-
-    assert len(existing_admin_metadata) == 4
-
-    bluecore_uri = URIRef(
-        "https://bcld.info/instances/e71430d9-5eca-4dee-954b-0f9cb7f81f25"
-    )
-
-    instance_graph.update(
-        UPDATE_SPARQL,
-        initBindings={
-            "old_subject": instance_uri,
-            "bluecore_uri": bluecore_uri,
-        },
-    )
-
-    generate_admin_metadata(
-        graph=instance_graph, bluecore_uri=bluecore_uri, source_uri=instance_uri
-    )
-
-    updated_admin_metadata = [
-        r
-        for r in instance_graph.subjects(
-            predicate=rdflib.RDF.type, object=BF.AdminMetadata
-        )
-    ]
-
-    assert len(updated_admin_metadata) == 2
-
-    assert (
-        instance_graph.value(
-            subject=updated_admin_metadata[0], predicate=BF.derivedFrom
-        )
-        == instance_uri
-    )
-    assert instance_graph.value(
-        subject=updated_admin_metadata[1], predicate=BF.descriptionAuthentication
-    ) == rdflib.URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc")
 
 
 def test_generate_entity_graph():
