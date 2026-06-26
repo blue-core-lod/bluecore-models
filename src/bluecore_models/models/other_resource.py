@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, ForeignKey
+from sqlalchemy import DateTime, Integer, ForeignKey
 
 from sqlalchemy.orm import (
     mapped_column,
@@ -21,7 +21,6 @@ class OtherResource(ResourceBase):
     id: Mapped[int] = mapped_column(
         Integer, ForeignKey("resource_base.id"), primary_key=True
     )
-    is_profile: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __mapper_args__ = {
         "polymorphic_identity": "other_resources",

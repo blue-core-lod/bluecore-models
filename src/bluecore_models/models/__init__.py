@@ -12,3 +12,4 @@ from bluecore_models.models.other_resource import (
     OtherResource as OtherResource,
     BibframeOtherResources as BibframeOtherResources,
 )
+from bluecore_models.models.template import Template as Template

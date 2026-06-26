@@ -15,6 +15,7 @@ from bluecore_models.models import (
     Instance,
     OtherResource,
     ResourceBibframeClass,
+    Template,
     Version,
     Work,
 )
@@ -87,21 +88,27 @@ def test_other_resource(pg_session):
         assert other_resource.data["rdfs:label"] == "test"
         assert other_resource.created_at
         assert other_resource.updated_at
-        assert other_resource.is_profile is False
 
 
-def test_other_resource_profile(pg_session):
+def test_template(pg_session):
     """
-    OtherResource "profiles" are not framed since they aren't necessarily JSON-LD
-    and won't have a URI associated with them.
+    Templates are not framed since they are plain JSON rather than JSON-LD and
+    may not have a URI associated with them.
     """
     with pg_session() as session:
-        session.add(OtherResource(is_profile=True, data={"foo": "bar"}))
+        session.add(Template(data={"foo": "bar"}))
         session.commit()
 
     with pg_session() as session:
-        other = session.query(OtherResource).order_by(OtherResource.id).all()[-1]
-        assert other.data["foo"] == "bar"
+        template = session.query(Template).order_by(Template.id).all()[-1]
+        assert template.data["foo"] == "bar"
+        assert template.type == "templates"
+        # Templates are versioned like Works/Instances/Hubs.
+        versions = (
+            session.query(Version).where(Version.resource_id == template.id).all()
+        )
+        assert len(versions) == 1
+        assert versions[0].data["foo"] == "bar"
 
 
 def test_versions(pg_session, user_context):
