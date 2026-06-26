@@ -104,9 +104,7 @@ def test_profile(pg_session):
         assert profile.data["foo"] == "bar"
         assert profile.type == "profiles"
         # Profiles are versioned like Works/Instances/Hubs.
-        versions = (
-            session.query(Version).where(Version.resource_id == profile.id).all()
-        )
+        versions = session.query(Version).where(Version.resource_id == profile.id).all()
         assert len(versions) == 1
         assert versions[0].data["foo"] == "bar"
 

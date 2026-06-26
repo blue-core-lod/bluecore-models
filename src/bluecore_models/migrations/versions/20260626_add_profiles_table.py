@@ -48,9 +48,7 @@ def upgrade() -> None:
         WHERE id IN (SELECT id FROM other_resources WHERE is_profile = true)
         """
     )
-    op.execute(
-        "DELETE FROM other_resources WHERE is_profile = true"
-    )
+    op.execute("DELETE FROM other_resources WHERE is_profile = true")
 
     # Give every profile a uuid and a minted bcld uri so they are uniform with
     # Works/Instances/Hubs (replacing any external Sinopia profile uri).
