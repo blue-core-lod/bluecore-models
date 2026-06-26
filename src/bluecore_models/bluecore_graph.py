@@ -5,7 +5,6 @@ from uuid import uuid4
 
 from psycopg2 import errors as psycopg2_errors
 from rdflib import BNode, Graph, IdentifiedNode, Literal, Namespace, Node, URIRef, XSD
-from rdflib.plugins import sparql
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm.session import sessionmaker, Session
@@ -20,7 +19,7 @@ from bluecore_models.models import (
     BibframeOtherResources,
 )
 from bluecore_models.models.version import CURRENT_USER_ID
-from bluecore_models.utils.graph import generate_entity_graph
+from bluecore_models.utils.graph import generate_entity_graph, replace_uri
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +179,14 @@ class BluecoreGraph:
                         self._save(
                             None, session
                         )  # there is no catchall URI for Other Resources
+
+                        # flush so the just-added resources have ids and are
+                        # visible to _link's uri lookups. Required because the
+                        # session may have autoflush disabled (as the
+                        # bluecore_api session does), in which case _link's
+                        # queries would otherwise not see them and would build
+                        # link rows with null foreign keys.
+                        session.flush()
 
                         # link all the works, instances and other resources together in the db
                         self._link(session)
@@ -471,10 +478,7 @@ class BluecoreGraph:
         A bibframe:derivedFrom assertion is added to record the relationship
         if the derived_from is URIRef.
         """
-        self.graph.update(
-            UPDATE_SPARQL,
-            initBindings={"old_subject": derived_from, "bluecore_uri": bluecore_uri},
-        )
+        replace_uri(self.graph, derived_from, bluecore_uri)
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):
             self._generate_admin_metadata(bluecore_uri, derived_from)
@@ -669,23 +673,3 @@ class BluecoreGraph:
             raise Exception(f"Unable to find in db: uri={uri}")
 
         return obj
-
-
-UPDATE_SPARQL = sparql.prepareUpdate("""
-DELETE {
-  ?old_subject ?p ?o .
-  ?s ?pp $old_subject
-}
-INSERT {
-  ?bluecore_uri ?p ?o .
-  ?s ?pp ?bluecore_uri .
-}
-WHERE {
-  {
-    ?old_subject ?p ?o .
-  }
-  UNION {
-    ?s ?pp ?old_subject .
-  }
-}
-""")

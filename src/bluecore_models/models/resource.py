@@ -90,9 +90,6 @@ def set_jsonld(target, value, oldvalue, initiator) -> dict[str, Any] | None:
     to the database. Note the ordering of properties used in constructors
     matters, since target.uri must be set on the object prior to setting data.
 
-    Also, if it is an OtherResource that has is_profile set to True, the data
-    will not be framed, since it is not JSON-LD and has no uri.
-
     So this will work:
 
         >>> w = Work(uri="https://example.com", data={ ... })
@@ -101,8 +98,16 @@ def set_jsonld(target, value, oldvalue, initiator) -> dict[str, Any] | None:
 
         >>> w = Work(data={...}, uri="https://example.com")
 
+    Also, if the target is a Profile the data will not be framed, since
+    sinopia-editor expects it to be in a particular shape. Maybe someday
+    we can frame it?!
     """
-    if hasattr(target, "is_profile") and target.is_profile is True:
+    # Local import to avoid a circular import: profile.py imports ResourceBase
+    # from this module. The data setter only fires on a constructed instance, by
+    # which point all model modules are loaded.
+    from bluecore_models.models.profile import Profile
+
+    if isinstance(target, Profile):
         return value
     elif target.uri is None and value is not None:
         raise ValueError(

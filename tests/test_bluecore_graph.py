@@ -2,7 +2,8 @@ import json
 import uuid
 
 import pytest
-from rdflib import Graph, URIRef
+from rdflib import BNode, Graph, Literal, URIRef
+from sqlalchemy.orm import sessionmaker
 
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
@@ -192,6 +193,53 @@ def test_non_bluecore_work(pg_session, monkeypatch, mocker):
     save_graph(pg_session, load_jsonld(jsonld_object))
 
     assert uuid_spy.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "bf_class, sqla_class, collection",
+    [
+        (BF.Work, Work, "works"),
+        (BF.Instance, Instance, "instances"),
+        (BF.Hub, Hub, "hubs"),
+    ],
+)
+def test_blank_node_resource(
+    pg_session, monkeypatch, mocker, bf_class, sqla_class, collection
+):
+    """
+    A graph whose subject is a blank node (i.e. has no URI yet, as when a
+    brand-new resource is created in an editor) should be persisted with a freshly
+    minted bluecore URI and NO derivedFrom assertion, since there is no original
+    URI to derive from.
+    """
+    minted_uuid = "7dbb7674-7373-473f-9014-b9a993a2dd03"
+    monkeypatch.setattr(bluecore_graph, "uuid4", lambda *args, **kwargs: minted_uuid)
+
+    uuid_spy = mocker.spy(bluecore_graph, "uuid4")
+
+    graph = Graph()
+    resource = BNode()
+    title = BNode()
+    graph.add((resource, RDF.type, bf_class))
+    graph.add((resource, BF.title, title))
+    graph.add((title, RDF.type, BF.Title))
+    graph.add((title, BF.mainTitle, Literal("Gravity's Rainbow")))
+
+    assert uuid_spy.call_count == 0
+    save_graph(pg_session, graph)
+    assert uuid_spy.call_count == 1
+
+    with pg_session() as session:
+        db_resource = (
+            session.query(sqla_class)
+            .where(sqla_class.uri == f"https://bcld.info/{collection}/{minted_uuid}")
+            .first()
+        )
+        assert db_resource is not None
+        assert db_resource.uuid == uuid.UUID(minted_uuid)
+        assert db_resource.data["title"]["mainTitle"] == "Gravity's Rainbow"
+        # no derivedFrom should be recorded for a brand-new (blank node) resource
+        assert _derived_from_ids(db_resource.data) == []
 
 
 def test_namespace(pg_session, monkeypatch, mocker):
@@ -482,6 +530,51 @@ def test_work_instance_bnode(pg_session, monkeypatch):
             work.instances[0].uri
             == "https://bcld.info/instances/2B8CE2D3-BBD2-4F30-94BB-F382F39E5320"
         ), "bnode turned into URI"
+
+
+def test_other_resources_autoflush_disabled(engine):
+    """
+    save_graph must link Other Resources even when the session has autoflush
+    disabled (as the bluecore_api session does). Without an explicit flush
+    before _link, its uri lookups don't see the just-added rows, so the link
+    rows are built with null foreign keys and commit raises NotNullViolation.
+    """
+    pg_session = sessionmaker(bind=engine, autoflush=False)
+
+    jsonld_object = {
+        "@context": CONTEXT,
+        "@id": "https://bcld.info/works/9999aaaa-0000-1111-2222-333344445555",
+        "@type": BF.Work,
+        "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
+        "contribution": {
+            "@type": ["Contribution", "PrimaryContribution"],
+            "agent": {
+                "@id": "http://id.loc.gov/rwo/agents/n79099184",
+                "@type": ["Agent", "Person"],
+                "rdfs:label": "Pynchon, Thomas",
+            },
+            "role": {
+                "@id": "http://id.loc.gov/vocabulary/relators/aut",
+                "@type": "Role",
+                "rdfs:label": "author",
+            },
+        },
+    }
+
+    save_graph(pg_session, load_jsonld(jsonld_object))
+
+    with pg_session() as session:
+        work = (
+            session.query(Work)
+            .where(
+                Work.uri
+                == "https://bcld.info/works/9999aaaa-0000-1111-2222-333344445555"
+            )
+            .first()
+        )
+        assert work is not None
+        # the two Other Resources are linked, with non-null foreign keys
+        assert len(work.other_resources) == 2
 
 
 def test_other_resources(pg_session):

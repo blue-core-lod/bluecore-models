@@ -228,7 +228,6 @@ def _seed_authorities(pg_session) -> None:
                     uri=uri,
                     data={"seed": i},
                     type="other_resources",
-                    is_profile=False,
                 )
             )
         session.commit()

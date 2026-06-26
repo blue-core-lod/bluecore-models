@@ -14,6 +14,7 @@ from bluecore_models.models import (
     Hub,
     Instance,
     OtherResource,
+    Profile,
     ResourceBibframeClass,
     Version,
     Work,
@@ -87,21 +88,24 @@ def test_other_resource(pg_session):
         assert other_resource.data["rdfs:label"] == "test"
         assert other_resource.created_at
         assert other_resource.updated_at
-        assert other_resource.is_profile is False
 
 
-def test_other_resource_profile(pg_session):
+def test_profile(pg_session):
     """
-    OtherResource "profiles" are not framed since they aren't necessarily JSON-LD
-    and won't have a URI associated with them.
+    Profiles are not framed since Sinopia Editor expects them to be a particular shape.
     """
     with pg_session() as session:
-        session.add(OtherResource(is_profile=True, data={"foo": "bar"}))
+        session.add(Profile(data={"foo": "bar"}))
         session.commit()
 
     with pg_session() as session:
-        other = session.query(OtherResource).order_by(OtherResource.id).all()[-1]
-        assert other.data["foo"] == "bar"
+        profile = session.query(Profile).order_by(Profile.id).all()[-1]
+        assert profile.data["foo"] == "bar"
+        assert profile.type == "profiles"
+        # Profiles are versioned like Works/Instances/Hubs.
+        versions = session.query(Version).where(Version.resource_id == profile.id).all()
+        assert len(versions) == 1
+        assert versions[0].data["foo"] == "bar"
 
 
 def test_versions(pg_session, user_context):
