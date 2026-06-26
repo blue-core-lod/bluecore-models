@@ -14,8 +14,8 @@ from bluecore_models.models import (
     Hub,
     Instance,
     OtherResource,
+    Profile,
     ResourceBibframeClass,
-    Template,
     Version,
     Work,
 )
@@ -90,22 +90,22 @@ def test_other_resource(pg_session):
         assert other_resource.updated_at
 
 
-def test_template(pg_session):
+def test_profile(pg_session):
     """
-    Templates are not framed since they are plain JSON rather than JSON-LD and
+    Profiles are not framed since they are plain JSON rather than JSON-LD and
     may not have a URI associated with them.
     """
     with pg_session() as session:
-        session.add(Template(data={"foo": "bar"}))
+        session.add(Profile(data={"foo": "bar"}))
         session.commit()
 
     with pg_session() as session:
-        template = session.query(Template).order_by(Template.id).all()[-1]
-        assert template.data["foo"] == "bar"
-        assert template.type == "templates"
-        # Templates are versioned like Works/Instances/Hubs.
+        profile = session.query(Profile).order_by(Profile.id).all()[-1]
+        assert profile.data["foo"] == "bar"
+        assert profile.type == "profiles"
+        # Profiles are versioned like Works/Instances/Hubs.
         versions = (
-            session.query(Version).where(Version.resource_id == template.id).all()
+            session.query(Version).where(Version.resource_id == profile.id).all()
         )
         assert len(versions) == 1
         assert versions[0].data["foo"] == "bar"

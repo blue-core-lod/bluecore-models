@@ -90,8 +90,8 @@ def set_jsonld(target, value, oldvalue, initiator) -> dict[str, Any] | None:
     to the database. Note the ordering of properties used in constructors
     matters, since target.uri must be set on the object prior to setting data.
 
-    Also, if the target is a Template the data will not be framed, since a
-    Template is plain JSON rather than JSON-LD and may have no uri.
+    Also, if the target is a Profile the data will not be framed, since a
+    Profile is plain JSON rather than JSON-LD and may have no uri.
 
     So this will work:
 
@@ -102,12 +102,12 @@ def set_jsonld(target, value, oldvalue, initiator) -> dict[str, Any] | None:
         >>> w = Work(data={...}, uri="https://example.com")
 
     """
-    # Local import to avoid a circular import: template.py imports ResourceBase
+    # Local import to avoid a circular import: profile.py imports ResourceBase
     # from this module. The data setter only fires on a constructed instance, by
     # which point all model modules are loaded.
-    from bluecore_models.models.template import Template
+    from bluecore_models.models.profile import Profile
 
-    if isinstance(target, Template):
+    if isinstance(target, Profile):
         return value
     elif target.uri is None and value is not None:
         raise ValueError(
