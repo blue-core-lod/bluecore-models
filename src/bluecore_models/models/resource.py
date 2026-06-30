@@ -52,13 +52,19 @@ class ResourceBase(Base):
     }
 
     __table_args__ = (
-        # btree expression index supporting equality lookups by the bf:derivedFrom
-        # @id recorded in a resource's nested adminMetadata, used for dedup. The
-        # derivedFrom assertion lives on one of the adminMetadata array elements
-        # (position not guaranteed), so we index jsonb_path_query_first(...), which
-        # is IMMUTABLE and returns the single derivedFrom @id regardless of position.
+        # composite btree index supporting the dedup lookup in
+        # BluecoreGraph._mint_all_uris, which filters on both the polymorphic type
+        # discriminator and the bf:derivedFrom @id recorded in a resource's nested
+        # adminMetadata. Leading with type, then the derivedFrom @id expression, lets
+        # the planner satisfy both equality predicates from the index prefix instead
+        # of scanning every row of a given type (which degrades linearly as the table
+        # grows). The derivedFrom assertion lives on one of the adminMetadata array
+        # elements (position not guaranteed), so we index jsonb_path_query_first(...),
+        # which is IMMUTABLE and returns the single derivedFrom @id regardless of
+        # position.
         Index(
-            "index_resource_base_on_data_derivedFrom_id",
+            "index_resource_base_on_type_derivedfrom_id",
+            "type",
             text(
                 "(jsonb_path_query_first(data, '$.adminMetadata[*].derivedFrom.\"@id\"') #>> '{}')"
             ),
