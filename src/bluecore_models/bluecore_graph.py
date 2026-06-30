@@ -260,7 +260,7 @@ class BluecoreGraph:
         bluecore_uri: URIRef,
         source_uri: URIRef,
         status: URIRef = URIRef("http://id.loc.gov/vocabulary/mstatus/c"),
-        agent: URIRef = URIRef("http://id.loc.gov/vocabulary/organizations/bcld"),
+        agent: URIRef = URIRef("http://id.loc.gov/vocabulary/organizations/cbc"),
         desc_auth: URIRef = URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc"),
         desc_lang: URIRef = URIRef("http://id.loc.gov/vocabulary/languages/eng"),
         desc_level: URIRef = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/"),
