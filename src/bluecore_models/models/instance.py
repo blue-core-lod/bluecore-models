@@ -1,19 +1,20 @@
 """Module for BIBFRAME Instances"""
 
+from typing import Any
+
 from sqlalchemy import (
-    event,
+    Connection,
     ForeignKey,
     Integer,
+    event,
 )
-
 from sqlalchemy.orm import (
-    mapped_column,
     Mapped,
+    mapped_column,
     relationship,
 )
 
 from bluecore_models.models.resource import ResourceBase
-from bluecore_models.models.work import Work
 from bluecore_models.utils.db import (
     add_bf_classes,
     add_version,
@@ -28,10 +29,9 @@ class Instance(ResourceBase):
         Integer, ForeignKey("resource_base.id"), primary_key=True
     )
     work_id: Mapped[int] = mapped_column(Integer, ForeignKey("works.id"), nullable=True)
-    work: Mapped["Work"] = relationship(
-        "Work", foreign_keys=work_id, backref="instances"
+    work: Mapped["Work"] = relationship(  # type: ignore  # noqa: F821
+        "Work", foreign_keys=work_id, back_populates="instances"
     )
-
     __mapper_args__ = {
         "polymorphic_identity": "instances",
     }
@@ -41,7 +41,7 @@ class Instance(ResourceBase):
 
 
 @event.listens_for(Instance, "after_insert")
-def create_version_bf_classes(mapper, connection, target):
+def create_version_bf_classes(mapper: Any, connection: Connection, target: Instance):
     """
     Creates a Version and associated Bibframe Classes
     """
@@ -50,7 +50,7 @@ def create_version_bf_classes(mapper, connection, target):
 
 
 @event.listens_for(Instance, "after_update")
-def update_version_bf_classes(mapper, connection, target):
+def update_version_bf_classes(mapper: Any, connection: Connection, target: Instance):
     """
     Updates a Version and associated Bibframe Classes
     """

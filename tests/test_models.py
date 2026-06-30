@@ -8,7 +8,7 @@ import pytest  # noqa
 import rdflib
 
 from bluecore_models.models import (
-    Base,  # noqa
+    Base,  # noqa # type: ignore
     BibframeClass,
     BibframeOtherResources,
     Hub,
@@ -286,6 +286,10 @@ def test_work_with_other_resources(pg_session):
         session.commit()
 
         assert len(new_work.versions) == 1, "Ensure only 1 version for work"
+        assert len(new_work.other_resources) == 3, "Ensure 3 other resources for work"
+        assert len(new_work.other_resources[0].other_resource.versions) == 1, (
+            "Ensure only 1 version for language other resource"
+        )
 
 
 def test_hub(pg_session):

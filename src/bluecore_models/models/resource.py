@@ -1,9 +1,9 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Computed, DateTime, Index, String, Uuid, event, text
+from sqlalchemy import Computed, Connection, DateTime, Index, String, Uuid, event, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bluecore_models.models.base import Base
 from bluecore_models.utils.graph import CONTEXT, frame_jsonld
@@ -24,6 +24,12 @@ class ResourceBase(Base):
         DateTime,
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
+    )
+    other_resources: Mapped[list["BibframeOtherResources"]] = relationship(  # type: ignore  # noqa: F821
+        "BibframeOtherResources", back_populates="bibframe_resource"
+    )
+    versions: Mapped[list["Version"]] = relationship(  # type: ignore  # noqa: F821
+        "Version", back_populates="resource"
     )
     """
     Boost mainTitle with highest ranking order at A, subtitle at B, and uri at C.
@@ -46,7 +52,7 @@ class ResourceBase(Base):
         ),
     )
 
-    __mapper_args__ = {
+    __mapper_args__ = {  # type: ignore
         "polymorphic_on": type,
         "polymorphic_identity": "resource_base",
     }
@@ -76,7 +82,7 @@ class ResourceBase(Base):
 # (if created_at time not present)
 # ------------------------------------------------------------------------------
 @event.listens_for(ResourceBase, "before_insert", propagate=True)
-def set_created_and_updated(mapper, connection, target):
+def set_created_and_updated(mapper: Any, connection: Connection, target: ResourceBase):
     now = datetime.now(UTC)
     if not target.created_at:
         target.created_at = now
