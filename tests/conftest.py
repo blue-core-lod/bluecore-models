@@ -59,7 +59,6 @@ def create_test_rows():
                 "http://www.w3.org/2000/01/rdf-schema#label": "test",
             },
             type="other_resources",
-            is_profile=False,
         ),
         BibframeOtherResources(
             other_resource_id=3,

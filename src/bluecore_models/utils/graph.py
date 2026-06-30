@@ -4,11 +4,33 @@ import logging
 from typing import Any
 
 from pyld import jsonld
-from rdflib import BNode, DCTERMS, Graph, Node, RDF, URIRef
+from rdflib import BNode, DCTERMS, Graph, IdentifiedNode, Node, RDF, URIRef
+from rdflib.plugins import sparql
 
 from bluecore_models.namespaces import BF, BFLC, LCLOCAL, MADS
 
 logger = logging.getLogger(__name__)
+
+# Rewrites every occurrence of ?old_uri to ?new_uri in a graph, in both subject
+# position (?old_uri ?p ?o) and object position (?s ?pp ?old_uri).
+_REPLACE_URI_SPARQL = sparql.prepareUpdate("""
+DELETE {
+  ?old_uri ?p ?o .
+  ?s ?pp ?old_uri .
+}
+INSERT {
+  ?new_uri ?p ?o .
+  ?s ?pp ?new_uri .
+}
+WHERE {
+  {
+    ?old_uri ?p ?o .
+  }
+  UNION {
+    ?s ?pp ?old_uri .
+  }
+}
+""")
 
 CONTEXT: dict[str, Any] = {
     "@vocab": "http://id.loc.gov/ontologies/bibframe/",
@@ -54,6 +76,18 @@ def load_jsonld(jsonld_data: list[Any] | dict[str, Any]) -> Graph:
             )
 
     return graph
+
+
+def replace_uri(graph: Graph, old_uri: IdentifiedNode, new_uri: URIRef) -> None:
+    """
+    Rewrite every occurrence of old_uri to new_uri in the graph, in both subject
+    position (old_uri ?p ?o) and object position (?s ?pp old_uri). old_uri may be
+    a blank node or a URIRef; new_uri is always a real (minted) URIRef.
+    """
+    graph.update(
+        _REPLACE_URI_SPARQL,
+        initBindings={"old_uri": old_uri, "new_uri": new_uri},
+    )
 
 
 def _check_for_namespace(node: Node) -> bool:

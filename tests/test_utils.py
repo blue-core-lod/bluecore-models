@@ -11,6 +11,7 @@ from bluecore_models.utils.graph import (
     generate_entity_graph,
     init_graph,
     load_jsonld,
+    replace_uri,
     _expand_bnode,
 )
 
@@ -51,6 +52,31 @@ def test_generate_entity_graph():
         subject=work_uri, predicate=rdflib.DCTERMS.isPartOf
     )
     assert work_dcterm_part_of is None
+
+
+def test_replace_uri():
+    """
+    replace_uri rewrites a URI everywhere it appears -- as a subject and as an
+    object referenced by other resources.
+    """
+    old = URIRef("http://example.com/old")
+    new = URIRef("http://example.com/new")
+    other = URIRef("http://example.com/other")
+
+    graph = init_graph()
+    # old appears as a subject...
+    graph.add((old, rdflib.RDF.type, BF.Work))
+    graph.add((old, BF.title, Literal("A title")))
+    # ...and as an object referenced by another resource.
+    graph.add((other, BF.relatedTo, old))
+
+    replace_uri(graph, old, new)
+
+    # old is gone from every position, new takes its place.
+    assert old not in set(graph.subjects()) | set(graph.objects())
+    assert (new, rdflib.RDF.type, BF.Work) in graph
+    assert (new, BF.title, Literal("A title")) in graph
+    assert (other, BF.relatedTo, new) in graph
 
 
 def test_bnode_expansion():
