@@ -287,8 +287,31 @@ def test_work_with_other_resources(pg_session):
 
         assert len(new_work.versions) == 1, "Ensure only 1 version for work"
         assert len(new_work.other_resources) == 3, "Ensure 3 other resources for work"
-        assert len(new_work.other_resources[0].other_resource.versions) == 1, (
-            "Ensure only 1 version for language other resource"
+
+        assert len(new_work.other_resources[2].other_resource.versions) == 1, (
+            "Ensure only 1 version for other resource for McCorkindale after insert"
+        )
+        person.data = {
+            "@id": "http://id.loc.gov/rwo/agents/no2012077908",
+            "@type": [
+                "http://id.loc.gov/ontologies/bibframe/Agent",
+                "http://id.loc.gov/ontologies/bibframe/Person",
+            ],
+            "http://id.loc.gov/ontologies/bflc/marcKey": [
+                {"@value": "1001 $aMcCorkindale, ChristopherZ"}
+            ],
+            "http://www.w3.org/2000/01/rdf-schema#label": [
+                {"@value": "McCorkindale, ChristopherZ"}
+            ],
+        }
+        session.add(person)
+        session.commit()
+        assert len(new_work.other_resources[2].other_resource.versions) == 2, (
+            "Ensure 2 versions for other resource for McCorkindale after update"
+        )
+        assert (
+            new_work.other_resources[2].other_resource.versions[1].data["rdfs:label"]
+            == "McCorkindale, ChristopherZ"
         )
 
 
