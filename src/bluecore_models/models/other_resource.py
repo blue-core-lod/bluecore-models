@@ -62,9 +62,7 @@ class BibframeOtherResources(Base):
 
 
 @event.listens_for(OtherResource, "after_insert")
-def create_version_bf_classes(
-    mapper: Any, connection: Connection, target: OtherResource
-):
+def create_version(mapper: Any, connection: Connection, target: OtherResource):
     """
     Creates a Version
     BibframeOtherResources are updated by bluecore_graph.py::_link
@@ -73,9 +71,7 @@ def create_version_bf_classes(
 
 
 @event.listens_for(OtherResource, "after_update")
-def update_version_bf_classes(
-    mapper: Any, connection: Connection, target: OtherResource
-):
+def update_version(mapper: Any, connection: Connection, target: OtherResource):
     """
     Updates a Version
     BibframeOtherResources are updated by bluecore_graph.py::_link

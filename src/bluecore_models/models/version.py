@@ -16,7 +16,7 @@ class Version(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     resource_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("resource_base.id"), nullable=False
+        Integer, ForeignKey("resource_base.id"), nullable=False, index=True
     )
     resource: Mapped[ResourceBase] = relationship(
         "ResourceBase", back_populates="versions"
