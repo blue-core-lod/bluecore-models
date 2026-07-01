@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Connection, DateTime, ForeignKey, Integer, event
+from sqlalchemy import Connection, DateTime, ForeignKey, Index, Integer, event
 from sqlalchemy.orm import (
     Mapped,
     mapped_column,
@@ -55,6 +55,22 @@ class BibframeOtherResources(Base):
     created_at = mapped_column(DateTime, default=datetime.utcnow)
     updated_at = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    __table_args__ = (
+        # Neither foreign key is indexed by default in Postgres. bibframe_resource_id
+        # backs the BluecoreGraph._link/_delete_other_links lookup and delete-by-work-
+        # or-instance, which otherwise degrades to a sequential scan as this table
+        # grows. other_resource_id is indexed too for symmetric lookups/joins from the
+        # OtherResource side.
+        Index(
+            "index_bibframe_other_resources_on_bibframe_resource_id",
+            "bibframe_resource_id",
+        ),
+        Index(
+            "index_bibframe_other_resources_on_other_resource_id",
+            "other_resource_id",
+        ),
     )
 
     def __repr__(self):
