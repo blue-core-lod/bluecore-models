@@ -1,15 +1,16 @@
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, Integer, ForeignKey
-
+from sqlalchemy import Connection, DateTime, ForeignKey, Integer, event
 from sqlalchemy.orm import (
-    mapped_column,
     Mapped,
+    mapped_column,
     relationship,
 )
 
 from bluecore_models.models.base import Base
 from bluecore_models.models.resource import ResourceBase
+from bluecore_models.utils.db import add_version
 
 
 class OtherResource(ResourceBase):
@@ -48,7 +49,7 @@ class BibframeOtherResources(Base):
         Integer, ForeignKey("resource_base.id"), nullable=False
     )
     bibframe_resource: Mapped[ResourceBase] = relationship(
-        "ResourceBase", backref="other_resources"
+        "ResourceBase", back_populates="other_resources"
     )
 
     created_at = mapped_column(DateTime, default=datetime.utcnow)
@@ -58,3 +59,21 @@ class BibframeOtherResources(Base):
 
     def __repr__(self):
         return f"<BibframeOtherResources {self.other_resource.uri or self.other_resource.id} for {self.bibframe_resource.uri}>"
+
+
+@event.listens_for(OtherResource, "after_insert")
+def create_version(mapper: Any, connection: Connection, target: OtherResource):
+    """
+    Creates a Version
+    BibframeOtherResources are updated by bluecore_graph.py::_link
+    """
+    add_version(connection, target)
+
+
+@event.listens_for(OtherResource, "after_update")
+def update_version(mapper: Any, connection: Connection, target: OtherResource):
+    """
+    Updates a Version
+    BibframeOtherResources are updated by bluecore_graph.py::_link
+    """
+    add_version(connection, target)
