@@ -1,6 +1,6 @@
 [project]
 name = "bluecore-models"
-version = "0.19.0"
+version = "0.20.0"
 description = "Blue Core BIBFRAME Data Models"
 readme = "README.md"
 requires-python = ">=3.12"
