@@ -37,6 +37,13 @@ RETRYABLE_PG_ERRORS = (
 # How many times to attempt save() before giving up on serialization failures.
 SAVE_MAX_ATTEMPTS = 3
 
+# (predicate, rdf:type) pairs identifying blank nodes that are stripped out of
+# a resource's graph before it is persisted to the database, e.g. removing
+# OCLC number identifiers that shouldn't be exposed.
+EXCLUDED_TRIPLE_TYPES = [
+    (BF.identifiedBy, BF.OclcNumber),
+]
+
 
 def _is_retryable_pg_error(error: BaseException) -> bool:
     """
@@ -339,6 +346,21 @@ class BluecoreGraph:
             # remove the link from the resource to the AdminMetadata node
             graph.remove((s, BF.adminMetadata, admin_metadata))
 
+    def _remove_triples_by_type(
+        self, graph: Graph, predicate: URIRef, type_: URIRef
+    ) -> None:
+        """
+        Removes blank nodes reachable via predicate that are rdf:typed as
+        type_ (e.g. predicate=BF.identifiedBy, type_=BF.OclcNumber) from the
+        supplied graph, along with the predicate assertion that points to them.
+        """
+        for s, obj in list(graph.subject_objects(predicate=predicate)):
+            if not isinstance(obj, BNode):
+                continue
+            if (obj, RDF.type, type_) in graph:
+                self._remove_bnode(graph, obj)
+                graph.remove((s, predicate, obj))
+
     def _subject(self, graph: Graph, class_: Node | None = None) -> IdentifiedNode:
         """
         Gets the subject from the supplied graph using the RDF type class. The
@@ -526,6 +548,8 @@ class BluecoreGraph:
 
         for g in resources:
             uri = self._subject(g, class_)
+            for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
+                self._remove_triples_by_type(g, predicate, type_)
             data = json.loads(g.serialize(format="json-ld"))
 
             obj = session.query(sqla_class).where(sqla_class.uri == uri).first()
