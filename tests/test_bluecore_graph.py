@@ -65,6 +65,40 @@ def test_bluecore_graph():
             )
 
 
+def test_remove_oclc_number_identifiers():
+    """
+    bf:identifiedBy blank nodes typed bf:OclcNumber are stripped out, while
+    other identifier types (e.g. bf:Lccn) are left in place.
+    """
+    g = Graph()
+    g.parse(
+        data="""
+        @prefix bf: <http://id.loc.gov/ontologies/bibframe/> .
+        @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+        <https://dev.bcld.info/instances/0ca0f64e-d086-4309-a3e7-22ed061ad7e8>
+            a bf:Instance ;
+            bf:identifiedBy [ a bf:Lccn ; rdf:value "  2022508031" ] ;
+            bf:identifiedBy [ a bf:OclcNumber ; rdf:value "on1267753195" ] .
+        """,
+        format="turtle",
+    )
+    bg = BluecoreGraph(g)
+    instances = bg.instances()
+    assert len(instances) == 1
+    instance_graph = instances[0]
+
+    bg._remove_triples_by_type(instance_graph, BF.identifiedBy, BF.OclcNumber)
+
+    identifier_types = {
+        identifier_type
+        for _, identifier in instance_graph.subject_objects(BF.identifiedBy)
+        for identifier_type in instance_graph.objects(identifier, RDF.type)
+    }
+    assert BF.OclcNumber not in identifier_types
+    assert BF.Lccn in identifier_types
+
+
 def test_save(pg_session):
     """
     Load a real CBD graph from disk, persist to the database, and check that the
