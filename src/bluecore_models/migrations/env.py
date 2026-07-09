@@ -1,3 +1,4 @@
+import os
 import pathlib
 import sys
 
@@ -29,6 +30,15 @@ from bluecore_models.models import (  # noqa: E402
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+# Chooses which database Alembic runs migrations against.
+#
+# alembic.ini uses a hardcoded `sqlalchemy.url` default "postgresql+psycopg2://airflow:airflow@localhost/bluecore".
+# When DATABASE_URL is set in the environment (e.g. the compose files from bluecore-stack build it from DATABASE_* ),
+# override the .ini value so migrations target the actual runtime database.
+database_url = os.getenv("DATABASE_URL")
+if database_url:
+    config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
