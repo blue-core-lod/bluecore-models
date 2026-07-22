@@ -195,8 +195,19 @@ class BluecoreGraph:
                         # link rows with null foreign keys.
                         session.flush()
 
-                        # link all the works, instances and other resources together in the db
-                        self._link(session)
+                        # link all the works, instances and other resources together in the db.
+                        # _link issues many per-uri lookups; with autoflush on, each one
+                        # re-flushes the pending link changes (and re-fires update events /
+                        # bf-class recomputation). The resources it reads were already
+                        # flushed above, so turn autoflush off for the link phase and let
+                        # commit() do the single final flush. (bluecore_api's session already
+                        # runs with autoflush disabled.)
+                        prev_autoflush = session.autoflush
+                        session.autoflush = False
+                        try:
+                            self._link(session)
+                        finally:
+                            session.autoflush = prev_autoflush
 
                         # all changes are part of one transaction!
                         session.commit()
