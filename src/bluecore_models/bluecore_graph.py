@@ -586,6 +586,14 @@ class BluecoreGraph:
         Save relations between Instances, Works and Other Resources in the graph.
         """
 
+        # Cache resource lookups for the duration of this link operation. _link
+        # resolves the same Works, Instances and Other Resources repeatedly (a
+        # Work is re-queried for every Other Resource it links to, etc.); caching
+        # by (type, uri) turns those repeats into a single query each. Every
+        # resource was flushed by save() before _link runs, so the first lookup
+        # already sees it.
+        cache: dict[tuple, object] = {}
+
         # use bibframe:instanceOf assertions to link instances with works
         #
         # Maybe we should have a simple inference step early on that infers missing
@@ -600,8 +608,8 @@ class BluecoreGraph:
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
             logger.info(f"linking {s} to {o}")
-            instance = self._get_first(session, Instance, s)
-            work = self._get_first(session, Work, o)
+            instance = self._get_first(session, Instance, s, cache)
+            work = self._get_first(session, Work, o, cache)
             instance.work = work
             session.add(instance)
 
@@ -611,8 +619,8 @@ class BluecoreGraph:
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
             logger.info(f"linking {s} to {o}")
-            work = self._get_first(session, Work, s)
-            instance = self._get_first(session, Instance, o)
+            work = self._get_first(session, Work, s, cache)
+            instance = self._get_first(session, Instance, o, cache)
             instance.work = work
             session.add(instance)
 
@@ -622,8 +630,8 @@ class BluecoreGraph:
 
         # first remove any existing Other Resource linkages between Works and
         # Instances so that they can be replaced with the new ones
-        self._delete_other_links(BF.Work, session)
-        self._delete_other_links(BF.Instance, session)
+        self._delete_other_links(BF.Work, session, cache)
+        self._delete_other_links(BF.Instance, session, cache)
 
         work_graphs = sorted(self.works(), key=lambda g: str(self._subject(g, BF.Work)))
         instance_graphs = sorted(
@@ -640,11 +648,9 @@ class BluecoreGraph:
                 if other_uri in g.objects():
                     work_uri = self._subject(g, BF.Work)
                     logger.info(f"linking {work_uri} to {other_uri}")
-                    work_model = session.query(Work).where(Work.uri == work_uri).first()
-                    other_model = (
-                        session.query(OtherResource)
-                        .where(OtherResource.uri == other_uri)
-                        .first()
+                    work_model = self._resolve(session, Work, work_uri, cache)
+                    other_model = self._resolve(
+                        session, OtherResource, other_uri, cache
                     )
                     session.add(
                         BibframeOtherResources(
@@ -659,15 +665,9 @@ class BluecoreGraph:
                 if other_uri in g.objects():
                     instance_uri = self._subject(g, BF.Instance)
                     logger.info(f"linking {instance_uri} to {other_uri}")
-                    instance_model = (
-                        session.query(Instance)
-                        .where(Instance.uri == instance_uri)
-                        .first()
-                    )
-                    other_model = (
-                        session.query(OtherResource)
-                        .where(OtherResource.uri == other_uri)
-                        .first()
+                    instance_model = self._resolve(session, Instance, instance_uri, cache)
+                    other_model = self._resolve(
+                        session, OtherResource, other_uri, cache
                     )
                     session.add(
                         BibframeOtherResources(
@@ -675,7 +675,7 @@ class BluecoreGraph:
                         )
                     )
 
-    def _delete_other_links(self, class_: URIRef, session: Session) -> None:
+    def _delete_other_links(self, class_: URIRef, session: Session, cache: dict) -> None:
         """
         Delete existing links to OtherResources so that they can be replaced
         with new ones.
@@ -690,20 +690,33 @@ class BluecoreGraph:
 
         for g in graphs:
             uri = self._subject(g, class_)
-            bf_resource = (
-                session.query(sqla_class).where(sqla_class.uri == str(uri)).first()
-            )
+            bf_resource = self._resolve(session, sqla_class, uri, cache)
 
             session.query(BibframeOtherResources).filter(
                 BibframeOtherResources.bibframe_resource == bf_resource
             ).delete()
 
-    def _get_first(self, session: Session, sqla_class: Instance | Work, uri: Node):
+    def _resolve(self, session: Session, sqla_class, uri: Node, cache: dict):
+        """
+        Look up a resource of the given type by uri, caching the result (keyed by
+        type + uri) so repeated lookups within a single _link operation only hit
+        the database once. Returns None if there is no matching resource.
+        """
+        key = (sqla_class, str(uri))
+        if key not in cache:
+            cache[key] = (
+                session.query(sqla_class).where(sqla_class.uri == str(uri)).first()
+            )
+        return cache[key]
+
+    def _get_first(
+        self, session: Session, sqla_class: Instance | Work, uri: Node, cache: dict
+    ):
         """
         Look up the first object of the given type in the database and return it
         or throw an exception.
         """
-        obj = session.query(sqla_class).where(sqla_class.uri == uri).first()
+        obj = self._resolve(session, sqla_class, uri, cache)
         if obj is None:
             raise Exception(f"Unable to find in db: uri={uri}")
 
