@@ -557,13 +557,23 @@ class BluecoreGraph:
         if class_ is None:
             resources = sorted(resources, key=lambda g: str(self._subject(g, class_)))
 
-        for g in resources:
-            uri = self._subject(g, class_)
+        # Fetch the resources of this batch that already exist in a single query,
+        # keyed by uri, rather than a SELECT per resource -- so re-saves and large
+        # batches don't fan out into a round-trip each.
+        subjects = [self._subject(g, class_) for g in resources]
+        existing = {
+            obj.uri: obj
+            for obj in session.query(sqla_class).where(
+                sqla_class.uri.in_([str(uri) for uri in subjects])
+            )
+        }
+
+        for g, uri in zip(resources, subjects):
             for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
                 self._remove_triples_by_type(g, predicate, type_)
             data = json.loads(g.serialize(format="json-ld"))
 
-            obj = session.query(sqla_class).where(sqla_class.uri == uri).first()
+            obj = existing.get(str(uri))
 
             if obj:
                 obj.data = data
