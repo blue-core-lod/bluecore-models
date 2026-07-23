@@ -108,7 +108,38 @@ class BluecoreGraph:
             namespace += "/"
         self.namespace = Namespace(namespace)
         self.graph = graph
+        # The per-entity subgraph extractions (works/instances/hubs/others) are
+        # expensive and get called repeatedly across the save. We cache them keyed
+        # on _revision, which is bumped every time the graph is mutated so the
+        # cache can't go stale. Every mutation of self.graph funnels through
+        # _infer (once, here) and _switch_uris (during minting) -- keep it that
+        # way, or bump _revision at any new mutation site (see _bump_revision).
+        self._revision = 0
+        self._subgraph_cache: dict[str, tuple[int, list[Graph]]] = {}
         self._infer()
+
+    def _bump_revision(self) -> None:
+        """
+        Record that self.graph has been mutated, invalidating the subgraph cache.
+        Call this from anywhere that changes self.graph.
+        """
+        self._revision += 1
+
+    def _subgraphs(self, key: str, compute) -> list[Graph]:
+        """
+        Return the cached subgraph list for `key`, recomputing it (via `compute`)
+        only when the graph has changed since it was last cached. The cache is
+        keyed on _revision, so it invalidates itself whenever the graph is mutated
+        (see _bump_revision).
+
+        The returned graphs are shared/cached -- callers must not mutate them in
+        place (copy first, as _save does).
+        """
+        cached = self._subgraph_cache.get(key)
+        if cached is None or cached[0] != self._revision:
+            cached = (self._revision, compute())
+            self._subgraph_cache[key] = cached
+        return cached[1]
 
     def works(self) -> list[Graph]:
         """
@@ -116,32 +147,37 @@ class BluecoreGraph:
         distinct Work. Excludes Hubs, which LC catalog data types as both bf:Hub
         and bf:Work; they are handled separately by hubs().
         """
-        return [
-            generate_entity_graph(self.graph, s)
-            for s in self.graph.subjects(RDF.type, BF.Work)
-            if (s, RDF.type, BF.Hub) not in self.graph
-        ]
+        return self._subgraphs(
+            "works",
+            lambda: [
+                generate_entity_graph(self.graph, s)
+                for s in self.graph.subjects(RDF.type, BF.Work)
+                if (s, RDF.type, BF.Hub) not in self.graph
+            ],
+        )
 
     def hubs(self) -> list[Graph]:
         """
         Returns a list of Bibframe Hub rdflib Graphs, where each graph is for a
         distinct Hub.
         """
-        return self._extract_subgraphs(BF.Hub)
+        return self._subgraphs("hubs", lambda: self._extract_subgraphs(BF.Hub))
 
     def instances(self) -> list[Graph]:
         """
         Returns a list of Bibframe Instance rdflib Graphs, where each graph is for a
         distinct Instance.
         """
-        return self._extract_subgraphs(BF.Instance)
+        return self._subgraphs(
+            "instances", lambda: self._extract_subgraphs(BF.Instance)
+        )
 
     def others(self) -> list[Graph]:
         """
         Return a list of "Other Resource" rdflib Graphs, where each graph is for a
         distinct resource.
         """
-        return self._extract_others()
+        return self._subgraphs("others", self._extract_others)
 
     def save(
         self, session_maker: sessionmaker, max_attempts: int = SAVE_MAX_ATTEMPTS
@@ -219,6 +255,7 @@ class BluecoreGraph:
         """
         Infer some triples that we rely on, and which may be missing.
         """
+        self._bump_revision()  # mutates self.graph
 
         # create inverse properties
         inverse_properties = [
@@ -511,6 +548,7 @@ class BluecoreGraph:
         A bibframe:derivedFrom assertion is added to record the relationship
         if the derived_from is URIRef.
         """
+        self._bump_revision()  # replace_uri + _generate_admin_metadata mutate self.graph
         replace_uri(self.graph, derived_from, bluecore_uri)
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):
@@ -531,6 +569,15 @@ class BluecoreGraph:
 
     def _is_bluecore_uri(self, uri) -> bool:
         return uri in self.namespace
+
+    @staticmethod
+    def _copy_graph(graph: Graph) -> Graph:
+        """Return a copy of an rdflib Graph (triples + namespace bindings)."""
+        copy = Graph()
+        for prefix, ns in graph.namespaces():
+            copy.bind(prefix, ns)
+        copy += graph
+        return copy
 
     def _save(self, class_: URIRef | None, session: Session) -> None:
         """
@@ -569,6 +616,9 @@ class BluecoreGraph:
         }
 
         for g, uri in zip(resources, subjects):
+            # work on a copy: the subgraphs are cached and reused by later phases
+            # (e.g. _link), so we must not strip triples out of the shared one.
+            g = self._copy_graph(g)
             for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
                 self._remove_triples_by_type(g, predicate, type_)
             data = json.loads(g.serialize(format="json-ld"))
