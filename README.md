@@ -86,6 +86,44 @@ All tests are located in the tests/ directory.
 
 ---
 
+## 📊 Benchmarking `save_graph`
+
+`benchmarks/save_graph_bench.py` persists a set of Bibframe graphs through the
+real save path (URI minting, resource save, linking, bf-class updates) and
+reports throughput (graphs/s, triples/s). With `--profile` it prints a cProfile
+hot-spot report, which is handy for finding where the save path spends its time.
+
+It writes to a Postgres, so first start one — the [Run Postgres with Docker](#-run-postgres-with-docker)
+command above works (it creates a `bluecore` database). Then point the benchmark
+at it with `--database-url` (or the `DATABASE_URL` env var); the benchmark
+creates the schema if it isn't there.
+
+#### Run the benchmark (50 saves of the sample graphs)
+```
+uv run python benchmarks/save_graph_bench.py \
+  --database-url postgresql+psycopg2://airflow:airflow@localhost:5432/bluecore \
+  --count 50
+```
+
+#### Print a cProfile hot-spot report
+Add `--profile`:
+```
+uv run python benchmarks/save_graph_bench.py \
+  --database-url postgresql+psycopg2://airflow:airflow@localhost:5432/bluecore \
+  --count 50 --profile
+```
+
+Other options:
+- `--reset` — `TRUNCATE` the resource tables first (don't point this at data you care about).
+- `--input "<glob>"` — RDF files to load (defaults to `tests/data/*.jsonld`); pass a
+  directory of `.rdf`/`.jsonld` records for a larger, more representative run.
+
+💡 Since the graph content doesn't change *which* code runs, reusing a few sample
+records many times (`--count`) is a fair, repeatable way to measure changes to
+the save path (e.g. before/after an optimization).
+
+---
+
 ## ⬆️ Publishing to Pypi
 To publish the `bluecore-models` to [pypi](https://pypi.org/project/bluecore-models/), the
 following steps need to be taken. 
