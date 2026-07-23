@@ -2,7 +2,7 @@ import json
 import uuid
 
 import pytest
-from rdflib import BNode, Graph, Literal, URIRef
+from rdflib import BNode, Graph, Literal, RDFS, URIRef
 from sqlalchemy.orm import sessionmaker
 
 from bluecore_models import bluecore_graph
@@ -1061,3 +1061,259 @@ def _remove_fixtures(pg_session):
         session.query(BibframeOtherResources).delete()
         session.query(OtherResource).delete()
         session.commit()
+
+
+# ---------------------------------------------------------------------------
+# primary_class: references must not clobber existing full descriptions
+# ---------------------------------------------------------------------------
+
+
+def _new_uri(kind: str) -> str:
+    return f"https://bcld.info/{kind}/{uuid.uuid4()}"
+
+
+def test_reference_does_not_clobber_existing_instance(pg_session):
+    """
+    A Work saved as the primary that only *references* an existing Instance (even
+    with a display label) must leave the Instance's full description untouched,
+    and still create the link.
+    """
+    inst_uri = _new_uri("instances")
+    save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@id": inst_uri,
+                "@type": BF.Instance,
+                "title": {"mainTitle": "Full Instance", "@type": "Title"},
+            }
+        ),
+    )
+    with pg_session() as session:
+        inst = session.query(Instance).where(Instance.uri == inst_uri).first()
+        before = json.dumps(inst.data, sort_keys=True)
+
+    work_uri = _new_uri("works")
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.hasInstance, URIRef(inst_uri)))
+    g.add((URIRef(inst_uri), RDFS.label, Literal("display label")))
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    with pg_session() as session:
+        inst = session.query(Instance).where(Instance.uri == inst_uri).first()
+        # full description preserved -- the sparse reference did not overwrite it
+        assert inst.data["title"]["mainTitle"] == "Full Instance"
+        assert json.dumps(inst.data, sort_keys=True) == before
+        # link was still created
+        work = session.query(Work).where(Work.uri == work_uri).first()
+        assert work is not None
+        assert inst.work_id == work.id
+
+
+def test_reference_does_not_clobber_existing_work(pg_session):
+    """
+    Symmetric case: a new Instance saved as the primary that references an existing
+    Work (with only a label) must not overwrite the Work's full description.
+    """
+    work_uri = _new_uri("works")
+    save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@id": work_uri,
+                "@type": BF.Work,
+                "title": {"mainTitle": "Full Work", "@type": "Title"},
+            }
+        ),
+    )
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).first()
+        before = json.dumps(work.data, sort_keys=True)
+
+    inst_uri = _new_uri("instances")
+    g = Graph()
+    g.add((URIRef(inst_uri), RDF.type, BF.Instance))
+    g.add((URIRef(inst_uri), BF.instanceOf, URIRef(work_uri)))
+    g.add((URIRef(work_uri), RDFS.label, Literal("display label")))
+    save_graph(pg_session, g, primary_class=BF.Instance)
+
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).first()
+        assert work.data["title"]["mainTitle"] == "Full Work"
+        assert json.dumps(work.data, sort_keys=True) == before
+        inst = session.query(Instance).where(Instance.uri == inst_uri).first()
+        assert inst is not None
+        assert inst.work_id == work.id
+
+
+def test_reference_to_absent_resource_is_created_with_known_triples(pg_session):
+    """
+    A reference to a resource that isn't in the db yet is created (so the link can
+    be made) storing whatever the payload knows about it -- not just the id.
+    """
+    work_uri = _new_uri("works")
+    inst_uri = _new_uri("instances")  # not yet in the db
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.hasInstance, URIRef(inst_uri)))
+    g.add((URIRef(inst_uri), RDFS.label, Literal("just a label")))
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    with pg_session() as session:
+        inst = session.query(Instance).where(Instance.uri == inst_uri).first()
+        assert inst is not None  # created
+        assert "just a label" in json.dumps(inst.data)  # known triples captured
+        work = session.query(Work).where(Work.uri == work_uri).first()
+        assert inst.work_id == work.id  # linked
+
+
+def test_reference_does_not_clobber_existing_other_resource(pg_session):
+    """
+    Other Resources are shared and variably-described: a Work that references one
+    with only a label must not shrink an existing fuller description.
+    """
+    agent_uri = _new_uri("other_resources")
+    # a first Work creates the Agent with a fuller description (create-if-absent)
+    g1 = Graph()
+    w1 = _new_uri("works")
+    g1.add((URIRef(w1), RDF.type, BF.Work))
+    g1.add((URIRef(w1), BF.contribution, URIRef(agent_uri)))
+    g1.add((URIRef(agent_uri), RDF.type, BF.Agent))
+    g1.add((URIRef(agent_uri), RDFS.label, Literal("Ursula K. Le Guin")))
+    g1.add((URIRef(agent_uri), BF.note, Literal("author")))
+    save_graph(pg_session, g1, primary_class=BF.Work)
+    with pg_session() as session:
+        agent = (
+            session.query(OtherResource).where(OtherResource.uri == agent_uri).first()
+        )
+        assert agent is not None
+        before = json.dumps(agent.data, sort_keys=True)
+
+    # a second Work references the same Agent with only a sparse label
+    g2 = Graph()
+    w2 = _new_uri("works")
+    g2.add((URIRef(w2), RDF.type, BF.Work))
+    g2.add((URIRef(w2), BF.contribution, URIRef(agent_uri)))
+    g2.add((URIRef(agent_uri), RDF.type, BF.Agent))
+    g2.add((URIRef(agent_uri), RDFS.label, Literal("Le Guin")))
+    save_graph(pg_session, g2, primary_class=BF.Work)
+
+    with pg_session() as session:
+        agent = (
+            session.query(OtherResource).where(OtherResource.uri == agent_uri).first()
+        )
+        assert json.dumps(agent.data, sort_keys=True) == before  # unchanged
+
+
+def test_other_resource_as_primary_updates(pg_session):
+    """
+    With primary_class=OtherResource, the Other Resource is authoritative and IS
+    updated, while a Work it references stays create-if-absent.
+    """
+    agent_uri = _new_uri("other_resources")
+    w = _new_uri("works")
+    g1 = Graph()
+    g1.add((URIRef(w), RDF.type, BF.Work))
+    g1.add((URIRef(w), BF.contribution, URIRef(agent_uri)))
+    g1.add((URIRef(agent_uri), RDF.type, BF.Agent))
+    g1.add((URIRef(agent_uri), RDFS.label, Literal("Old Name")))
+    save_graph(pg_session, g1, primary_class=BF.Work)
+
+    g2 = Graph()
+    g2.add((URIRef(w), RDF.type, BF.Work))
+    g2.add((URIRef(w), BF.contribution, URIRef(agent_uri)))
+    g2.add((URIRef(agent_uri), RDF.type, BF.Agent))
+    g2.add((URIRef(agent_uri), RDFS.label, Literal("New Name")))
+    save_graph(pg_session, g2, primary_class=OtherResource)
+
+    with pg_session() as session:
+        agent = (
+            session.query(OtherResource).where(OtherResource.uri == agent_uri).first()
+        )
+        assert "New Name" in json.dumps(agent.data)  # authoritatively updated
+
+
+def test_primary_class_none_still_overwrites(pg_session):
+    """
+    The bulk-loader path (no primary_class) keeps the original upsert behavior:
+    every subject is authoritative and is overwritten.
+    """
+    inst_uri = _new_uri("instances")
+    save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@id": inst_uri,
+                "@type": BF.Instance,
+                "title": {"mainTitle": "First", "@type": "Title"},
+            }
+        ),
+    )
+    save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@id": inst_uri,
+                "@type": BF.Instance,
+                "title": {"mainTitle": "Second", "@type": "Title"},
+            }
+        ),
+    )
+    with pg_session() as session:
+        inst = session.query(Instance).where(Instance.uri == inst_uri).first()
+        assert inst.data["title"]["mainTitle"] == "Second"
+
+
+def test_update_other_resources_flag(pg_session):
+    """
+    On the bulk path (primary_class=None), update_other_resources=False treats
+    Other Resources as references (create-if-absent, never overwrite) so batch
+    loads don't needlessly re-describe shared Other Resources; the default True
+    still updates them.
+    """
+    agent_uri = _new_uri("other_resources")
+
+    def save_work_with_agent(label: str, **kwargs):
+        g = Graph()
+        w = _new_uri("works")
+        g.add((URIRef(w), RDF.type, BF.Work))
+        g.add((URIRef(w), BF.contribution, URIRef(agent_uri)))
+        g.add((URIRef(agent_uri), RDF.type, BF.Agent))
+        g.add((URIRef(agent_uri), RDFS.label, Literal(label)))
+        save_graph(pg_session, g, **kwargs)
+        return w
+
+    save_work_with_agent("Original")
+    with pg_session() as session:
+        before = json.dumps(
+            session.query(OtherResource)
+            .where(OtherResource.uri == agent_uri)
+            .first()
+            .data,
+            sort_keys=True,
+        )
+
+    # bulk save with update_other_resources=False must not re-describe the Agent
+    w2 = save_work_with_agent("Changed", update_other_resources=False)
+    with pg_session() as session:
+        agent = (
+            session.query(OtherResource).where(OtherResource.uri == agent_uri).first()
+        )
+        assert json.dumps(agent.data, sort_keys=True) == before  # unchanged
+        # but the new Work is still linked to the existing Agent
+        work2 = session.query(Work).where(Work.uri == w2).first()
+        link = (
+            session.query(BibframeOtherResources)
+            .where(BibframeOtherResources.bibframe_resource_id == work2.id)
+            .first()
+        )
+        assert link is not None and link.other_resource.uri == agent_uri
+
+    # default (update_other_resources=True) still updates the Agent
+    save_work_with_agent("Updated")
+    with pg_session() as session:
+        agent = (
+            session.query(OtherResource).where(OtherResource.uri == agent_uri).first()
+        )
+        assert "Updated" in json.dumps(agent.data)
