@@ -725,7 +725,9 @@ class BluecoreGraph:
                 if other_uri in g.objects():
                     instance_uri = self._subject(g, BF.Instance)
                     logger.info(f"linking {instance_uri} to {other_uri}")
-                    instance_model = self._resolve(session, Instance, instance_uri, cache)
+                    instance_model = self._resolve(
+                        session, Instance, instance_uri, cache
+                    )
                     other_model = self._resolve(
                         session, OtherResource, other_uri, cache
                     )
@@ -735,7 +737,9 @@ class BluecoreGraph:
                         )
                     )
 
-    def _delete_other_links(self, class_: URIRef, session: Session, cache: dict) -> None:
+    def _delete_other_links(
+        self, class_: URIRef, session: Session, cache: dict
+    ) -> None:
         """
         Delete existing links to OtherResources so that they can be replaced
         with new ones.

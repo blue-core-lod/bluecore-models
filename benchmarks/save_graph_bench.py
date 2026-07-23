@@ -20,6 +20,7 @@ Requires a Postgres to write to. Point it at any database via ``--database-url``
 Use ``--reset`` to TRUNCATE the resource tables first (don't point that at a
 database you care about).
 """
+
 import argparse
 import cProfile
 import glob
@@ -36,7 +37,9 @@ from bluecore_models.models import Base
 from bluecore_models.models.pg_ext_func import PG_EXT_FUNC
 from bluecore_models.bluecore_graph import save_graph
 
-DEFAULT_INPUT = os.path.join(os.path.dirname(__file__), "..", "tests", "data", "*.jsonld")
+DEFAULT_INPUT = os.path.join(
+    os.path.dirname(__file__), "..", "tests", "data", "*.jsonld"
+)
 RESET_TABLES = [
     "bibframe_other_resources",
     "resource_bibframe_classes",
@@ -64,7 +67,11 @@ def ensure_schema(engine) -> None:
 def reset(engine) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text("TRUNCATE TABLE " + ", ".join(RESET_TABLES) + " RESTART IDENTITY CASCADE")
+            text(
+                "TRUNCATE TABLE "
+                + ", ".join(RESET_TABLES)
+                + " RESTART IDENTITY CASCADE"
+            )
         )
 
 
@@ -99,12 +106,16 @@ def run(graphs, session_maker, count):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     ap.add_argument("--count", type=int, default=25, help="number of save_graph calls")
     ap.add_argument("--input", default=DEFAULT_INPUT, help="glob of RDF files to load")
     ap.add_argument("--profile", action="store_true", help="print cProfile hot spots")
-    ap.add_argument("--reset", action="store_true", help="TRUNCATE resource tables first")
+    ap.add_argument(
+        "--reset", action="store_true", help="TRUNCATE resource tables first"
+    )
     args = ap.parse_args()
 
     if not args.database_url:
@@ -119,7 +130,9 @@ def main():
     graphs = load_graphs(args.input)
     if not graphs:
         ap.error(f"no graphs loaded from {args.input}")
-    print(f"loaded {len(graphs)} sample graph(s); running {args.count} save_graph calls")
+    print(
+        f"loaded {len(graphs)} sample graph(s); running {args.count} save_graph calls"
+    )
 
     # warm up (schema caches, first-insert vs update path) — excluded from timing
     run(graphs, session_maker, min(len(graphs), args.count))
@@ -133,11 +146,16 @@ def main():
         profiler.disable()
     wall = time.time() - t0
 
-    print(f"\n{saved} saves in {wall:.1f}s  =>  {saved / wall:.1f} graphs/s, "
-          f"{triples / wall:.0f} triples/s")
+    print(
+        f"\n{saved} saves in {wall:.1f}s  =>  {saved / wall:.1f} graphs/s, "
+        f"{triples / wall:.0f} triples/s"
+    )
 
     if profiler:
-        for sort, label, n in (("cumulative", "CUMULATIVE", 25), ("tottime", "SELF", 20)):
+        for sort, label, n in (
+            ("cumulative", "CUMULATIVE", 25),
+            ("tottime", "SELF", 20),
+        ):
             s = io.StringIO()
             pstats.Stats(profiler, stream=s).sort_stats(sort).print_stats(n)
             print(f"\n{'=' * 60}\nTOP {n} by {label} time\n{'=' * 60}\n{s.getvalue()}")
