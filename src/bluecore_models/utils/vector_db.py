@@ -2,13 +2,10 @@ import logging
 import os
 
 import rdflib
+from pymilvus import MilvusClient, model
 
-from typing import Union
-
-from pymilvus import model, MilvusClient
-
-from bluecore_models.utils.graph import load_jsonld
 from bluecore_models.models import Version
+from bluecore_models.utils.graph import load_jsonld
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +65,7 @@ def generate_vectors(graph: rdflib.Graph, resource_uri: str, version_id: int) ->
 
 
 def create_embeddings(
-    version: Version, collection: str, client: Union[MilvusClient, None] = None
+    version: Version, collection: str, client: MilvusClient | None = None
 ):
     if not client:
         client = MilvusClient(uri=MILVUS_URI)
@@ -81,8 +78,8 @@ def create_embeddings(
     resource_uri = version.resource.uri
     embeddings_data = generate_vectors(version_graph, resource_uri, version_id)
 
-    logging.info(
+    logger.info(
         f"Creating embeddings for {resource_uri} version {version_id}, total vectors: {len(embeddings_data)}"
     )
     result = client.insert(collection_name=collection, data=embeddings_data)
-    logging.info(f"Inserted {result['insert_count']} triple embeddings")
+    logger.info(f"Inserted {result['insert_count']} triple embeddings")

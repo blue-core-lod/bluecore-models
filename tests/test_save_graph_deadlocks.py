@@ -7,10 +7,9 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
-from bluecore_models.models import Instance, OtherResource, Work, BibframeOtherResources
+from bluecore_models.models import BibframeOtherResources, Instance, OtherResource, Work
 from bluecore_models.namespaces import BF
 from bluecore_models.utils.graph import load_jsonld
-
 
 jsonld_context = {
     "@vocab": "http://id.loc.gov/ontologies/bibframe/",
@@ -169,7 +168,12 @@ def test_concurrent_first_time_create_of_same_uri(pg_session):
 
         barrier = threading.Barrier(writers)
 
-        def writer(idx: int, other_uri: str = other_uri) -> None:
+        def writer(
+            idx: int,
+            other_uri: str = other_uri,
+            round_num: int = round_num,
+            barrier: threading.Barrier = barrier,
+        ) -> None:
             work_uuid = f"{round_num:02d}{idx:02d}0000-0000-0000-0000-000000000000"
             graph = _work_referencing_shared_other(work_uuid, other_uri)
             barrier.wait()  # all writers do get-or-create before anyone commits
@@ -273,7 +277,7 @@ def test_concurrent_writers_sharing_authorities_no_deadlock(pg_session):
 
     for round_num in range(_NUM_ROUNDS):
 
-        def writer(idx: int) -> None:
+        def writer(idx: int, round_num: int = round_num) -> None:
             order = _SHARED_AUTHORITIES[:]
             random.Random(round_num * 1000 + idx).shuffle(order)
             work_uuid = f"{round_num:02d}{idx:02d}0000-0000-0000-0000-000000000000"

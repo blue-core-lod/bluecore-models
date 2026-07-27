@@ -13,8 +13,8 @@ Create Date: 2026-06-26
 
 import os
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "20260626"

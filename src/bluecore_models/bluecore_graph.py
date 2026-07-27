@@ -4,21 +4,21 @@ import logging
 from uuid import uuid4
 
 from psycopg2 import errors as psycopg2_errors
-from rdflib import BNode, Graph, IdentifiedNode, Literal, Namespace, Node, URIRef, XSD
+from rdflib import XSD, BNode, Graph, IdentifiedNode, Literal, Namespace, Node, URIRef
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm.session import sessionmaker, Session
+from sqlalchemy.orm.session import Session, sessionmaker
 from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
-from bluecore_models.namespaces import BF, BFLC, MADS, RDF
 from bluecore_models.models import (
-    Work,
-    Instance,
-    Hub,
-    OtherResource,
     BibframeOtherResources,
+    Hub,
+    Instance,
+    OtherResource,
+    Work,
 )
 from bluecore_models.models.version import CURRENT_USER_ID
+from bluecore_models.namespaces import BF, BFLC, MADS, RDF
 from bluecore_models.utils.graph import generate_entity_graph, replace_uri
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,18 @@ RETRYABLE_PG_ERRORS = (
 
 # How many times to attempt save() before giving up on serialization failures.
 SAVE_MAX_ATTEMPTS = 3
+
+# Default AdminMetadata values used when a caller doesn't override them.
+DEFAULT_STATUS = URIRef("http://id.loc.gov/vocabulary/mstatus/c")
+DEFAULT_AGENT = URIRef("http://id.loc.gov/vocabulary/organizations/bcld")
+DEFAULT_DESC_AUTH = URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc")
+DEFAULT_DESC_LANG = URIRef("http://id.loc.gov/vocabulary/languages/eng")
+DEFAULT_DESC_LEVEL = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/")
+
+
+class BluecoreGraphError(Exception):
+    """Raised for BluecoreGraph errors that aren't a type mismatch."""
+
 
 # (predicate, rdf:type) pairs identifying blank nodes that are stripped out of
 # a resource's graph before it is persisted to the database, e.g. removing
@@ -101,9 +113,11 @@ class BluecoreGraph:
         Bluecore Namespace URL: the default is https://bcld.info.
         """
         if not isinstance(namespace, str):
-            raise Exception(f"default namespace cannot be {namespace}")
+            raise TypeError(f"default namespace cannot be {namespace}")
         elif not namespace.startswith("http"):
-            raise Exception(f"default namespace must be a URL, got {namespace}")
+            raise BluecoreGraphError(
+                f"default namespace must be a URL, got {namespace}"
+            )
         elif not namespace.endswith("/"):
             namespace += "/"
         self.namespace = Namespace(namespace)
@@ -171,35 +185,34 @@ class BluecoreGraph:
                 before_sleep=log_retry,
                 reraise=True,
             ):
-                with attempt:
-                    with session_maker() as session:
-                        # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
-                        # note: OtherResources keep their original URI
-                        self._mint_all_uris(BF.Hub, session)
-                        self._mint_all_uris(BF.Work, session)
-                        self._mint_all_uris(BF.Instance, session)
+                with attempt, session_maker() as session:
+                    # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
+                    # note: OtherResources keep their original URI
+                    self._mint_all_uris(BF.Hub, session)
+                    self._mint_all_uris(BF.Work, session)
+                    self._mint_all_uris(BF.Instance, session)
 
-                        # save resources from the graph to the database
-                        self._save(BF.Hub, session)
-                        self._save(BF.Work, session)
-                        self._save(BF.Instance, session)
-                        self._save(
-                            None, session
-                        )  # there is no catchall URI for Other Resources
+                    # save resources from the graph to the database
+                    self._save(BF.Hub, session)
+                    self._save(BF.Work, session)
+                    self._save(BF.Instance, session)
+                    self._save(
+                        None, session
+                    )  # there is no catchall URI for Other Resources
 
-                        # flush so the just-added resources have ids and are
-                        # visible to _link's uri lookups. Required because the
-                        # session may have autoflush disabled (as the
-                        # bluecore_api session does), in which case _link's
-                        # queries would otherwise not see them and would build
-                        # link rows with null foreign keys.
-                        session.flush()
+                    # flush so the just-added resources have ids and are
+                    # visible to _link's uri lookups. Required because the
+                    # session may have autoflush disabled (as the
+                    # bluecore_api session does), in which case _link's
+                    # queries would otherwise not see them and would build
+                    # link rows with null foreign keys.
+                    session.flush()
 
-                        # link all the works, instances and other resources together in the db
-                        self._link(session)
+                    # link all the works, instances and other resources together in the db
+                    self._link(session)
 
-                        # all changes are part of one transaction!
-                        session.commit()
+                    # all changes are part of one transaction!
+                    session.commit()
         except (OperationalError, IntegrityError) as error:
             logger.error(f"Exceeded {max_attempts} attempts with error {error}")
             raise
@@ -273,11 +286,11 @@ class BluecoreGraph:
         self,
         bluecore_uri: URIRef,
         source_uri: URIRef,
-        status: URIRef = URIRef("http://id.loc.gov/vocabulary/mstatus/c"),
-        agent: URIRef = URIRef("http://id.loc.gov/vocabulary/organizations/bcld"),
-        desc_auth: URIRef = URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc"),
-        desc_lang: URIRef = URIRef("http://id.loc.gov/vocabulary/languages/eng"),
-        desc_level: URIRef = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/"),
+        status: URIRef = DEFAULT_STATUS,
+        agent: URIRef = DEFAULT_AGENT,
+        desc_auth: URIRef = DEFAULT_DESC_AUTH,
+        desc_lang: URIRef = DEFAULT_DESC_LANG,
+        desc_level: URIRef = DEFAULT_DESC_LEVEL,
     ):
         """
         Generates two bf:AdminMetadata blank nodes for incoming RDF resources that are
@@ -378,20 +391,22 @@ class BluecoreGraph:
             # OtherResource graph, which assumes there is one subject URI and ignores BNodes.
             uris = list(set(filter(lambda s: isinstance(s, URIRef), graph.subjects())))
         else:
-            raise Exception("Unexpected class_ type, must be URIRef or None")
+            raise BluecoreGraphError("Unexpected class_ type, must be URIRef or None")
 
         # there should only be one subject
         if len(uris) == 0:
-            raise Exception(f"Unable to find subject URI for {class_}")
+            raise BluecoreGraphError(f"Unable to find subject URI for {class_}")
         elif len(uris) != 1:
             # try removing any bnodes when more than one subject was found
             uris = list(filter(lambda s: isinstance(s, URIRef), uris))
             if len(uris) != 1:
-                raise Exception(f"Found more than one subject URI for {class_}: {uris}")
+                raise BluecoreGraphError(
+                    f"Found more than one subject URI for {class_}: {uris}"
+                )
 
         # ensure we've got a BNode or URIRef
         if not isinstance(uris[0], IdentifiedNode):
-            raise Exception(f"Found unexpected subject identifier: {uris[0]}")
+            raise TypeError(f"Found unexpected subject identifier: {uris[0]}")
 
         return uris[0]
 
@@ -412,7 +427,7 @@ class BluecoreGraph:
                 subgraphs = self.instances()
                 sqla_class = Instance
             case _:
-                raise Exception("Can't mint URIs for class of type {class_}")
+                raise BluecoreGraphError(f"Can't mint URIs for class of type {class_}")
 
         for sg in subgraphs:
             uri = self._subject(sg, class_)
@@ -472,7 +487,9 @@ class BluecoreGraph:
             case BF.Instance:
                 type_of = "instances"
             case _:
-                raise Exception("Can't mint Bluecore URI for class of type {class_}")
+                raise BluecoreGraphError(
+                    f"Can't mint Bluecore URI for class of type {class_}"
+                )
 
         return self.namespace[f"{type_of}/{uuid}"]
 
@@ -694,6 +711,6 @@ class BluecoreGraph:
         """
         obj = session.query(sqla_class).where(sqla_class.uri == uri).first()
         if obj is None:
-            raise Exception(f"Unable to find in db: uri={uri}")
+            raise BluecoreGraphError(f"Unable to find in db: uri={uri}")
 
         return obj

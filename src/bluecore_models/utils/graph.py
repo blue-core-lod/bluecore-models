@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from pyld import jsonld
-from rdflib import BNode, DCTERMS, Graph, IdentifiedNode, Node, RDF, URIRef
+from rdflib import DCTERMS, RDF, BNode, Graph, IdentifiedNode, Node, URIRef
 from rdflib.plugins import sparql
 
 from bluecore_models.namespaces import BF, BFLC, LCLOCAL, MADS

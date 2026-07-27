@@ -965,7 +965,8 @@ def test_hubs_are_not_other_resources(pg_session):
     being added to the database twice, which will cause a unique constraint
     violation.
     """
-    g = load_jsonld(json.load(open("tests/data/19167709.cbd.jsonld")))
+    with open("tests/data/19167709.cbd.jsonld") as fo:
+        g = load_jsonld(json.load(fo))
     save_graph(pg_session, g)
 
 

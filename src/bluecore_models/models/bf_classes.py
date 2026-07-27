@@ -1,18 +1,17 @@
 from datetime import datetime
 
-
 from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
     String,
 )
-
 from sqlalchemy.orm import (
-    mapped_column,
     Mapped,
+    mapped_column,
     relationship,
 )
+
 from bluecore_models.models.base import Base
 from bluecore_models.models.resource import ResourceBase
 

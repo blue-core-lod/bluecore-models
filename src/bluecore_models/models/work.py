@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     Connection,
@@ -35,7 +35,7 @@ class Work(ResourceBase):
         "Instance", primaryjoin="Work.id == Instance.work_id", back_populates="work"
     )
 
-    __mapper_args__ = {
+    __mapper_args__: ClassVar[dict[str, Any]] = {
         "polymorphic_identity": "works",
     }
 

@@ -2,17 +2,17 @@ import json
 from pathlib import Path
 
 import rdflib
-from rdflib import URIRef, Literal, DCTERMS
+from rdflib import DCTERMS, Literal, URIRef
 
 from bluecore_models.utils.graph import (
     BF,
     BFLC,
     MADS,
+    _expand_bnode,
     generate_entity_graph,
     init_graph,
     load_jsonld,
     replace_uri,
-    _expand_bnode,
 )
 
 
@@ -25,7 +25,8 @@ def test_init_graph():
 
 
 def test_load_jsonld():
-    graph = load_jsonld(json.load(Path("tests/data/23807141.jsonld").open()))
+    with Path("tests/data/23807141.jsonld").open() as fo:
+        graph = load_jsonld(json.load(fo))
     assert graph.namespace_manager.store.namespace("bf") == URIRef(BF)
     assert graph.namespace_manager.store.namespace("bflc") == URIRef(BFLC)
     assert graph.namespace_manager.store.namespace("mads") == URIRef(MADS)
@@ -33,7 +34,8 @@ def test_load_jsonld():
 
 
 def test_generate_entity_graph():
-    loc_graph = load_jsonld(json.load(Path("tests/data/23807141.jsonld").open()))
+    with Path("tests/data/23807141.jsonld").open() as fo:
+        loc_graph = load_jsonld(json.load(fo))
 
     work_uri = URIRef("http://id.loc.gov/resources/works/23807141")
     dcterm_part_of = loc_graph.value(

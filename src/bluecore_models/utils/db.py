@@ -34,10 +34,7 @@ def add_version(connection, resource):
     """
     Adds a Version if the resource had been modified.
     """
-    try:
-        uid = CURRENT_USER_ID.get()
-    except Exception:
-        uid = None
+    uid = CURRENT_USER_ID.get()
 
     if object_session(resource).is_modified(resource, include_collections=False):
         stmt = insert(Version.__table__).values(
@@ -52,14 +49,14 @@ def add_version(connection, resource):
 def update_bf_classes(connection, resource):
     """Update Bibframe classes for a resource"""
     bf_classes = get_bf_classes(resource.data, resource.uri)
-    latest_bf_classes = set(str(bf_class) for bf_class in bf_classes)
+    latest_bf_classes = {str(bf_class) for bf_class in bf_classes}
     stmt = (
         select(BibframeClass.__table__.columns.uri)
         .where(BibframeClass.id == ResourceBibframeClass.bf_class_id)
         .where(ResourceBibframeClass.resource_id == resource.id)
     )
     result = connection.execute(stmt)
-    existing_bf_classes = set(bf_class_uri for bf_class_uri in result.scalars())
+    existing_bf_classes = set(result.scalars())
     removed_classes = existing_bf_classes - latest_bf_classes
     added_classes = latest_bf_classes - existing_bf_classes
     for bf_class in removed_classes:

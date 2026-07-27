@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid1
 
-import pytest  # noqa
+import pytest
 import rdflib
 
 from bluecore_models.models import (
@@ -372,7 +372,8 @@ def test_hub_work_relationship(pg_session):
 
 
 def test_hub_jsonld_framing():
-    hub_json = json.load(Path("tests/data/blue-core-hub.jsonld").open())
+    with Path("tests/data/blue-core-hub.jsonld").open() as fo:
+        hub_json = json.load(fo)
     hub = Hub(
         uri="http://id.loc.gov/resources/hubs/62a26d82-4e65-c696-afed-b12d215a35b1",
         data=hub_json,
@@ -388,7 +389,8 @@ def test_hub_jsonld_framing():
 
 
 def test_work_jsonld_framing():
-    work_json = json.load(Path("tests/data/blue-core-work.jsonld").open())
+    with Path("tests/data/blue-core-work.jsonld").open() as fo:
+        work_json = json.load(fo)
     work = Work(
         uri="https://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
         data=work_json,
@@ -410,7 +412,8 @@ def test_work_jsonld_framing():
 
 
 def test_instance_jsonld_framing():
-    instance_json = json.load(Path("tests/data/blue-core-instance.jsonld").open())
+    with Path("tests/data/blue-core-instance.jsonld").open() as fo:
+        instance_json = json.load(fo)
     instance = Instance(
         uri="https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a",
         data=instance_json,
@@ -528,13 +531,15 @@ def test_work_with_non_standard_namespaces(pg_session):
     Ensure that a Work with non-standard namespaces in its JSON-LD can be
     persisted and retrieved.
     """
+    with pathlib.Path("tests/data/foo_work.jsonld").open() as fo:
+        work_data = json.load(fo)
     with pg_session() as session:
         time_now = datetime.now(UTC)
         foo_work = Work(
             uri="https://bcld.info/works/1234",
             created_at=time_now,
             updated_at=time_now,
-            data=json.load(pathlib.Path("tests/data/foo_work.jsonld").open()),
+            data=work_data,
             uuid=UUID("bb5eb231-a968-425f-b74c-39f21977fa54"),
             type="works",
         )

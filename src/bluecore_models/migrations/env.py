@@ -1,30 +1,27 @@
 import os
 import pathlib
 import sys
-
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 current_dir = pathlib.Path(".")
 src = current_dir.parent / "src"
 
 sys.path = ["", str(src.absolute())] + sys.path[1:]
 
-from bluecore_models.models import (  # noqa: E402
+from bluecore_models.models import (
     Base,
-    ResourceBase,  # noqa: F401
+    BibframeClass,  # noqa: F401
+    BibframeOtherResources,  # noqa: F401
     Hub,  # noqa: F401
     Instance,  # noqa: F401
-    Work,  # noqa: F401
-    BibframeClass,  # noqa: F401
+    OtherResource,  # noqa: F401
+    ResourceBase,  # noqa: F401
     ResourceBibframeClass,  # noqa: F401
     Version,  # noqa: F401
-    OtherResource,  # noqa: F401
-    BibframeOtherResources,  # noqa: F401
+    Work,  # noqa: F401
 )
 
 # this is the Alembic Config object, which provides

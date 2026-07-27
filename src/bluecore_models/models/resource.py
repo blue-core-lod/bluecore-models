@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import Computed, Connection, DateTime, Index, String, Uuid, event, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
@@ -52,7 +52,7 @@ class ResourceBase(Base):
         ),
     )
 
-    __mapper_args__ = {  # type: ignore
+    __mapper_args__: ClassVar[dict[str, Any]] = {
         "polymorphic_on": type,
         "polymorphic_identity": "resource_base",
     }
