@@ -6,19 +6,19 @@ Create Date: 2026-04-20 15:06:39.889064
 
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 from bluecore_models.models.pg_ext_func import PG_EXT_FUNC
 
 # revision identifiers, used by Alembic.
 revision: str = "66a2614cbe62"
-down_revision: Union[str, None] = "da65046e4024"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "da65046e4024"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

@@ -4,21 +4,21 @@ import logging
 from uuid import uuid4
 
 from psycopg2 import errors as psycopg2_errors
-from rdflib import BNode, Graph, IdentifiedNode, Literal, Namespace, Node, URIRef, XSD
+from rdflib import XSD, BNode, Graph, IdentifiedNode, Literal, Namespace, Node, URIRef
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm.session import sessionmaker, Session
+from sqlalchemy.orm.session import Session, sessionmaker
 from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
-from bluecore_models.namespaces import BF, BFLC, MADS, RDF
 from bluecore_models.models import (
-    Work,
-    Instance,
-    Hub,
-    OtherResource,
     BibframeOtherResources,
+    Hub,
+    Instance,
+    OtherResource,
+    Work,
 )
 from bluecore_models.models.version import CURRENT_USER_ID
+from bluecore_models.namespaces import BF, BFLC, MADS, RDF
 from bluecore_models.utils.graph import generate_entity_graph, replace_uri
 
 logger = logging.getLogger(__name__)

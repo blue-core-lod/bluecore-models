@@ -7,10 +7,9 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
-from bluecore_models.models import Instance, OtherResource, Work, BibframeOtherResources
+from bluecore_models.models import BibframeOtherResources, Instance, OtherResource, Work
 from bluecore_models.namespaces import BF
 from bluecore_models.utils.graph import load_jsonld
-
 
 jsonld_context = {
     "@vocab": "http://id.loc.gov/ontologies/bibframe/",

@@ -5,15 +5,15 @@ Revises: ad784bf46c6f
 Create Date: 2025-09-29 07:43:07.109100
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision: str = "da65046e4024"
-down_revision: Union[str, None] = "ad784bf46c6f"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "ad784bf46c6f"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
