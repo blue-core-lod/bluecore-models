@@ -241,6 +241,14 @@ class BluecoreGraph:
                 f"(attempt {retry_state.attempt_number} of {max_attempts})"
             )
 
+        # save resources from the graph to the database. Only the
+        # primary_class is authoritatively upserted; other kinds are
+        # references (create-if-absent, never overwrite).
+        # See _persist_resources.
+        # primary_class is None means every kind is authoritative.
+        def is_primary(kind) -> bool:
+            return primary_class is None or primary_class == kind
+
         # Strip the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from the
         # graph once, before minting extracts subgraphs. The per-entity subgraphs
         # are then already clean, so _persist_resources can serialize the shared
@@ -261,14 +269,6 @@ class BluecoreGraph:
                     self._mint_all_uris(BF.Hub, session)
                     self._mint_all_uris(BF.Work, session)
                     self._mint_all_uris(BF.Instance, session)
-
-                    # save resources from the graph to the database. Only the
-                    # primary_class is authoritatively upserted; other kinds are
-                    # references (create-if-absent, never overwrite).
-                    # See _persist_resources.
-                    # primary_class is None means every kind is authoritative.
-                    def is_primary(kind) -> bool:
-                        return primary_class is None or primary_class == kind
 
                     self._persist_resources(BF.Hub, session, is_primary(BF.Hub))
                     self._persist_resources(BF.Work, session, is_primary(BF.Work))
@@ -701,7 +701,7 @@ class BluecoreGraph:
                 # its JSON-LD -- serializing and re-framing it would be wasted work
                 # (this is the hot path when batch-loading records that share many
                 # Other Resources).
-                logger.info(f"keeping existing {uri} (referenced, not primary)")
+                logger.debug(f"keeping existing {uri} (referenced, not primary)")
                 continue
 
             # Serialize the shared (cached) subgraph directly. save() already
