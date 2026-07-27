@@ -78,8 +78,8 @@ def create_embeddings(
     resource_uri = version.resource.uri
     embeddings_data = generate_vectors(version_graph, resource_uri, version_id)
 
-    logging.info(
+    logger.info(
         f"Creating embeddings for {resource_uri} version {version_id}, total vectors: {len(embeddings_data)}"
     )
     result = client.insert(collection_name=collection, data=embeddings_data)
-    logging.info(f"Inserted {result['insert_count']} triple embeddings")
+    logger.info(f"Inserted {result['insert_count']} triple embeddings")

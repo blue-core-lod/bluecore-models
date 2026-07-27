@@ -1,6 +1,6 @@
 """Module for BIBFRAME Hubs"""
 
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     Connection,
@@ -28,7 +28,7 @@ class Hub(ResourceBase):
         "Work", primaryjoin="Hub.id == Work.hub_id", back_populates="hub"
     )
 
-    __mapper_args__ = {
+    __mapper_args__: ClassVar[dict[str, Any]] = {
         "polymorphic_identity": "hubs",
     }
 

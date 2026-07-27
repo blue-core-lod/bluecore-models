@@ -1,6 +1,6 @@
 """Module for BIBFRAME Instances"""
 
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     Connection,
@@ -32,7 +32,7 @@ class Instance(ResourceBase):
     work: Mapped["Work"] = relationship(  # type: ignore  # noqa: F821
         "Work", foreign_keys=work_id, back_populates="instances"
     )
-    __mapper_args__ = {
+    __mapper_args__: ClassVar[dict[str, Any]] = {
         "polymorphic_identity": "instances",
     }
 

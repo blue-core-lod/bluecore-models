@@ -1,3 +1,5 @@
+from typing import Any, ClassVar
+
 from sqlalchemy import ForeignKey, Integer, event
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,7 +23,7 @@ class Profile(ResourceBase):
         Integer, ForeignKey("resource_base.id"), primary_key=True
     )
 
-    __mapper_args__ = {
+    __mapper_args__: ClassVar[dict[str, Any]] = {
         "polymorphic_identity": "profiles",
     }
 

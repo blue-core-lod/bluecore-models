@@ -168,7 +168,12 @@ def test_concurrent_first_time_create_of_same_uri(pg_session):
 
         barrier = threading.Barrier(writers)
 
-        def writer(idx: int, other_uri: str = other_uri) -> None:
+        def writer(
+            idx: int,
+            other_uri: str = other_uri,
+            round_num: int = round_num,
+            barrier: threading.Barrier = barrier,
+        ) -> None:
             work_uuid = f"{round_num:02d}{idx:02d}0000-0000-0000-0000-000000000000"
             graph = _work_referencing_shared_other(work_uuid, other_uri)
             barrier.wait()  # all writers do get-or-create before anyone commits
@@ -272,7 +277,7 @@ def test_concurrent_writers_sharing_authorities_no_deadlock(pg_session):
 
     for round_num in range(_NUM_ROUNDS):
 
-        def writer(idx: int) -> None:
+        def writer(idx: int, round_num: int = round_num) -> None:
             order = _SHARED_AUTHORITIES[:]
             random.Random(round_num * 1000 + idx).shuffle(order)
             work_uuid = f"{round_num:02d}{idx:02d}0000-0000-0000-0000-000000000000"

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import Connection, DateTime, ForeignKey, Index, Integer, event
 from sqlalchemy.orm import (
@@ -23,7 +23,7 @@ class OtherResource(ResourceBase):
         Integer, ForeignKey("resource_base.id"), primary_key=True
     )
 
-    __mapper_args__ = {
+    __mapper_args__: ClassVar[dict[str, Any]] = {
         "polymorphic_identity": "other_resources",
     }
 
