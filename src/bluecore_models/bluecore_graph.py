@@ -69,16 +69,39 @@ def _is_retryable_pg_error(error: BaseException) -> bool:
 
 
 def save_graph(
-    session_maker: sessionmaker, graph: Graph, namespace="https://bcld.info/"
+    session_maker: sessionmaker,
+    graph: Graph,
+    namespace="https://bcld.info/",
+    primary_class=None,
+    update_other_resources: bool = True,
 ) -> Graph:
     """
     Use the supplied database sessionmaker to create a database session and
     persist all the resources found in the Graph. The possibly modified graph is
     returned, which will contain any new URIs that were minted, as well as
     bibframe:derivedFrom assertions for the original URIs.
+
+    primary_class marks which kind of resource the caller is authoritatively
+    writing: BF.Work, BF.Instance, BF.Hub, or the OtherResource model class.
+    Resources of that kind are fully upserted; resources of any other kind are
+    treated as references -- created if absent but never overwritten -- so a
+    reference (even one carrying a display label) can't clobber an existing full
+    description. When primary_class is None (e.g. the bulk loader) every resource
+    is authoritative, preserving the original behavior.
+
+    update_other_resources only applies when primary_class is None: set it False
+    to treat Other Resources as references (create-if-absent, never overwrite)
+    even on the bulk path. Batch loading of Works/Instances references many shared
+    Other Resources it doesn't need to re-describe; skipping those updates avoids
+    re-framing/re-writing each one on every record. (Their descriptions are then
+    maintained by a separate process.)
     """
     bg = BluecoreGraph(graph, namespace)
-    bg.save(session_maker)
+    bg.save(
+        session_maker,
+        primary_class=primary_class,
+        update_other_resources=update_other_resources,
+    )
     return bg.graph
 
 
@@ -122,7 +145,38 @@ class BluecoreGraph:
             namespace += "/"
         self.namespace = Namespace(namespace)
         self.graph = graph
+        # The per-entity subgraph extractions (works/instances/hubs/others) are
+        # expensive and get called repeatedly across the save. We cache them keyed
+        # on _revision, which is bumped every time the graph is mutated so the
+        # cache can't go stale. Every mutation of self.graph funnels through
+        # _infer (once, here) and _switch_uris (during minting) -- keep it that
+        # way, or bump _revision at any new mutation site (see _bump_revision).
+        self._revision = 0
+        self._subgraph_cache: dict[str, tuple[int, list[Graph]]] = {}
         self._infer()
+
+    def _bump_revision(self) -> None:
+        """
+        Record that self.graph has been mutated, invalidating the subgraph cache.
+        Call this from anywhere that changes self.graph.
+        """
+        self._revision += 1
+
+    def _subgraphs(self, key: str, compute) -> list[Graph]:
+        """
+        Return the cached subgraph list for `key`, recomputing it (via `compute`)
+        only when the graph has changed since it was last cached. The cache is
+        keyed on _revision, so it invalidates itself whenever the graph is mutated
+        (see _bump_revision).
+
+        The returned graphs are shared/cached -- callers must not mutate them in
+        place (copy first, or bump _revision if mutating self.graph).
+        """
+        cached = self._subgraph_cache.get(key)
+        if cached is None or cached[0] != self._revision:
+            cached = (self._revision, compute())
+            self._subgraph_cache[key] = cached
+        return cached[1]
 
     def works(self) -> list[Graph]:
         """
@@ -130,35 +184,44 @@ class BluecoreGraph:
         distinct Work. Excludes Hubs, which LC catalog data types as both bf:Hub
         and bf:Work; they are handled separately by hubs().
         """
-        return [
-            generate_entity_graph(self.graph, s)
-            for s in self.graph.subjects(RDF.type, BF.Work)
-            if (s, RDF.type, BF.Hub) not in self.graph
-        ]
+        return self._subgraphs(
+            "works",
+            lambda: [
+                generate_entity_graph(self.graph, s)
+                for s in self.graph.subjects(RDF.type, BF.Work)
+                if (s, RDF.type, BF.Hub) not in self.graph
+            ],
+        )
 
     def hubs(self) -> list[Graph]:
         """
         Returns a list of Bibframe Hub rdflib Graphs, where each graph is for a
         distinct Hub.
         """
-        return self._extract_subgraphs(BF.Hub)
+        return self._subgraphs("hubs", lambda: self._extract_subgraphs(BF.Hub))
 
     def instances(self) -> list[Graph]:
         """
         Returns a list of Bibframe Instance rdflib Graphs, where each graph is for a
         distinct Instance.
         """
-        return self._extract_subgraphs(BF.Instance)
+        return self._subgraphs(
+            "instances", lambda: self._extract_subgraphs(BF.Instance)
+        )
 
     def others(self) -> list[Graph]:
         """
         Return a list of "Other Resource" rdflib Graphs, where each graph is for a
         distinct resource.
         """
-        return self._extract_others()
+        return self._subgraphs("others", self._extract_others)
 
     def save(
-        self, session_maker: sessionmaker, max_attempts: int = SAVE_MAX_ATTEMPTS
+        self,
+        session_maker: sessionmaker,
+        max_attempts: int = SAVE_MAX_ATTEMPTS,
+        primary_class=None,
+        update_other_resources: bool = True,
     ) -> None:
         """
         Persists the graph to the database using the supplied sqlalchemy
@@ -178,6 +241,21 @@ class BluecoreGraph:
                 f"(attempt {retry_state.attempt_number} of {max_attempts})"
             )
 
+        # save resources from the graph to the database. Only the
+        # primary_class is authoritatively upserted; other kinds are
+        # references (create-if-absent, never overwrite).
+        # See _persist_resources.
+        # primary_class is None means every kind is authoritative.
+        def is_primary(kind) -> bool:
+            return primary_class is None or primary_class == kind
+
+        # Strip the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from the
+        # graph once, before minting extracts subgraphs. The per-entity subgraphs
+        # are then already clean, so _persist_resources can serialize the shared
+        # (cached) subgraph directly rather than copying each one just to strip
+        # these out. Idempotent, so re-running under a retry is a no-op.
+        self._strip_excluded_triples()
+
         try:
             for attempt in Retrying(
                 retry=retry_if_exception(_is_retryable_pg_error),
@@ -192,13 +270,19 @@ class BluecoreGraph:
                     self._mint_all_uris(BF.Work, session)
                     self._mint_all_uris(BF.Instance, session)
 
-                    # save resources from the graph to the database
-                    self._save(BF.Hub, session)
-                    self._save(BF.Work, session)
-                    self._save(BF.Instance, session)
-                    self._save(
-                        None, session
-                    )  # there is no catchall URI for Other Resources
+                    self._persist_resources(BF.Hub, session, is_primary(BF.Hub))
+                    self._persist_resources(BF.Work, session, is_primary(BF.Work))
+                    self._persist_resources(
+                        BF.Instance, session, is_primary(BF.Instance)
+                    )
+                    # Other Resources have no catchall URI (class_ is None) and
+                    # are the OtherResource kind for the primary check. On the
+                    # bulk path (primary_class None), update_other_resources can
+                    # opt out of re-describing already-present ones.
+                    other_is_primary = primary_class == OtherResource or (
+                        primary_class is None and update_other_resources
+                    )
+                    self._persist_resources(None, session, other_is_primary)
 
                     # flush so the just-added resources have ids and are
                     # visible to _link's uri lookups. Required because the
@@ -208,8 +292,19 @@ class BluecoreGraph:
                     # link rows with null foreign keys.
                     session.flush()
 
-                    # link all the works, instances and other resources together in the db
-                    self._link(session)
+                    # link all the works, instances and other resources together in the db.
+                    # _link issues many per-uri lookups; with autoflush on, each one
+                    # re-flushes the pending link changes (and re-fires update events /
+                    # bf-class recomputation). The resources it reads were already
+                    # flushed above, so turn autoflush off for the link phase and let
+                    # commit() do the single final flush. (bluecore_api's session already
+                    # runs with autoflush disabled.)
+                    prev_autoflush = session.autoflush
+                    session.autoflush = False
+                    try:
+                        self._link(session)
+                    finally:
+                        session.autoflush = prev_autoflush
 
                     # all changes are part of one transaction!
                     session.commit()
@@ -221,6 +316,7 @@ class BluecoreGraph:
         """
         Infer some triples that we rely on, and which may be missing.
         """
+        self._bump_revision()  # mutates self.graph
 
         # create inverse properties
         inverse_properties = [
@@ -517,6 +613,7 @@ class BluecoreGraph:
         A bibframe:derivedFrom assertion is added to record the relationship
         if the derived_from is URIRef.
         """
+        self._bump_revision()  # replace_uri + _generate_admin_metadata mutate self.graph
         replace_uri(self.graph, derived_from, bluecore_uri)
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):
@@ -538,10 +635,31 @@ class BluecoreGraph:
     def _is_bluecore_uri(self, uri) -> bool:
         return uri in self.namespace
 
-    def _save(self, class_: URIRef | None, session: Session) -> None:
+    def _strip_excluded_triples(self) -> None:
+        """
+        Remove the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from
+        self.graph. Called once from save() before subgraphs are extracted, so the
+        cached per-entity subgraphs -- and the JSON-LD serialized from them in
+        _persist_resources -- never contain these triples, and _persist_resources
+        can serialize the shared subgraphs without copying them first.
+        """
+        self._bump_revision()  # mutates self.graph
+        for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
+            self._remove_triples_by_type(self.graph, predicate, type_)
+
+    def _persist_resources(
+        self, class_: URIRef | None, session: Session, is_primary: bool = True
+    ) -> None:
         """
         Persist resources of the supplied type to the given database session. If
         the type is None then Other Resources are saved.
+
+        When is_primary is True these resources are authoritatively upserted;
+        otherwise they are references, which we create if absent but never
+        overwrite -- so a reference (even one carrying a display label) can't
+        clobber an existing full description. (save() sets is_primary per kind
+        from its primary_class argument; None there means every kind is primary,
+        the original behavior.)
         """
         match class_:
             case BF.Hub:
@@ -563,13 +681,34 @@ class BluecoreGraph:
         if class_ is None:
             resources = sorted(resources, key=lambda g: str(self._subject(g, class_)))
 
-        for g in resources:
-            uri = self._subject(g, class_)
-            for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
-                self._remove_triples_by_type(g, predicate, type_)
-            data = json.loads(g.serialize(format="json-ld"))
+        # Fetch the resources of this batch that already exist in a single query,
+        # keyed by uri, rather than a SELECT per resource -- so re-saves and large
+        # batches don't fan out into a round-trip each.
+        subjects = [self._subject(g, class_) for g in resources]
+        existing = {
+            obj.uri: obj
+            for obj in session.query(sqla_class).where(
+                sqla_class.uri.in_([str(uri) for uri in subjects])
+            )
+        }
 
-            obj = session.query(sqla_class).where(sqla_class.uri == uri).first()
+        for g, uri in zip(resources, subjects):
+            obj = existing.get(str(uri))
+
+            if obj is not None and not is_primary:
+                # a reference to an existing resource: link it (later, in _link)
+                # but never overwrite its stored description. Skip before building
+                # its JSON-LD -- serializing and re-framing it would be wasted work
+                # (this is the hot path when batch-loading records that share many
+                # Other Resources).
+                logger.debug(f"keeping existing {uri} (referenced, not primary)")
+                continue
+
+            # Serialize the shared (cached) subgraph directly. save() already
+            # stripped EXCLUDED_TRIPLE_TYPES from self.graph up front (see
+            # _strip_excluded_triples), so there's nothing to remove here and no
+            # need to copy the subgraph to protect it from an in-place mutation.
+            data = json.loads(g.serialize(format="json-ld"))
 
             if obj:
                 obj.data = data
@@ -583,6 +722,10 @@ class BluecoreGraph:
                 else:
                     uuid = str(uri).split("/")[-1]
 
+                # create-if-absent for both primary and referenced resources; the
+                # stored data is the full extracted subgraph (whatever the payload
+                # knows -- inline triples + inferred type/link), so a referenced
+                # resource is created with a label etc. if it isn't in the db yet.
                 obj = sqla_class(uri=str(uri), uuid=uuid, data=data)
                 logger.info(f"inserting {uri}")
                 session.add(obj)
@@ -592,13 +735,21 @@ class BluecoreGraph:
         Save relations between Instances, Works and Other Resources in the graph.
         """
 
+        # Cache resource lookups for the duration of this link operation. _link
+        # resolves the same Works, Instances and Other Resources repeatedly (a
+        # Work is re-queried for every Other Resource it links to, etc.); caching
+        # by (type, uri) turns those repeats into a single query each. Every
+        # resource was flushed by save() before _link runs, so the first lookup
+        # already sees it.
+        cache: dict[tuple, object] = {}
+
         # use bibframe:instanceOf assertions to link instances with works
         #
         # Maybe we should have a simple inference step early on that infers missing
         # bibframe:instanceOf assertions, and possible other inverse properties
         # that we might rely on?
 
-        # sort all the link iterations by URI so that, like _save, concurrent
+        # sort all the link iterations by URI so that, like _persist_resources, concurrent
         # transactions acquire row locks in the same deterministic order.
 
         for s, o in sorted(
@@ -606,8 +757,8 @@ class BluecoreGraph:
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
             logger.info(f"linking {s} to {o}")
-            instance = self._get_first(session, Instance, s)
-            work = self._get_first(session, Work, o)
+            instance = self._get_first(session, Instance, s, cache)
+            work = self._get_first(session, Work, o, cache)
             instance.work = work
             session.add(instance)
 
@@ -617,8 +768,8 @@ class BluecoreGraph:
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
             logger.info(f"linking {s} to {o}")
-            work = self._get_first(session, Work, s)
-            instance = self._get_first(session, Instance, o)
+            work = self._get_first(session, Work, s, cache)
+            instance = self._get_first(session, Instance, o, cache)
             instance.work = work
             session.add(instance)
 
@@ -628,8 +779,8 @@ class BluecoreGraph:
 
         # first remove any existing Other Resource linkages between Works and
         # Instances so that they can be replaced with the new ones
-        self._delete_other_links(BF.Work, session)
-        self._delete_other_links(BF.Instance, session)
+        self._delete_other_links(BF.Work, session, cache)
+        self._delete_other_links(BF.Instance, session, cache)
 
         work_graphs = sorted(self.works(), key=lambda g: str(self._subject(g, BF.Work)))
         instance_graphs = sorted(
@@ -646,11 +797,9 @@ class BluecoreGraph:
                 if other_uri in g.objects():
                     work_uri = self._subject(g, BF.Work)
                     logger.info(f"linking {work_uri} to {other_uri}")
-                    work_model = session.query(Work).where(Work.uri == work_uri).first()
-                    other_model = (
-                        session.query(OtherResource)
-                        .where(OtherResource.uri == other_uri)
-                        .first()
+                    work_model = self._resolve(session, Work, work_uri, cache)
+                    other_model = self._resolve(
+                        session, OtherResource, other_uri, cache
                     )
                     session.add(
                         BibframeOtherResources(
@@ -665,15 +814,11 @@ class BluecoreGraph:
                 if other_uri in g.objects():
                     instance_uri = self._subject(g, BF.Instance)
                     logger.info(f"linking {instance_uri} to {other_uri}")
-                    instance_model = (
-                        session.query(Instance)
-                        .where(Instance.uri == instance_uri)
-                        .first()
+                    instance_model = self._resolve(
+                        session, Instance, instance_uri, cache
                     )
-                    other_model = (
-                        session.query(OtherResource)
-                        .where(OtherResource.uri == other_uri)
-                        .first()
+                    other_model = self._resolve(
+                        session, OtherResource, other_uri, cache
                     )
                     session.add(
                         BibframeOtherResources(
@@ -681,7 +826,9 @@ class BluecoreGraph:
                         )
                     )
 
-    def _delete_other_links(self, class_: URIRef, session: Session) -> None:
+    def _delete_other_links(
+        self, class_: URIRef, session: Session, cache: dict
+    ) -> None:
         """
         Delete existing links to OtherResources so that they can be replaced
         with new ones.
@@ -696,20 +843,33 @@ class BluecoreGraph:
 
         for g in graphs:
             uri = self._subject(g, class_)
-            bf_resource = (
-                session.query(sqla_class).where(sqla_class.uri == str(uri)).first()
-            )
+            bf_resource = self._resolve(session, sqla_class, uri, cache)
 
             session.query(BibframeOtherResources).filter(
                 BibframeOtherResources.bibframe_resource == bf_resource
             ).delete()
 
-    def _get_first(self, session: Session, sqla_class: Instance | Work, uri: Node):
+    def _resolve(self, session: Session, sqla_class, uri: Node, cache: dict):
+        """
+        Look up a resource of the given type by uri, caching the result (keyed by
+        type + uri) so repeated lookups within a single _link operation only hit
+        the database once. Returns None if there is no matching resource.
+        """
+        key = (sqla_class, str(uri))
+        if key not in cache:
+            cache[key] = (
+                session.query(sqla_class).where(sqla_class.uri == str(uri)).first()
+            )
+        return cache[key]
+
+    def _get_first(
+        self, session: Session, sqla_class: Instance | Work, uri: Node, cache: dict
+    ):
         """
         Look up the first object of the given type in the database and return it
         or throw an exception.
         """
-        obj = session.query(sqla_class).where(sqla_class.uri == uri).first()
+        obj = self._resolve(session, sqla_class, uri, cache)
         if obj is None:
             raise BluecoreGraphError(f"Unable to find in db: uri={uri}")
 
