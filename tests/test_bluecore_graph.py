@@ -2,7 +2,7 @@ import json
 import uuid
 
 import pytest
-from rdflib import BNode, Graph, Literal, RDFS, URIRef
+from rdflib import RDFS, BNode, Graph, Literal, URIRef
 from sqlalchemy.orm import sessionmaker
 
 from bluecore_models import bluecore_graph
