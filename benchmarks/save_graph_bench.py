@@ -33,9 +33,9 @@ import rdflib
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from bluecore_models.bluecore_graph import save_graph
 from bluecore_models.models import Base
 from bluecore_models.models.pg_ext_func import PG_EXT_FUNC
-from bluecore_models.bluecore_graph import save_graph
 
 DEFAULT_INPUT = os.path.join(
     os.path.dirname(__file__), "..", "tests", "data", "*.jsonld"
@@ -59,7 +59,7 @@ def ensure_schema(engine) -> None:
         for stmt in PG_EXT_FUNC:
             try:
                 conn.execute(text(stmt))
-            except Exception as exc:  # pragma: no cover - setup convenience
+            except Exception as exc:  # noqa: BLE001  # pragma: no cover - setup convenience
                 print(f"  (skipped ext stmt: {exc})")
     Base.metadata.create_all(engine)
 
@@ -82,7 +82,7 @@ def load_graphs(pattern: str) -> list[rdflib.Graph]:
         g = rdflib.Graph()
         try:
             g.parse(location=path, format=fmt)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             print(f"  (skipped {os.path.basename(path)}: {exc})")
             continue
         if len(g):
