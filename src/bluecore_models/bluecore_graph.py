@@ -48,6 +48,7 @@ DEFAULT_DESC_LEVEL = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/")
 class BluecoreGraphError(Exception):
     """Raised for BluecoreGraph errors that aren't a type mismatch."""
 
+
 # (predicate, rdf:type) pairs identifying blank nodes that are stripped out of
 # a resource's graph before it is persisted to the database, e.g. removing
 # OCLC number identifiers that shouldn't be exposed.
@@ -114,7 +115,9 @@ class BluecoreGraph:
         if not isinstance(namespace, str):
             raise TypeError(f"default namespace cannot be {namespace}")
         elif not namespace.startswith("http"):
-            raise BluecoreGraphError(f"default namespace must be a URL, got {namespace}")
+            raise BluecoreGraphError(
+                f"default namespace must be a URL, got {namespace}"
+            )
         elif not namespace.endswith("/"):
             namespace += "/"
         self.namespace = Namespace(namespace)
