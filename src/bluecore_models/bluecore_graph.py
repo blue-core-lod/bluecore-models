@@ -39,7 +39,7 @@ SAVE_MAX_ATTEMPTS = 3
 
 # Default AdminMetadata values used when a caller doesn't override them.
 DEFAULT_STATUS = URIRef("http://id.loc.gov/vocabulary/mstatus/c")
-DEFAULT_AGENT = URIRef("http://id.loc.gov/vocabulary/organizations/bcld")
+DEFAULT_AGENT = URIRef("http://id.loc.gov/vocabulary/organizations/cbc")
 DEFAULT_DESC_AUTH = URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc")
 DEFAULT_DESC_LANG = URIRef("http://id.loc.gov/vocabulary/languages/eng")
 DEFAULT_DESC_LEVEL = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/")
