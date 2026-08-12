@@ -18,7 +18,7 @@ from bluecore_models.models import (
     Work,
 )
 from bluecore_models.models.version import CURRENT_USER_ID
-from bluecore_models.namespaces import BF, BFLC, MADS, RDF, RDFS
+from bluecore_models.namespaces import BF, BFLC, MADS, RDF
 from bluecore_models.utils.graph import generate_entity_graph, replace_uri
 
 logger = logging.getLogger(__name__)
@@ -44,9 +44,10 @@ DEFAULT_DESC_AUTH = URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc")
 DEFAULT_DESC_LANG = URIRef("http://id.loc.gov/vocabulary/languages/eng")
 DEFAULT_DESC_LEVEL = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/")
 
-# Recorded on a resource we only have a stub of, so a placeholder isn't taken for
-# a real description. It says what Bluecore has stubbed.
-STUB_NOTE = "Linked Data Stub: Import record for full description"
+# Recorded as the status of a resource we only have a stub of, so a placeholder
+# isn't taken for a real description.
+# mstatus/incmp is for "incomplete" to indicate a Bluecore stubbed resource
+STUB_STATUS = URIRef("http://id.loc.gov/vocabulary/mstatus/incmp")
 
 
 class BluecoreGraphError(Exception):
@@ -279,7 +280,7 @@ class BluecoreGraph:
         # An explicit write from the API is a real description, so it isn't a
         # stub any more.
         if primary_class is not None:
-            self._clear_stub_note()
+            self._clear_stub_marker()
 
         # Strip the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from the
         # graph once, before minting extracts subgraphs. The per-entity subgraphs
@@ -432,6 +433,10 @@ class BluecoreGraph:
 
         time_stamp = datetime.datetime.now(datetime.UTC)
 
+        # what we hold of a stub is incomplete, whatever the caller asked for
+        if stub:
+            status = STUB_STATUS
+
         self._remove_admin_metadata(self.graph, bluecore_uri)
 
         # First bf:AdminMetadata
@@ -466,13 +471,6 @@ class BluecoreGraph:
         )
         self.graph.add((second_admin_metadata, BF.descriptionLanguage, desc_lang))
         self.graph.add((second_admin_metadata, BF.descriptionLevel, desc_level))
-
-        # note what we hold, for anyone reading the record
-        if stub:
-            stub_note = BNode()
-            self.graph.add((second_admin_metadata, BF.note, stub_note))
-            self.graph.add((stub_note, RDF.type, BF.Note))
-            self.graph.add((stub_note, RDFS.label, Literal(STUB_NOTE)))
 
     def _remove_bnode(self, graph: Graph, bnode: BNode) -> None:
         """Recursively removes a blank node and any blank nodes it references."""
@@ -695,23 +693,20 @@ class BluecoreGraph:
             self._remove_triples_by_type(self.graph, predicate, type_)
 
     def _marked_stub(self, subject: Node) -> bool:
-        """Whether we noted this resource as a stub the last time we saw it."""
+        """Whether we recorded this resource as a stub the last time we saw it."""
         return any(
-            (note, RDFS.label, Literal(STUB_NOTE)) in self.graph
+            (admin_metadata, BF.status, STUB_STATUS) in self.graph
             for admin_metadata in self.graph.objects(subject, BF.adminMetadata)
-            for note in self.graph.objects(admin_metadata, BF.note)
         )
 
-    def _clear_stub_note(self) -> None:
-        """Drop the stub note, for resources that are now really described."""
+    def _clear_stub_marker(self) -> None:
+        """
+        Drop the "incomplete" status of a resource that is now really described.
+        """
         self._bump_revision()  # mutates self.graph
-        for note in list(self.graph.subjects(RDFS.label, Literal(STUB_NOTE))):
-            # we only ever write the note as a blank node
-            if not isinstance(note, BNode):
-                continue
-            for admin_metadata in list(self.graph.subjects(BF.note, note)):
-                self.graph.remove((admin_metadata, BF.note, note))
-            self._remove_bnode(self.graph, note)
+        for admin_metadata in list(self.graph.subjects(BF.status, STUB_STATUS)):
+            self.graph.remove((admin_metadata, BF.status, STUB_STATUS))
+            self.graph.add((admin_metadata, BF.status, DEFAULT_STATUS))
 
     def _arrived_as_stub(self, uri: Node) -> bool:
         """
