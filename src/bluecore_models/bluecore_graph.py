@@ -153,6 +153,12 @@ class BluecoreGraph:
         # way, or bump _revision at any new mutation site (see _bump_revision).
         self._revision = 0
         self._subgraph_cache: dict[str, tuple[int, list[Graph]]] = {}
+        # Whether this save should tell described resources from stubs,
+        # which ones arrived described, and what each minted uri was called
+        # beforehand. Set by save() and _switch_uris, see _is_stub.
+        self._spot_stubs = False
+        self._described: set[str] = set()
+        self._minted_from: dict[str, str] = {}
         self._infer()
 
     def _bump_revision(self) -> None:
@@ -248,6 +254,15 @@ class BluecoreGraph:
         # primary_class is None means every kind is authoritative.
         def is_primary(kind) -> bool:
             return primary_class is None or primary_class == kind
+
+        # A record describes a few resources and carries only a stub of the ones
+        # it points at, giving the described ones adminMetadata and the stubs none. Note
+        # them now: minting later generates adminMetadata of our own for every
+        # resource, which washes the distinction away. Only do this when the
+        # caller hasn't said what it is writing, and only if this record uses
+        # adminMetadata at all, or everything would look like a stub.
+        self._described = {str(s) for s in self.graph.subjects(BF.adminMetadata, None)}
+        self._spot_stubs = primary_class is None and bool(self._described)
 
         # Strip the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from the
         # graph once, before minting extracts subgraphs. The per-entity subgraphs
@@ -614,6 +629,7 @@ class BluecoreGraph:
         if the derived_from is URIRef.
         """
         self._bump_revision()  # replace_uri + _generate_admin_metadata mutate self.graph
+        self._minted_from[str(bluecore_uri)] = str(derived_from)
         replace_uri(self.graph, derived_from, bluecore_uri)
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):
@@ -646,6 +662,18 @@ class BluecoreGraph:
         self._bump_revision()  # mutates self.graph
         for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
             self._remove_triples_by_type(self.graph, predicate, type_)
+
+    def _is_stub(self, class_: URIRef | None, uri: Node) -> bool:
+        """
+        Whether this record carries only a stub of the resource rather than a
+        description of it,
+        which we tell from it arriving without adminMetadata of its own. Other
+        Resources never carry any, so they are left out of this.
+        """
+        if class_ is None or not self._spot_stubs:
+            return False
+        # uri may have been minted since, so check the uri it arrived with
+        return self._minted_from.get(str(uri), str(uri)) not in self._described
 
     def _persist_resources(
         self, class_: URIRef | None, session: Session, is_primary: bool = True
@@ -695,7 +723,7 @@ class BluecoreGraph:
         for g, uri in zip(resources, subjects):
             obj = existing.get(str(uri))
 
-            if obj is not None and not is_primary:
+            if obj is not None and (not is_primary or self._is_stub(class_, uri)):
                 # a reference to an existing resource: link it (later, in _link)
                 # but never overwrite its stored description. Skip before building
                 # its JSON-LD -- serializing and re-framing it would be wasted work
@@ -782,10 +810,20 @@ class BluecoreGraph:
         self._delete_other_links(BF.Work, session, cache)
         self._delete_other_links(BF.Instance, session, cache)
 
-        work_graphs = sorted(self.works(), key=lambda g: str(self._subject(g, BF.Work)))
-        instance_graphs = sorted(
-            self.instances(), key=lambda g: str(self._subject(g, BF.Instance))
-        )
+        # Only rebuild links for resources this record describes; a stub would
+        # otherwise drop that resource's links to its subjects and agents.
+        work_graphs = [
+            g
+            for g in sorted(self.works(), key=lambda g: str(self._subject(g, BF.Work)))
+            if not self._is_stub(BF.Work, self._subject(g, BF.Work))
+        ]
+        instance_graphs = [
+            g
+            for g in sorted(
+                self.instances(), key=lambda g: str(self._subject(g, BF.Instance))
+            )
+            if not self._is_stub(BF.Instance, self._subject(g, BF.Instance))
+        ]
 
         for other_graph in sorted(self.others(), key=lambda g: str(self._subject(g))):
             other_uri = self._subject(other_graph)
@@ -831,7 +869,8 @@ class BluecoreGraph:
     ) -> None:
         """
         Delete existing links to OtherResources so that they can be replaced
-        with new ones.
+        with new ones. Resources this record only stubs out keep the links they
+        have, since a stub isn't a description of them.
         """
         match class_:
             case BF.Work:
@@ -843,6 +882,8 @@ class BluecoreGraph:
 
         for g in graphs:
             uri = self._subject(g, class_)
+            if self._is_stub(class_, uri):
+                continue
             bf_resource = self._resolve(session, sqla_class, uri, cache)
 
             session.query(BibframeOtherResources).filter(
