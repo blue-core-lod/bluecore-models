@@ -166,6 +166,10 @@ class BluecoreGraph:
         self._minted_from: dict[str, str] = {}
         # Resources this save inserted, which have no existing links to protect.
         self._created: set[str] = set()
+        # True when whoever called save() didn't name the kind of resource it
+        # was writing: the API routes always do, the record loader never does.
+        # So this is how we know a save came from a load. See _keep_existing.
+        self._ingest = False
         self._infer()
 
     def _bump_revision(self) -> None:
@@ -276,6 +280,7 @@ class BluecoreGraph:
             if not self._marked_stub(s)
         }
         self._spot_stubs = primary_class is None and bool(self._described)
+        self._ingest = primary_class is None
 
         # An explicit write from the API is a real description, so it isn't a
         # stub any more.
@@ -723,6 +728,34 @@ class BluecoreGraph:
         """Other Resources never carry adminMetadata, so they are left out."""
         return class_ is not None and self._arrived_as_stub(uri)
 
+    def _keep_existing(self, class_: URIRef | None, uri: Node, obj) -> bool:
+        """
+        Leave a resource alone when an outside record comes round again for
+        something we already describe in full, since it has nothing to add and
+        would wipe out whatever has been edited since.
+        """
+        if class_ is None or not self._ingest:
+            return False
+        # already ours (a Marva or API save): it was never minted, so let it write
+        if str(uri) not in self._minted_from:
+            return False
+        # a stub is only a placeholder, so a real description always replaces it
+        return not self._stored_is_stub(obj)
+
+    def _stored_is_stub(self, obj) -> bool:
+        """Whether what we hold is still a placeholder rather than a description."""
+        admin_metadata = obj.data.get("adminMetadata", []) if obj.data else []
+        if isinstance(admin_metadata, dict):
+            admin_metadata = [admin_metadata]
+        for block in admin_metadata:
+            if not isinstance(block, dict):
+                continue
+            status = block.get("status")
+            for item in status if isinstance(status, list) else [status]:
+                if isinstance(item, dict) and item.get("@id") == str(STUB_STATUS):
+                    return True
+        return False
+
     def _keeps_own_links(self, class_: URIRef, graph: Graph) -> bool:
         """
         Whether this resource's existing links should be left alone: it is one we
@@ -780,7 +813,11 @@ class BluecoreGraph:
         for g, uri in zip(resources, subjects):
             obj = existing.get(str(uri))
 
-            if obj is not None and (not is_primary or self._is_stub(class_, uri)):
+            if obj is not None and (
+                not is_primary
+                or self._is_stub(class_, uri)
+                or self._keep_existing(class_, uri, obj)
+            ):
                 # a reference to an existing resource: link it (later, in _link)
                 # but never overwrite its stored description. Skip before building
                 # its JSON-LD -- serializing and re-framing it would be wasted work
