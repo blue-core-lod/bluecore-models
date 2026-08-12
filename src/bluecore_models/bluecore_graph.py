@@ -706,6 +706,9 @@ class BluecoreGraph:
         """Drop the stub note, for resources that are now really described."""
         self._bump_revision()  # mutates self.graph
         for note in list(self.graph.subjects(RDFS.label, Literal(STUB_NOTE))):
+            # we only ever write the note as a blank node
+            if not isinstance(note, BNode):
+                continue
             for admin_metadata in list(self.graph.subjects(BF.note, note)):
                 self.graph.remove((admin_metadata, BF.note, note))
             self._remove_bnode(self.graph, note)
