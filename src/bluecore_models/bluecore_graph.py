@@ -18,7 +18,7 @@ from bluecore_models.models import (
     Work,
 )
 from bluecore_models.models.version import CURRENT_USER_ID
-from bluecore_models.namespaces import BF, BFLC, MADS, RDF
+from bluecore_models.namespaces import BF, BFLC, MADS, RDF, RDFS
 from bluecore_models.utils.graph import generate_entity_graph, replace_uri
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,16 @@ DEFAULT_AGENT = URIRef("http://id.loc.gov/vocabulary/organizations/cbc")
 DEFAULT_DESC_AUTH = URIRef("http://id.loc.gov/vocabulary/marcauthen/pcc")
 DEFAULT_DESC_LANG = URIRef("http://id.loc.gov/vocabulary/languages/eng")
 DEFAULT_DESC_LEVEL = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/")
+
+# Recorded as the status of a resource we only have a stub of, so a placeholder
+# isn't taken for a real description. mstatus/incmp is "incomplete".
+#
+# Note that this term is also what marc2bibframe2 emits from MARC 505 ind1=1,
+# onto a Work's bf:TableOfContents, to mean the contents note lists only some of
+# the parts. That is a different statement in a different position, so anything
+# looking for our marker has to check it is on adminMetadata rather than just
+# searching the graph for the term -- see _marked_stub and _clear_stub_marker.
+STUB_STATUS = URIRef("http://id.loc.gov/vocabulary/mstatus/incmp")
 
 
 class BluecoreGraphError(Exception):
@@ -153,6 +163,18 @@ class BluecoreGraph:
         # way, or bump _revision at any new mutation site (see _bump_revision).
         self._revision = 0
         self._subgraph_cache: dict[str, tuple[int, list[Graph]]] = {}
+        # Whether this save should tell described resources from stubs,
+        # which ones arrived described, and what each minted uri was called
+        # beforehand. Set by save() and _switch_uris, see _is_stub.
+        self._spot_stubs = False
+        self._described: set[str] = set()
+        self._minted_from: dict[str, str] = {}
+        # Resources this save inserted, which have no existing links to protect.
+        self._created: set[str] = set()
+        # True when whoever called save() didn't name the kind of resource it
+        # was writing: the API routes always do, the record loader never does.
+        # So this is how we know a save came from a load. See _keep_existing.
+        self._ingest = False
         self._infer()
 
     def _bump_revision(self) -> None:
@@ -249,6 +271,27 @@ class BluecoreGraph:
         def is_primary(kind) -> bool:
             return primary_class is None or primary_class == kind
 
+        # A record describes a few resources and carries only a stub of the ones
+        # it points at, giving the described ones adminMetadata and the stubs none. Note
+        # them now: minting later generates adminMetadata of our own for every
+        # resource, which washes the distinction away. Only do this when the
+        # caller hasn't said what it is writing, and only if this record uses
+        # adminMetadata at all, or everything would look like a stub.
+        # A resource we previously wrote as a stub doesn't count as described
+        # just because it comes back carrying the adminMetadata we gave it.
+        self._described = {
+            str(s)
+            for s in self.graph.subjects(BF.adminMetadata, None)
+            if not self._marked_stub(s)
+        }
+        self._spot_stubs = primary_class is None and bool(self._described)
+        self._ingest = primary_class is None
+
+        # An explicit write from the API is a real description, so it isn't a
+        # stub any more.
+        if primary_class is not None:
+            self._clear_stub_marker()
+
         # Strip the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from the
         # graph once, before minting extracts subgraphs. The per-entity subgraphs
         # are then already clean, so _persist_resources can serialize the shared
@@ -264,6 +307,9 @@ class BluecoreGraph:
                 reraise=True,
             ):
                 with attempt, session_maker() as session:
+                    # start each attempt with a clean record of what was inserted
+                    self._created = set()
+
                     # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
                     # note: OtherResources keep their original URI
                     self._mint_all_uris(BF.Hub, session)
@@ -387,13 +433,20 @@ class BluecoreGraph:
         desc_auth: URIRef = DEFAULT_DESC_AUTH,
         desc_lang: URIRef = DEFAULT_DESC_LANG,
         desc_level: URIRef = DEFAULT_DESC_LEVEL,
+        stub: bool = False,
     ):
         """
         Generates two bf:AdminMetadata blank nodes for incoming RDF resources that are
-        derived from existing RDF resources
+        derived from existing RDF resources. stub records that we hold only a
+        placeholder description of this resource.
         """
 
         time_stamp = datetime.datetime.now(datetime.UTC)
+
+        # what we hold of a stub is incomplete, whatever the caller asked for
+        if stub:
+            status = STUB_STATUS
+            self._describe_stub_status()
 
         self._remove_admin_metadata(self.graph, bluecore_uri)
 
@@ -429,6 +482,19 @@ class BluecoreGraph:
         )
         self.graph.add((second_admin_metadata, BF.descriptionLanguage, desc_lang))
         self.graph.add((second_admin_metadata, BF.descriptionLevel, desc_level))
+
+    def _describe_stub_status(self) -> None:
+        """
+        Describe the status term we mark stubs with.
+
+        _extract_others only promotes a referenced uri to an Other Resource if it
+        also appears as a subject in the graph, so a bare reference would be
+        invisible to linking and leave the UI nothing but a uri to display.
+        Incoming LC records describe the vocabulary terms they use the same way.
+        """
+        self.graph.add((STUB_STATUS, RDF.type, BF.Status))
+        self.graph.add((STUB_STATUS, RDFS.label, Literal("incomplete")))
+        self.graph.add((STUB_STATUS, BF.code, Literal("incmp")))
 
     def _remove_bnode(self, graph: Graph, bnode: BNode) -> None:
         """Recursively removes a blank node and any blank nodes it references."""
@@ -614,10 +680,13 @@ class BluecoreGraph:
         if the derived_from is URIRef.
         """
         self._bump_revision()  # replace_uri + _generate_admin_metadata mutate self.graph
+        self._minted_from[str(bluecore_uri)] = str(derived_from)
         replace_uri(self.graph, derived_from, bluecore_uri)
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):
-            self._generate_admin_metadata(bluecore_uri, derived_from)
+            self._generate_admin_metadata(
+                bluecore_uri, derived_from, stub=self._arrived_as_stub(bluecore_uri)
+            )
 
     def _exclude_uri_from_other_resources(self, uri: Node) -> bool:
         """Checks if uri is in the BF, MADS, or RDF namespaces"""
@@ -646,6 +715,79 @@ class BluecoreGraph:
         self._bump_revision()  # mutates self.graph
         for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
             self._remove_triples_by_type(self.graph, predicate, type_)
+
+    def _marked_stub(self, subject: Node) -> bool:
+        """Whether we recorded this resource as a stub the last time we saw it."""
+        return any(
+            (admin_metadata, BF.status, STUB_STATUS) in self.graph
+            for admin_metadata in self.graph.objects(subject, BF.adminMetadata)
+        )
+
+    def _clear_stub_marker(self) -> None:
+        """
+        Drop the "incomplete" status of a resource that is now really described.
+
+        Only adminMetadata carries our marker, so this is scoped to those nodes
+        rather than sweeping the graph for the term.
+        """
+        self._bump_revision()  # mutates self.graph
+        for admin_metadata in list(self.graph.subjects(BF.status, STUB_STATUS)):
+            if (admin_metadata, RDF.type, BF.AdminMetadata) not in self.graph:
+                continue
+            self.graph.remove((admin_metadata, BF.status, STUB_STATUS))
+            self.graph.add((admin_metadata, BF.status, DEFAULT_STATUS))
+
+    def _arrived_as_stub(self, uri: Node) -> bool:
+        """
+        Whether this record carries only a stub of the resource rather than a
+        description of it, which we tell from it arriving without adminMetadata
+        of its own, or with the marker we wrote when it was last a stub.
+        """
+        if not self._spot_stubs:
+            return False
+        # uri may have been minted since, so check the uri it arrived with
+        return self._minted_from.get(str(uri), str(uri)) not in self._described
+
+    def _is_stub(self, class_: URIRef | None, uri: Node) -> bool:
+        """Other Resources never carry adminMetadata, so they are left out."""
+        return class_ is not None and self._arrived_as_stub(uri)
+
+    def _keep_existing(self, class_: URIRef | None, uri: Node, obj) -> bool:
+        """
+        Leave a resource alone when an outside record comes round again for
+        something we already describe in full, since it has nothing to add and
+        would wipe out whatever has been edited since.
+        """
+        if class_ is None or not self._ingest:
+            return False
+        # already ours (a Marva or API save): it was never minted, so let it write
+        if str(uri) not in self._minted_from:
+            return False
+        # a stub is only a placeholder, so a real description always replaces it
+        return not self._stored_is_stub(obj)
+
+    def _stored_is_stub(self, obj) -> bool:
+        """Whether what we hold is still a placeholder rather than a description."""
+        admin_metadata = obj.data.get("adminMetadata", []) if obj.data else []
+        if isinstance(admin_metadata, dict):
+            admin_metadata = [admin_metadata]
+        for block in admin_metadata:
+            if not isinstance(block, dict):
+                continue
+            status = block.get("status")
+            for item in status if isinstance(status, list) else [status]:
+                if isinstance(item, dict) and item.get("@id") == str(STUB_STATUS):
+                    return True
+        return False
+
+    def _keeps_own_links(self, class_: URIRef, graph: Graph) -> bool:
+        """
+        Whether this resource's existing links should be left alone: it is one we
+        only have a stub of, and it was already here to have links in the first
+        place. A stub we just created has none, so it links like anything else.
+        """
+        uri = self._subject(graph, class_)
+        return self._is_stub(class_, uri) and str(uri) not in self._created
 
     def _persist_resources(
         self, class_: URIRef | None, session: Session, is_primary: bool = True
@@ -695,7 +837,11 @@ class BluecoreGraph:
         for g, uri in zip(resources, subjects):
             obj = existing.get(str(uri))
 
-            if obj is not None and not is_primary:
+            if obj is not None and (
+                not is_primary
+                or self._is_stub(class_, uri)
+                or self._keep_existing(class_, uri, obj)
+            ):
                 # a reference to an existing resource: link it (later, in _link)
                 # but never overwrite its stored description. Skip before building
                 # its JSON-LD -- serializing and re-framing it would be wasted work
@@ -729,6 +875,7 @@ class BluecoreGraph:
                 obj = sqla_class(uri=str(uri), uuid=uuid, data=data)
                 logger.info(f"inserting {uri}")
                 session.add(obj)
+                self._created.add(str(uri))
 
     def _link(self, session) -> None:
         """
@@ -782,10 +929,20 @@ class BluecoreGraph:
         self._delete_other_links(BF.Work, session, cache)
         self._delete_other_links(BF.Instance, session, cache)
 
-        work_graphs = sorted(self.works(), key=lambda g: str(self._subject(g, BF.Work)))
-        instance_graphs = sorted(
-            self.instances(), key=lambda g: str(self._subject(g, BF.Instance))
-        )
+        # Only rebuild links for resources this record describes; a stub would
+        # otherwise drop that resource's links to its subjects and agents.
+        work_graphs = [
+            g
+            for g in sorted(self.works(), key=lambda g: str(self._subject(g, BF.Work)))
+            if not self._keeps_own_links(BF.Work, g)
+        ]
+        instance_graphs = [
+            g
+            for g in sorted(
+                self.instances(), key=lambda g: str(self._subject(g, BF.Instance))
+            )
+            if not self._keeps_own_links(BF.Instance, g)
+        ]
 
         for other_graph in sorted(self.others(), key=lambda g: str(self._subject(g))):
             other_uri = self._subject(other_graph)
@@ -831,7 +988,8 @@ class BluecoreGraph:
     ) -> None:
         """
         Delete existing links to OtherResources so that they can be replaced
-        with new ones.
+        with new ones. Resources this record only stubs out keep the links they
+        have, since a stub isn't a description of them.
         """
         match class_:
             case BF.Work:
@@ -843,6 +1001,8 @@ class BluecoreGraph:
 
         for g in graphs:
             uri = self._subject(g, class_)
+            if self._keeps_own_links(class_, g):
+                continue
             bf_resource = self._resolve(session, sqla_class, uri, cache)
 
             session.query(BibframeOtherResources).filter(
