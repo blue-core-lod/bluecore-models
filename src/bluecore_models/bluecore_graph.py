@@ -18,7 +18,7 @@ from bluecore_models.models import (
     Work,
 )
 from bluecore_models.models.version import CURRENT_USER_ID
-from bluecore_models.namespaces import BF, BFLC, MADS, RDF
+from bluecore_models.namespaces import BF, BFLC, MADS, RDF, RDFS
 from bluecore_models.utils.graph import generate_entity_graph, replace_uri
 
 logger = logging.getLogger(__name__)
@@ -45,8 +45,13 @@ DEFAULT_DESC_LANG = URIRef("http://id.loc.gov/vocabulary/languages/eng")
 DEFAULT_DESC_LEVEL = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/")
 
 # Recorded as the status of a resource we only have a stub of, so a placeholder
-# isn't taken for a real description.
-# mstatus/incmp is for "incomplete" to indicate a Bluecore stubbed resource
+# isn't taken for a real description. mstatus/incmp is "incomplete".
+#
+# Note that this term is also what marc2bibframe2 emits from MARC 505 ind1=1,
+# onto a Work's bf:TableOfContents, to mean the contents note lists only some of
+# the parts. That is a different statement in a different position, so anything
+# looking for our marker has to check it is on adminMetadata rather than just
+# searching the graph for the term -- see _marked_stub and _clear_stub_marker.
 STUB_STATUS = URIRef("http://id.loc.gov/vocabulary/mstatus/incmp")
 
 
@@ -441,6 +446,7 @@ class BluecoreGraph:
         # what we hold of a stub is incomplete, whatever the caller asked for
         if stub:
             status = STUB_STATUS
+            self._describe_stub_status()
 
         self._remove_admin_metadata(self.graph, bluecore_uri)
 
@@ -476,6 +482,19 @@ class BluecoreGraph:
         )
         self.graph.add((second_admin_metadata, BF.descriptionLanguage, desc_lang))
         self.graph.add((second_admin_metadata, BF.descriptionLevel, desc_level))
+
+    def _describe_stub_status(self) -> None:
+        """
+        Describe the status term we mark stubs with.
+
+        _extract_others only promotes a referenced uri to an Other Resource if it
+        also appears as a subject in the graph, so a bare reference would be
+        invisible to linking and leave the UI nothing but a uri to display.
+        Incoming LC records describe the vocabulary terms they use the same way.
+        """
+        self.graph.add((STUB_STATUS, RDF.type, BF.Status))
+        self.graph.add((STUB_STATUS, RDFS.label, Literal("incomplete")))
+        self.graph.add((STUB_STATUS, BF.code, Literal("incmp")))
 
     def _remove_bnode(self, graph: Graph, bnode: BNode) -> None:
         """Recursively removes a blank node and any blank nodes it references."""
@@ -707,9 +726,14 @@ class BluecoreGraph:
     def _clear_stub_marker(self) -> None:
         """
         Drop the "incomplete" status of a resource that is now really described.
+
+        Only adminMetadata carries our marker, so this is scoped to those nodes
+        rather than sweeping the graph for the term.
         """
         self._bump_revision()  # mutates self.graph
         for admin_metadata in list(self.graph.subjects(BF.status, STUB_STATUS)):
+            if (admin_metadata, RDF.type, BF.AdminMetadata) not in self.graph:
+                continue
             self.graph.remove((admin_metadata, BF.status, STUB_STATUS))
             self.graph.add((admin_metadata, BF.status, DEFAULT_STATUS))
 

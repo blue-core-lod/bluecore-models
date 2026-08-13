@@ -119,20 +119,28 @@ def test_save(pg_session):
         # AdminMetadata: the original AdminMetadata's Other Resources are removed
         # and the generated AdminMetadata's are added (descriptionAuthentication,
         # descriptionLanguage, descriptionLevel and status).
+        # works[0] arrived without AdminMetadata of its own, so it is only a stub
+        # of the resource the record points at, and its generated status is
+        # mstatus/incmp instead of the mstatus/c works[1] gets. The count is the
+        # same either way -- it is one status term or the other.
         works = session.query(Work).order_by(Work.id).all()
         assert len(works) == 2
         assert len(works[0].other_resources) == 6
         assert len(works[1].other_resources) == 20
 
-        # two instances are there, and they are linked to Other Resources
+        # two instances are there, and they are linked to Other Resources.
+        # instances[0] is a stub for the same reason works[0] is.
         instances = session.query(Instance).order_by(Instance.id).all()
         assert len(instances) == 2
         assert len(instances[0].other_resources) == 5
         assert len(instances[1].other_resources) == 8
 
-        # other resources are there and linked to works and instances
+        # other resources are there and linked to works and instances. The extra
+        # one over the record's own vocabulary terms is mstatus/incmp, which the
+        # record never mentions, so we describe it ourselves for the stubs to
+        # resolve against like any other term.
         others = session.query(OtherResource).all()
-        assert len(others) == 27
+        assert len(others) == 28
         for other in others:
             bfs = (
                 session.query(BibframeOtherResources)
@@ -151,7 +159,7 @@ def test_save(pg_session):
     with pg_session() as session:
         assert len(session.query(Work).order_by(Work.id).all()) == 2
         assert len(session.query(Instance).order_by(Instance.id).all()) == 2
-        assert len(session.query(OtherResource).all()) == 27
+        assert len(session.query(OtherResource).all()) == 28
 
 
 def test_work(pg_session):
@@ -1317,3 +1325,264 @@ def test_update_other_resources_flag(pg_session):
             session.query(OtherResource).where(OtherResource.uri == agent_uri).first()
         )
         assert "Updated" in json.dumps(agent.data)
+
+
+# --- stubbed resources -------------------------------------------------------
+#
+# A record describes a few resources and only points at the others. We keep a
+# stub of those, marked bf:status mstatus/incmp on the AdminMetadata we generate,
+# until a record that really describes them is ingested. See _arrived_as_stub.
+
+
+def _ext_uri(kind: str) -> str:
+    """A non-Bluecore URI, the way resources arrive in an ingested record."""
+    return f"http://id.loc.gov/resources/{kind}/{uuid.uuid4()}"
+
+
+def _record(described: str, title: str, stub: str | None = None) -> Graph:
+    """
+    Build a record the way an ingest sees one: a Work the record describes (it
+    carries AdminMetadata of its own) and, optionally, a Work it only points at
+    with no AdminMetadata -- the stub.
+    """
+    g = Graph()
+    work = URIRef(described)
+    g.add((work, RDF.type, BF.Work))
+    title_node = BNode()
+    g.add((work, BF.title, title_node))
+    g.add((title_node, RDF.type, BF.Title))
+    g.add((title_node, BF.mainTitle, Literal(title)))
+    admin_metadata = BNode()
+    g.add((work, BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.status, URIRef("http://id.loc.gov/vocabulary/mstatus/n")))
+    if stub is not None:
+        stub_work = URIRef(stub)
+        g.add((work, BF.relatedTo, stub_work))
+        g.add((stub_work, RDF.type, BF.Work))
+        g.add((stub_work, RDFS.label, Literal("stub label")))
+    return g
+
+
+def _minted(graph: Graph, source_uri: str) -> str:
+    """The Bluecore URI a save minted for an original URI, read back from the graph."""
+    for admin_metadata in graph.subjects(BF.derivedFrom, URIRef(source_uri)):
+        subject = graph.value(predicate=BF.adminMetadata, object=admin_metadata)
+        if subject is not None:
+            return str(subject)
+    raise AssertionError(f"no bluecore uri was minted for {source_uri}")
+
+
+def _statuses(data: dict) -> list[str]:
+    """Every bf:status @id recorded in a resource's AdminMetadata nodes."""
+    admin_metadata = data.get("adminMetadata", [])
+    if isinstance(admin_metadata, dict):
+        admin_metadata = [admin_metadata]
+    found = []
+    for block in admin_metadata:
+        if not isinstance(block, dict):
+            continue
+        status = block.get("status")
+        for item in status if isinstance(status, list) else [status]:
+            if isinstance(item, dict) and "@id" in item:
+                found.append(item["@id"])
+    return found
+
+
+def _linked_others(session, resource) -> list[str]:
+    return [
+        link.other_resource.uri
+        for link in session.query(BibframeOtherResources).where(
+            BibframeOtherResources.bibframe_resource_id == resource.id
+        )
+    ]
+
+
+def _fetch(session, uri: str) -> Work:
+    return session.query(Work).where(Work.uri == uri).first()
+
+
+def test_stub_is_marked_incomplete(pg_session):
+    """
+    The resource a record describes gets the normal status; the one it only
+    points at is recorded as incomplete so a placeholder can be told from a
+    real description.
+    """
+    described, stub = _ext_uri("works"), _ext_uri("works")
+    out = save_graph(pg_session, _record(described, "Described Work", stub=stub))
+
+    with pg_session() as session:
+        full = _fetch(session, _minted(out, described))
+        stubbed = _fetch(session, _minted(out, stub))
+
+        assert str(bluecore_graph.DEFAULT_STATUS) in _statuses(full.data)
+        assert str(bluecore_graph.STUB_STATUS) not in _statuses(full.data)
+
+        assert str(bluecore_graph.STUB_STATUS) in _statuses(stubbed.data)
+        assert str(bluecore_graph.DEFAULT_STATUS) not in _statuses(stubbed.data)
+
+
+def test_stub_status_resolves_as_an_other_resource(pg_session):
+    """
+    Nothing in an incoming record describes mstatus/incmp, and _extract_others
+    only promotes uris that appear as subjects, so we describe it ourselves --
+    otherwise the marker would be an unresolvable uri with nothing to display.
+    """
+    described, stub = _ext_uri("works"), _ext_uri("works")
+    out = save_graph(pg_session, _record(described, "Described Work", stub=stub))
+
+    with pg_session() as session:
+        marker = (
+            session.query(OtherResource)
+            .where(OtherResource.uri == str(bluecore_graph.STUB_STATUS))
+            .first()
+        )
+        assert marker is not None
+        assert "incomplete" in json.dumps(marker.data)
+
+        stubbed = _fetch(session, _minted(out, stub))
+        assert str(bluecore_graph.STUB_STATUS) in _linked_others(session, stubbed)
+
+
+def test_full_description_replaces_a_stub(pg_session):
+    """
+    A stub is only a placeholder, so a record that really describes the resource
+    always replaces it.
+    """
+    described, stub = _ext_uri("works"), _ext_uri("works")
+    first = save_graph(pg_session, _record(described, "Described Work", stub=stub))
+    stub_uri = _minted(first, stub)
+
+    # a later record describes what was only a stub before, and resolves to the
+    # same Bluecore resource through its derivedFrom assertion
+    second = save_graph(pg_session, _record(stub, "Now Fully Described"))
+    assert _minted(second, stub) == stub_uri
+
+    with pg_session() as session:
+        work = _fetch(session, stub_uri)
+        assert "Now Fully Described" in json.dumps(work.data)
+        assert str(bluecore_graph.STUB_STATUS) not in _statuses(work.data)
+
+
+def test_stub_does_not_clobber_a_full_description(pg_session):
+    """
+    Once we hold a real description, a later record that only points at the
+    resource must not overwrite it with its stub.
+    """
+    source = _ext_uri("works")
+    out = save_graph(pg_session, _record(source, "Full Description"))
+    uri = _minted(out, source)
+
+    with pg_session() as session:
+        before = json.dumps(_fetch(session, uri).data, sort_keys=True)
+
+    # another record arrives that only points at it
+    save_graph(pg_session, _record(_ext_uri("works"), "Other Record", stub=source))
+
+    with pg_session() as session:
+        work = _fetch(session, uri)
+        assert json.dumps(work.data, sort_keys=True) == before
+        assert "Full Description" in json.dumps(work.data)
+        assert "stub label" not in json.dumps(work.data)
+        assert str(bluecore_graph.STUB_STATUS) not in _statuses(work.data)
+
+
+def test_stub_keeps_the_links_its_description_gave_it(pg_session):
+    """
+    A stub isn't a description of the resource, so it must not strip the Other
+    Resource links the real description established.
+    """
+    source = _ext_uri("works")
+    agent = f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}"
+    g = _record(source, "Described With Agent")
+    g.add((URIRef(source), BF.contributor, URIRef(agent)))
+    g.add((URIRef(agent), RDF.type, BF.Agent))
+    g.add((URIRef(agent), RDFS.label, Literal("Some Agent")))
+    out = save_graph(pg_session, g)
+    uri = _minted(out, source)
+
+    with pg_session() as session:
+        assert agent in _linked_others(session, _fetch(session, uri))
+
+    # a record that only stubs it must leave those links alone
+    save_graph(pg_session, _record(_ext_uri("works"), "Other Record", stub=source))
+
+    with pg_session() as session:
+        assert agent in _linked_others(session, _fetch(session, uri))
+
+
+def test_reingesting_a_record_does_not_overwrite_edits(pg_session):
+    """
+    Once we hold a full description, re-ingesting the very same record must not
+    undo whatever has been edited since.
+    """
+    source = _ext_uri("works")
+    out = save_graph(pg_session, _record(source, "REINGESTED 1"))
+    uri = _minted(out, source)
+
+    # a cataloger edits it through the API, which round-trips the stored jsonld
+    with pg_session() as session:
+        edited = dict(_fetch(session, uri).data)
+    edited["title"] = {"@type": "Title", "mainTitle": "Cataloger Edit"}
+    save_graph(pg_session, load_jsonld(edited), primary_class=BF.Work)
+
+    with pg_session() as session:
+        assert "Cataloger Edit" in json.dumps(_fetch(session, uri).data)
+
+    # ingesting the same record again must leave the edit in place
+    save_graph(pg_session, _record(source, "REINGESTED 1"))
+
+    with pg_session() as session:
+        work = _fetch(session, uri)
+        assert "Cataloger Edit" in json.dumps(work.data)
+        assert "REINGESTED 1" not in json.dumps(work.data)
+
+
+def test_api_save_clears_the_stub_marker(pg_session):
+    """
+    An explicit write from the API is a real description, so the resource isn't
+    a stub any more.
+    """
+    described, stub = _ext_uri("works"), _ext_uri("works")
+    out = save_graph(pg_session, _record(described, "Described Work", stub=stub))
+    uri = _minted(out, stub)
+
+    with pg_session() as session:
+        assert str(bluecore_graph.STUB_STATUS) in _statuses(_fetch(session, uri).data)
+        edited = dict(_fetch(session, uri).data)
+
+    edited["title"] = {"@type": "Title", "mainTitle": "Now Described By Hand"}
+    save_graph(pg_session, load_jsonld(edited), primary_class=BF.Work)
+
+    with pg_session() as session:
+        work = _fetch(session, uri)
+        assert "Now Described By Hand" in json.dumps(work.data)
+        assert str(bluecore_graph.STUB_STATUS) not in _statuses(work.data)
+        assert str(bluecore_graph.DEFAULT_STATUS) in _statuses(work.data)
+
+
+def test_clearing_the_stub_marker_leaves_a_contents_note_alone(pg_session):
+    """
+    mstatus/incmp is also what marc2bibframe2 emits from MARC 505 ind1=1, onto a
+    bf:TableOfContents, to mean the contents note lists only some of the parts.
+    Clearing our stub marker must not touch it -- the term only means "this is a
+    stub" on AdminMetadata.
+    """
+    uri = _new_uri("works")
+    g = Graph()
+    work = URIRef(uri)
+    g.add((work, RDF.type, BF.Work))
+    contents = BNode()
+    g.add((work, BF.tableOfContents, contents))
+    g.add((contents, RDF.type, BF.TableOfContents))
+    g.add(
+        (contents, RDFS.label, Literal("v. 1. Beginnings -- v. 2. The middle years."))
+    )
+    g.add((contents, BF.status, bluecore_graph.STUB_STATUS))
+
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    with pg_session() as session:
+        data = json.dumps(_fetch(session, uri).data)
+        assert str(bluecore_graph.STUB_STATUS) in data  # the note survives
+        assert str(bluecore_graph.DEFAULT_STATUS) not in data  # not rewritten

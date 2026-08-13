@@ -1,6 +1,7 @@
 import contextlib
 import json
 import logging
+import os
 import pathlib
 from datetime import UTC, datetime
 from uuid import UUID
@@ -27,6 +28,15 @@ from bluecore_models.models import (
 from bluecore_models.models.pg_ext_func import PG_EXT_FUNC
 
 logging.basicConfig(filename="test.log", level=logging.DEBUG)
+
+# libpq attempts a GSSAPI handshake before anything else whenever the machine
+# has Kerberos credentials configured, which developer laptops often do. There
+# is nothing to authenticate to on the throwaway test container, and the attempt
+# doesn't fail cleanly -- it hangs until the connect timeout, so the suite looks
+# frozen during fixture setup rather than reporting an error. Nothing here is
+# reachable off localhost, so turn the negotiation off. setdefault leaves an
+# explicit override alone, and this is a no-op in CI, which has no Kerberos.
+os.environ.setdefault("PGGSSENCMODE", "disable")
 
 
 def create_test_rows():
