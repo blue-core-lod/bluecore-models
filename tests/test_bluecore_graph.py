@@ -1586,3 +1586,76 @@ def test_clearing_the_stub_marker_leaves_a_contents_note_alone(pg_session):
         data = json.dumps(_fetch(session, uri).data)
         assert str(bluecore_graph.STUB_STATUS) in data  # the note survives
         assert str(bluecore_graph.DEFAULT_STATUS) not in data  # not rewritten
+
+
+# ---------------------------------------------------------------------------
+# relation stubs: nested mentions must not become records
+# ---------------------------------------------------------------------------
+
+
+def _relation_work(uri: str) -> Graph:
+    """
+    A Work that mentions another Work (with its own Instance) as the other end
+    of a bf:relation, the way LC describes the print version of a serial.
+    """
+    g = Graph()
+    work = URIRef(uri)
+    g.add((work, RDF.type, BF.Work))
+    g.add((work, BF.adminMetadata, BNode()))
+
+    relation, other_work, other_instance = BNode(), BNode(), BNode()
+    g.add((work, BF.relation, relation))
+    g.add((relation, RDF.type, BF.Relation))
+    g.add((relation, BF.associatedResource, other_work))
+    g.add((other_work, RDF.type, BF.Work))
+    g.add((other_work, RDFS.label, Literal("AI and society")))
+    g.add((other_work, BF.hasInstance, other_instance))
+    g.add((other_instance, RDF.type, BF.Instance))
+    return g
+
+
+def test_relation_stub_is_not_promoted(pg_session):
+    """
+    The nameless Work and Instance behind a bf:relation are mentions, not
+    records, so they are never extracted or saved.
+    """
+    graph = _relation_work("http://id.loc.gov/resources/works/20133027")
+    bluecore_graph_ = BluecoreGraph(graph)
+
+    assert len(bluecore_graph_.works()) == 1
+    assert len(bluecore_graph_.instances()) == 0
+
+
+def test_relation_stub_does_not_accumulate(pg_session):
+    """
+    A nameless mention has no uri to recognize it by next time, so promoting it
+    used to add a fresh Work and Instance on every load. Reloading must not
+    change the counts.
+    """
+    _remove_fixtures(pg_session)
+    uri = "http://id.loc.gov/resources/works/20133027"
+
+    for _ in range(3):
+        save_graph(pg_session, _relation_work(uri))
+
+    with pg_session() as session:
+        assert session.query(Work).count() == 1
+        assert session.query(Instance).count() == 0
+
+
+def test_new_nested_resource_is_still_promoted(pg_session):
+    """
+    An untyped, uri-less Instance nested under a Work is a new resource being
+    written (the API's POST /works/ does this), not a mention, so it is still
+    given a type and saved.
+    """
+    cbd_jsonld = {
+        "@context": CONTEXT,
+        "@type": BF.Work,
+        "title": {"mainTitle": "Gravity's Rainbow"},
+        "hasInstance": {"provisionActivity": {"date": "1973"}},
+    }
+    bluecore_graph_ = BluecoreGraph(load_jsonld(cbd_jsonld))
+
+    assert len(bluecore_graph_.works()) == 1
+    assert len(bluecore_graph_.instances()) == 1
