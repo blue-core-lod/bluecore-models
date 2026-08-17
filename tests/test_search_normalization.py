@@ -1,14 +1,13 @@
+import pytest
+from sqlalchemy import func, select, text
+from sqlalchemy.orm import Session, sessionmaker
+
 from bluecore_models.utils.search import (
     SYMBOL_DELETIONS,
     SYMBOL_FOLDINGS,
     SYMBOL_SENTINELS,
     normalize_symbols,
 )
-
-# ---------------------------------------------------------------------------
-# Stage 0 -- prime marks, which mean two different things depending on context
-# ---------------------------------------------------------------------------
-
 
 def test_prime_between_digits_becomes_a_separator():
     # Coordinate punctuation: "27 arcminutes 16 arcseconds". Deleting the marks
@@ -18,7 +17,6 @@ def test_prime_between_digits_becomes_a_separator():
 
 
 def test_prime_between_letters_is_still_deleted():
-    # Same characters as Russian soft and hard signs.
     assert normalize_symbols("aktualʹnykh") == "aktualnykh"
     assert normalize_symbols("obʺekt") == "obekt"
 
@@ -27,12 +25,6 @@ def test_consecutive_primes_between_digits():
     # A capture-group substitution would eat the digit the next match needs and
     # produce "1 2ʹ3"; the lookarounds do not.
     assert normalize_symbols("1ʹ2ʹ3") == "1 2 3"
-
-
-# ---------------------------------------------------------------------------
-# Stage 1a -- deletions
-# ---------------------------------------------------------------------------
-
 
 def test_deletes_romanization_marks():
     # Diacritics such as the macron are left alone: unaccent handles them in SQL.
@@ -49,12 +41,6 @@ def test_deletes_all_four_ligature_halves():
     assert normalize_symbols("transformat︠s︡ii") == "transformatsii"
     assert normalize_symbols("Mongol n︢g︣ün") == "Mongol ngün"
 
-
-# ---------------------------------------------------------------------------
-# Stage 1b -- foldings
-# ---------------------------------------------------------------------------
-
-
 def test_folds_subscript_digits():
     assert normalize_symbols("H₂O") == "H2O"
     assert normalize_symbols("C₆H₁₂O₆") == "C6H12O6"
@@ -68,12 +54,6 @@ def test_folds_superscript_digits():
 def test_folds_sub_and_superscript_signs():
     assert normalize_symbols("x⁽¹⁾") == "x(1)"
     assert normalize_symbols("a₍₋₁₎") == "a(-1)"
-
-
-# ---------------------------------------------------------------------------
-# Stage 2 -- sentinels
-# ---------------------------------------------------------------------------
-
 
 def test_maps_symbols_to_space_padded_sentinels():
     # Without padding the sentinel fuses onto the preceding character.
@@ -96,12 +76,6 @@ def test_maps_copyright_and_phonogram():
     assert "bcsymcopyright" in normalize_symbols("©2022")
     assert "bcsymphonogram" in normalize_symbols("℗2001")
 
-
-# ---------------------------------------------------------------------------
-# Things that must not change
-# ---------------------------------------------------------------------------
-
-
 def test_leaves_ordinary_text_untouched():
     assert normalize_symbols("Castles & palaces--1950-1960") == (
         "Castles & palaces--1950-1960"
@@ -109,12 +83,6 @@ def test_leaves_ordinary_text_untouched():
     assert normalize_symbols("O'Brien") == "O'Brien"
     assert normalize_symbols("100% cotton") == "100% cotton"
     assert normalize_symbols("") == ""
-
-
-# ---------------------------------------------------------------------------
-# Table invariants
-# ---------------------------------------------------------------------------
-
 
 def test_deletions_are_single_characters_without_duplicates():
     assert all(len(char) == 1 for char in SYMBOL_DELETIONS)
@@ -161,3 +129,91 @@ def test_tables_do_not_overlap():
     assert not deletions & foldings
     assert not deletions & sentinels
     assert not foldings & sentinels
+
+
+# ---------------------------------------------------------------------------
+# Parity between the two renderings of the symbol table
+#
+# The index normalizes in SQL and the query side in Python, so a disagreement
+# means searches silently stop matching. Python covers stages 0 to 2 and leaves
+# unaccent to Postgres, so unaccent(normalize_symbols(x)) must equal the
+# all-in-SQL bluecore_normalize(x).
+# ---------------------------------------------------------------------------
+
+PARITY_CORPUS = [
+    # Romanization marks, from records in the Blue Core database.
+    "Saʻdī Gulistān",
+    "Shuʻaib, Amjad",
+    "Tafsīr al-Qurʼān",
+    "O nekotorykh aktualʹnykh problemakh",
+    "transformat︠s︡ii",
+    "Mongol n︢g︣ün bichig",
+    "obʺekt",
+    # Symbols.
+    "D♭ major",
+    "F♯ minor",
+    "Study in B♮",
+    "Previous editions ©2022, 2019, and 2016.",
+    "℗2001 Sony",
+    # Coordinates.
+    "E 138°57ʹ10ʺ--E 138°57ʹ10ʺ",
+    "(W 118°27ʹ16ʺ--W 118°11ʹ43ʺ/N 34°09ʹ48ʺ--N 33°51ʹ21ʺ)",
+    "1ʹ2ʹ3",
+    # Sub and superscripts.
+    "H₂O",
+    "C₆H₁₂O₆",
+    "x² + y² = z²",
+    "10⁻⁹",
+    "x⁽¹⁾",
+    "a₍₋₁₎",
+    # Text we must leave alone. Parity on non-targets matters as much as on
+    # targets: a renderer that mangled apostrophes would pass a corpus made
+    # only of symbols.
+    "Castles & palaces--1950-1960",
+    "I wish I wish I was a fish",
+    "O'Brien",
+    "it's a test",
+    "100% cotton",
+    "",
+]
+
+
+@pytest.mark.parametrize("probe", PARITY_CORPUS)
+def test_sql_and_python_normalization_agree(
+    pg_session: sessionmaker[Session], probe: str
+) -> None:
+    with pg_session() as session:
+        via_sql = session.execute(select(func.bluecore_normalize(probe))).scalar_one()
+        via_python = session.execute(
+            select(func.unaccent(normalize_symbols(probe)))
+        ).scalar_one()
+        assert via_sql == via_python
+
+
+def test_sql_normalization_end_to_end(pg_session: sessionmaker[Session]) -> None:
+    """Spot checks of the SQL rendering, independent of the Python one. If both
+    renderings were wrong in the same way, parity alone would not notice."""
+    with pg_session() as session:
+
+        def norm(value: str) -> str:
+            return session.execute(select(func.bluecore_normalize(value))).scalar_one()
+
+        assert norm("Saʻdī") == "Sadi"
+        assert norm("transformat︠s︡ii") == "transformatsii"
+        assert norm("C₆H₁₂O₆") == "C6H12O6"
+        assert norm("D♭ major") == "D bcsymflat  major"
+        # The copyright sign must map before unaccent rewrites it to "(C)".
+        assert norm("©2022") == " bcsymcopyright 2022"
+        # Stage 0: coordinate primes separate, soft signs still vanish.
+        assert norm("W 118°27ʹ16ʺ") == "W 118 bcsymdegree 27 16"
+        assert norm("aktualʹnykh") == "aktualnykh"
+
+
+def test_bluecore_normalize_is_immutable(pg_session: sessionmaker[Session]) -> None:
+    """Generated columns reject non-IMMUTABLE functions, so data_vector cannot
+    be built from this unless the volatility is right."""
+    with pg_session() as session:
+        volatility = session.execute(
+            text("select provolatile from pg_proc where proname = 'bluecore_normalize'")
+        ).scalar_one()
+        assert volatility == "i"
