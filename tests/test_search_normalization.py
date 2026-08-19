@@ -9,6 +9,7 @@ from bluecore_models.utils.search import (
     normalize_symbols,
 )
 
+
 def test_prime_between_digits_becomes_a_separator():
     # Coordinate punctuation: "27 arcminutes 16 arcseconds". Deleting the marks
     # would fuse the numbers into "2716".
@@ -26,6 +27,7 @@ def test_consecutive_primes_between_digits():
     # produce "1 2ʹ3"; the lookarounds do not.
     assert normalize_symbols("1ʹ2ʹ3") == "1 2 3"
 
+
 def test_deletes_romanization_marks():
     # Diacritics such as the macron are left alone: unaccent handles them in SQL.
     assert normalize_symbols("Saʻdī") == "Sadī"
@@ -41,6 +43,7 @@ def test_deletes_all_four_ligature_halves():
     assert normalize_symbols("transformat︠s︡ii") == "transformatsii"
     assert normalize_symbols("Mongol n︢g︣ün") == "Mongol ngün"
 
+
 def test_folds_subscript_digits():
     assert normalize_symbols("H₂O") == "H2O"
     assert normalize_symbols("C₆H₁₂O₆") == "C6H12O6"
@@ -52,13 +55,44 @@ def test_folds_superscript_digits():
 
 
 def test_folds_sub_and_superscript_signs():
-    assert normalize_symbols("x⁽¹⁾") == "x(1)"
-    assert normalize_symbols("a₍₋₁₎") == "a(-1)"
+    assert normalize_symbols("10⁻⁹") == "10-9"
+    assert normalize_symbols("x⁺y") == "x+y"
+
+
+def test_parenthesis_forms_fold_to_space_not_parentheses():
+    """ASCII parentheses are tsquery grouping operators, so folding to them
+    would turn "x⁽¹⁾" into a syntax error rather than a search."""
+    assert normalize_symbols("x⁽¹⁾") == "x 1 "
+    assert normalize_symbols("a₍₋₁₎") == "a -1 "
+    assert "(" not in normalize_symbols("x⁽¹⁾")
+    assert ")" not in normalize_symbols("x⁽¹⁾")
+
 
 def test_maps_symbols_to_space_padded_sentinels():
     # Without padding the sentinel fuses onto the preceding character.
     assert normalize_symbols("D♭ major") == "D bcsymflat  major"
     assert normalize_symbols("F♯ minor") == "F bcsymsharp  minor"
+
+
+def test_ascii_hash_after_a_note_letter_is_a_sharp():
+    """Keyboards have "#" but not U+266F, so cataloguers type "F#"."""
+    assert normalize_symbols("F#") == normalize_symbols("F♯")
+    assert normalize_symbols("D# major") == normalize_symbols("D♯ major")
+    assert "bcsymsharp" in normalize_symbols("C#")
+
+
+def test_ascii_hash_elsewhere_is_left_alone():
+    """The second lookbehind in the pattern. Without it "XMLSchema#dateTime"
+    matches on its "a#", and that URI is in every JSON-LD record -- a third of
+    the database would gain a spurious sharp token."""
+    for untouched in [
+        "http://www.w3.org/2001/XMLSchema#dateTime",
+        "Issue#5",
+        "Item#3",
+        "#5",
+        "re#f",
+    ]:
+        assert normalize_symbols(untouched) == untouched
 
 
 def test_flat_and_sharp_are_distinguishable():
@@ -76,6 +110,7 @@ def test_maps_copyright_and_phonogram():
     assert "bcsymcopyright" in normalize_symbols("©2022")
     assert "bcsymphonogram" in normalize_symbols("℗2001")
 
+
 def test_leaves_ordinary_text_untouched():
     assert normalize_symbols("Castles & palaces--1950-1960") == (
         "Castles & palaces--1950-1960"
@@ -83,6 +118,7 @@ def test_leaves_ordinary_text_untouched():
     assert normalize_symbols("O'Brien") == "O'Brien"
     assert normalize_symbols("100% cotton") == "100% cotton"
     assert normalize_symbols("") == ""
+
 
 def test_deletions_are_single_characters_without_duplicates():
     assert all(len(char) == 1 for char in SYMBOL_DELETIONS)
@@ -159,6 +195,10 @@ PARITY_CORPUS = [
     "E 138°57ʹ10ʺ--E 138°57ʹ10ʺ",
     "(W 118°27ʹ16ʺ--W 118°11ʹ43ʺ/N 34°09ʹ48ʺ--N 33°51ʹ21ʺ)",
     "1ʹ2ʹ3",
+    "F#",
+    "C# major",
+    "http://www.w3.org/2001/XMLSchema#dateTime",
+    "Issue#5",
     # Sub and superscripts.
     "H₂O",
     "C₆H₁₂O₆",
