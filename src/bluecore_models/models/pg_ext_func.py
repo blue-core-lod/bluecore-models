@@ -19,6 +19,7 @@ from sqlalchemy.dialects import postgresql
 
 from bluecore_models.utils.search import (
     PRIME_BETWEEN_DIGITS_PATTERN,
+    SHARP_AFTER_NOTE_PATTERN,
     SYMBOL_DELETIONS,
     SYMBOL_FOLDINGS,
     SYMBOL_SENTINELS,
@@ -36,6 +37,9 @@ def sql_normalize_expression() -> str:
         literal_column("$1"), PRIME_BETWEEN_DIGITS_PATTERN, " ", "g"
     )
     expression = func.translate(expression, fold_from, fold_to)
+    expression = func.regexp_replace(
+        expression, SHARP_AFTER_NOTE_PATTERN, f" {SYMBOL_SENTINELS['♯']} ", "g"
+    )
     for symbol, sentinel in SYMBOL_SENTINELS.items():
         expression = func.replace(expression, symbol, f" {sentinel} ")
     expression = func.public.f_unaccent(expression)
