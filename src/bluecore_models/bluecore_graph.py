@@ -19,7 +19,11 @@ from bluecore_models.models import (
 )
 from bluecore_models.models.version import CURRENT_USER_ID
 from bluecore_models.namespaces import BF, BFLC, MADS, RDF, RDFS
-from bluecore_models.utils.graph import generate_entity_graph, replace_uri
+from bluecore_models.utils.graph import (
+    find_duplicate_bnode_values,
+    generate_entity_graph,
+    replace_uri,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,18 @@ class BluecoreGraphError(Exception):
     """Raised for BluecoreGraph errors that aren't a type mismatch."""
 
 
+class DuplicateValueError(BluecoreGraphError):
+    """Raised when a resource carries the same blank node value more than once.
+
+    Blank nodes have no identity, so identical ones cannot be merged by RDF and
+    would be persisted and exported as repeated values. A payload asserting the
+    same value twice under one property is malformed rather than making a
+    distinction, so we decline to load it. This typically means the document
+    described the resource in more than one place -- see
+    find_duplicate_bnode_values.
+    """
+
+
 # (predicate, rdf:type) pairs identifying blank nodes that are stripped out of
 # a resource's graph before it is persisted to the database, e.g. removing
 # OCLC number identifiers that shouldn't be exposed.
@@ -89,6 +105,7 @@ def save_graph(
     namespace="https://bcld.info/",
     primary_class=None,
     update_other_resources: bool = True,
+    source: str | None = None,
 ) -> Graph:
     """
     Use the supplied database sessionmaker to create a database session and
@@ -110,8 +127,13 @@ def save_graph(
     Other Resources it doesn't need to re-describe; skipping those updates avoids
     re-framing/re-writing each one on every record. (Their descriptions are then
     maintained by a separate process.)
+
+    source names where the graph came from -- a filename, a URL, a request. It is
+    only used in log messages and errors, so that a rejected payload can be traced
+    back to the thing that produced it. Worth passing when loading in bulk, where
+    the resource URIs in a message may not identify the file they arrived in.
     """
-    bg = BluecoreGraph(graph, namespace)
+    bg = BluecoreGraph(graph, namespace, source=source)
     bg.save(
         session_maker,
         primary_class=primary_class,
@@ -145,10 +167,16 @@ class BluecoreGraph:
        to adding new ones.
     """
 
-    def __init__(self, graph: Graph, namespace: str = "https://bcld.info/"):
+    def __init__(
+        self,
+        graph: Graph,
+        namespace: str = "https://bcld.info/",
+        source: str | None = None,
+    ):
         """
         Instantiate a BluecoreGraph using an rdflib Graph, and an optional
-        Bluecore Namespace URL: the default is https://bcld.info.
+        Bluecore Namespace URL: the default is https://bcld.info. source names where
+        the graph came from and is used only in log messages (see save_graph).
         """
         if not isinstance(namespace, str):
             raise TypeError(f"default namespace cannot be {namespace}")
@@ -160,6 +188,7 @@ class BluecoreGraph:
             namespace += "/"
         self.namespace = Namespace(namespace)
         self.graph = graph
+        self.source = source
         # The per-entity subgraph extractions (works/instances/hubs/others) are
         # expensive and get called repeatedly across the save. We cache them keyed
         # on _revision, which is bumped every time the graph is mutated so the
@@ -324,6 +353,13 @@ class BluecoreGraph:
         }
         self._spot_stubs = primary_class is None and bool(self._described)
         self._ingest = primary_class is None
+
+        # Reject blank node values the payload itself duplicated, before anything
+        # here has had a chance to alter the graph. A caller is answerable for what
+        # it sent us, not for what our own normalisation went on to do with it -- if
+        # a later step leaves two blank nodes identical, that is ours to fix rather
+        # than grounds for turning the payload away.
+        self._check_duplicate_values()
 
         # An explicit write from the API is a real description, so it isn't a
         # stub any more.
@@ -832,6 +868,33 @@ class BluecoreGraph:
         """
         uri = self._subject(graph, class_)
         return self._is_stub(class_, uri) and str(uri) not in self._created
+
+    def _check_duplicate_values(self) -> None:
+        """
+        Refuse to save a graph in which a resource carries the same blank node value
+        more than once. See find_duplicate_bnode_values for what counts as a
+        duplicate, and for the kinds of repetition that are left alone.
+
+        Called first from save(), so it judges the graph as it was handed to us
+        rather than after our own normalisation has been over it. Every finding is
+        logged before raising, so a rejected payload says what was wrong with it
+        rather than only that something was.
+        """
+        duplicates = find_duplicate_bnode_values(self.graph)
+        if not duplicates:
+            return
+
+        where = f"{self.source}: " if self.source else ""
+        described = []
+        for dup in duplicates:
+            value = f": {dup.label!r}" if dup.label else ""
+            described.append(
+                f"<{dup.subject}> has {dup.copies} identical "
+                f"<{dup.predicate}> values{value}"
+            )
+            logger.error(f"{where}duplicate value: {described[-1]}")
+
+        raise DuplicateValueError(where + "; ".join(described))
 
     def _persist_resources(
         self, class_: URIRef | None, session: Session, is_primary: bool = True
