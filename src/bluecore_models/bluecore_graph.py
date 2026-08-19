@@ -447,7 +447,7 @@ class BluecoreGraph:
         others = []
         other_uris = set()
 
-        for g in self.works() + self.instances():
+        for g in self.works() + self.instances() + self.hubs():
             # iterate through each object in the graph
             for o in g.objects():
                 # ignore the object if it:
