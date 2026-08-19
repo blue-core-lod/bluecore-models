@@ -450,10 +450,10 @@ class BluecoreGraph:
         for g in self.works() + self.instances() + self.hubs():
             # iterate through each object in the graph
             for o in g.objects():
-                # ignore the object if it:
-                # - is not a URI (exclude BNodes, Literals)
-                # - is a resource from the Bibframe or MADS vocabularies
-                # - is a Bibframe Work or Instance that is in g1
+                # skip the object if it:
+                # - is not a URI (a BNode or a Literal)
+                # - is a term from the Bibframe, MADS or RDF vocabularies
+                # - is a Work, Instance or Hub, each stored as its own record
                 if (
                     not isinstance(o, URIRef)
                     or self._exclude_uri_from_other_resources(o)
