@@ -978,6 +978,32 @@ def test_hubs_are_not_other_resources(pg_session):
     save_graph(pg_session, g)
 
 
+def test_a_hubs_authorities_become_other_resources(pg_session):
+    """
+    A Hub's referenced authorities have to be harvested like a Work's are.
+
+    _extract_others once walked only Works and Instances, so a place named by a
+    Hub's originPlace was never stored and the Hub's page showed the bare
+    identifier "n80126293" where LC shows "New York (State)".
+    """
+    place = "http://id.loc.gov/rwo/agents/n80126293"
+    hub_uri = "https://bcld.info/hubs/1f0b8f38-6b0e-4a7f-9a25-1a1c0f4a6e11"
+    jsonld_object = {
+        "@context": CONTEXT,
+        "@id": hub_uri,
+        "@type": [BF.Hub, BF.Work],
+        "title": {"@type": "Title", "mainTitle": "Dark tower"},
+        "originPlace": {"@id": place, "rdfs:label": "New York (State)"},
+    }
+
+    save_graph(pg_session, load_jsonld(jsonld_object))
+
+    with pg_session() as session:
+        other = session.query(OtherResource).where(OtherResource.uri == place).first()
+        assert other is not None, "the Hub's place was not stored"
+        assert "New York (State)" in json.dumps(other.data)
+
+
 def test_hub_update(pg_session):
     """
     Test that a bluecore Hub graph can be updated in the database.
