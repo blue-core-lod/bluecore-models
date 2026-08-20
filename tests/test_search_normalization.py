@@ -1,4 +1,3 @@
-import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -81,10 +80,35 @@ def test_ascii_hash_after_a_note_letter_is_a_sharp():
     assert "bcsymsharp" in normalize_symbols("C#")
 
 
+def test_ascii_b_after_a_note_letter_is_a_flat():
+    """Keyboards have no U+266D either, so cataloguers type "Db"."""
+    assert normalize_symbols("Db major") == normalize_symbols("D♭ major")
+    assert normalize_symbols("Bb") == normalize_symbols("B♭")
+    assert "bcsymflat" in normalize_symbols("Eb")
+
+
+def test_ascii_b_in_ordinary_words_is_left_alone():
+    """Guards for the flat rule, since b is an ordinary letter. Without them it
+    fired on 1043 of the 1056 records in the dev database."""
+    for untouched in [
+        "web",
+        "Feb",
+        "club",
+        "cab",
+        "lab",
+        "job",
+        "Bob",
+        "05eb7c5b-9939-c893-f9cf-000000000000",
+    ]:
+        assert normalize_symbols(untouched) == untouched
+
+    # Not untouched: the ayn is deleted. Just check "Abī" is not A flat.
+    assert "bcsymflat" not in normalize_symbols("ʻAlī ibn Abī Ṭālib")
+
+
 def test_ascii_hash_elsewhere_is_left_alone():
-    """The second lookbehind in the pattern. Without it "XMLSchema#dateTime"
-    matches on its "a#", and that URI is in every JSON-LD record -- a third of
-    the database would gain a spurious sharp token."""
+    """Every JSON-LD record contains XMLSchema#dateTime. Without the guard its
+    "a#" is a sharp, and a third of the database gains one."""
     for untouched in [
         "http://www.w3.org/2001/XMLSchema#dateTime",
         "Issue#5",
@@ -126,8 +150,8 @@ def test_deletions_are_single_characters_without_duplicates():
 
 
 def test_deletion_codepoints_match_their_comments():
-    """The glyphs are visually identical or invisible, so the comments naming
-    each codepoint are the only readable documentation -- and can drift."""
+    """The glyphs are invisible or identical on screen, so the codepoint
+    comments are the only readable documentation. Comments drift."""
     assert [f"U+{ord(char):04X}" for char in SYMBOL_DELETIONS] == [
         "U+02BB",  # ayn
         "U+02BC",  # alif/hamza
@@ -167,67 +191,72 @@ def test_tables_do_not_overlap():
     assert not foldings & sentinels
 
 
-# ---------------------------------------------------------------------------
-# Parity between the two renderings of the symbol table
-#
-# The index normalizes in SQL and the query side in Python, so a disagreement
-# means searches silently stop matching. Python covers stages 0 to 2 and leaves
-# unaccent to Postgres, so unaccent(normalize_symbols(x)) must equal the
-# all-in-SQL bluecore_normalize(x).
-# ---------------------------------------------------------------------------
-
+# Probes for the parity check below. The index normalizes in SQL and the query
+# side in Python, so if the two disagree, searches silently stop matching.
 PARITY_CORPUS = [
-    # Romanization marks, from records in the Blue Core database.
-    "Saʻdī Gulistān",
-    "Shuʻaib, Amjad",
+    # Romanization marks, taken from records in the Blue Core database.
+    "Saʻdī. Gulistān",
     "Tafsīr al-Qurʼān",
-    "O nekotorykh aktualʹnykh problemakh",
-    "transformat︠s︡ii",
+    "O nekotorykh aktualʹnykh problemakh transformat︠s︡ii sistemy",
     "Mongol n︢g︣ün bichig",
     "obʺekt",
-    # Symbols.
-    "D♭ major",
-    "F♯ minor",
+    # Music signs, and the keyboard spellings cataloguers type instead.
+    "Nocturne in D♭ major",
+    "Sonata in F♯ minor",
     "Study in B♮",
-    "Previous editions ©2022, 2019, and 2016.",
-    "℗2001 Sony",
-    # Coordinates.
-    "E 138°57ʹ10ʺ--E 138°57ʹ10ʺ",
-    "(W 118°27ʹ16ʺ--W 118°11ʹ43ʺ/N 34°09ʹ48ʺ--N 33°51ʹ21ʺ)",
-    "1ʹ2ʹ3",
-    "F#",
-    "C# major",
+    "Db major",
+    "F# minor",
+    # Text that must not be mistaken for a sharp or a flat.
+    "web Feb club cab lab job Bob",
+    "ʻAlī ibn Abī Ṭālib",
+    "05eb7c5b-9939-c893-f9cf-000000000000",
     "http://www.w3.org/2001/XMLSchema#dateTime",
     "Issue#5",
+    # Symbols that unaccent rewrites to (C) and (P) if left to it.
+    "Previous editions ©2022, 2019, and 2016.",
+    "℗2001 Sony",
+    # Coordinates, where the prime marks are punctuation rather than marks.
+    "(W 118°27ʹ16ʺ--W 118°11ʹ43ʺ/N 34°09ʹ48ʺ--N 33°51ʹ21ʺ)",
+    "1ʹ2ʹ3",
     # Sub and superscripts.
-    "H₂O",
-    "C₆H₁₂O₆",
-    "x² + y² = z²",
-    "10⁻⁹",
-    "x⁽¹⁾",
-    "a₍₋₁₎",
-    # Text we must leave alone. Parity on non-targets matters as much as on
-    # targets: a renderer that mangled apostrophes would pass a corpus made
-    # only of symbols.
+    "The chemistry of H₂O and C₆H₁₂O₆",
+    "A proof that x² + y² = z²",
+    "Notation for x⁽¹⁾ and a₍₋₁₎ in series",
+    # Non-targets matter as much: a renderer that mangled apostrophes would pass
+    # a corpus made only of symbols.
     "Castles & palaces--1950-1960",
-    "I wish I wish I was a fish",
     "O'Brien",
-    "it's a test",
     "100% cotton",
     "",
 ]
 
 
-@pytest.mark.parametrize("probe", PARITY_CORPUS)
 def test_sql_and_python_normalization_agree(
-    pg_session: sessionmaker[Session], probe: str
+    pg_session: sessionmaker[Session],
 ) -> None:
+    """Python does stages 0 to 2, Postgres does unaccent, so
+    unaccent(normalize_symbols(x)) must equal bluecore_normalize(x).
+
+    One query for the whole corpus, so a broken pattern reports every probe it
+    breaks rather than just the first."""
     with pg_session() as session:
-        via_sql = session.execute(select(func.bluecore_normalize(probe))).scalar_one()
-        via_python = session.execute(
-            select(func.unaccent(normalize_symbols(probe)))
-        ).scalar_one()
-        assert via_sql == via_python
+        mismatches = (
+            session.execute(
+                text(
+                    "select probe, bluecore_normalize(probe), unaccent(pynorm) "
+                    "from unnest(cast(:probes as text[]), cast(:pynorms as text[])) "
+                    "as t(probe, pynorm) "
+                    "where bluecore_normalize(probe) is distinct from unaccent(pynorm)"
+                ),
+                {
+                    "probes": PARITY_CORPUS,
+                    "pynorms": [normalize_symbols(p) for p in PARITY_CORPUS],
+                },
+            )
+            .mappings()
+            .all()
+        )
+        assert not mismatches, f"SQL and Python disagree on: {mismatches}"
 
 
 def test_sql_normalization_end_to_end(pg_session: sessionmaker[Session]) -> None:

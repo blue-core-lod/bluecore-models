@@ -18,6 +18,7 @@ from sqlalchemy import func, literal_column
 from sqlalchemy.dialects import postgresql
 
 from bluecore_models.utils.search import (
+    FLAT_AFTER_NOTE_PATTERN,
     PRIME_BETWEEN_DIGITS_PATTERN,
     SHARP_AFTER_NOTE_PATTERN,
     SYMBOL_DELETIONS,
@@ -40,14 +41,22 @@ def sql_normalize_expression() -> str:
     expression = func.regexp_replace(
         expression, SHARP_AFTER_NOTE_PATTERN, f" {SYMBOL_SENTINELS['♯']} ", "g"
     )
+    expression = func.regexp_replace(
+        expression, FLAT_AFTER_NOTE_PATTERN, f" {SYMBOL_SENTINELS['♭']} ", "g"
+    )
     for symbol, sentinel in SYMBOL_SENTINELS.items():
         expression = func.replace(expression, symbol, f" {sentinel} ")
     expression = func.public.f_unaccent(expression)
 
+    # Compiling without a connection, SQLAlchemy cannot ask the server whether
+    # backslashes are escapes, so it assumes they are and doubles them. That
+    # silently breaks the \w guards in the patterns above: Postgres reads '\\w'
+    # as a literal backslash, the lookarounds never match.
+    dialect = postgresql.dialect()
+    dialect._backslash_escapes = False
+
     return str(
-        expression.compile(
-            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
-        )
+        expression.compile(dialect=dialect, compile_kwargs={"literal_binds": True})
     )
 
 
