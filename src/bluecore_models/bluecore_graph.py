@@ -162,9 +162,9 @@ class BluecoreGraph:
     4. If it doesn't have a Bluecore subject URI mint one for it, update the graph
        to use it, and preserve the original URI as a bibframe:derivedFrom assertion.
     5. Save (or update) each Hub, Work, Instance and Other Resource to the database.
-    6. Save relationships between the Works, Instances and Other Resources, being
-       careful to remove existing many-to-many relations with Other Resources prior
-       to adding new ones.
+    6. Save relationships between the Hubs, Works, Instances and Other Resources,
+       being careful to remove existing many-to-many relations with Other Resources
+       prior to adding new ones.
     """
 
     def __init__(
@@ -986,7 +986,10 @@ class BluecoreGraph:
 
     def _link(self, session) -> None:
         """
-        Save relations between Instances, Works and Other Resources in the graph.
+        Save relations between Hubs, Instances, Works and Other Resources in the
+        graph: bf:instanceOf and bf:hasInstance tie Instances to Works,
+        bf:expressionOf ties a Work to its Hub, and anything a Work or Instance
+        refers to becomes an Other Resource link.
         """
 
         # Cache resource lookups for the duration of this link operation. _link
@@ -1032,6 +1035,41 @@ class BluecoreGraph:
             instance = self._get_first(session, Instance, o, cache)
             instance.work = work
             session.add(instance)
+
+        # Use bibframe:expressionOf to link works with hubs, reading bf:hasExpression
+        # as the same relationship stated from the Hub end. BIBFRAME declares the two
+        # owl:inverseOf one another, and while LC writes only expressionOf, another
+        # source may write either.
+        #
+        # Collect both properties as (work, hub) pairs. expressionOf is already
+        # written in that order, so its subject_objects go in as they come;
+        # hasExpression states the same thing from the other end, so its pairs are
+        # reversed on the way in. Using a set means a payload that writes both
+        # directions yields one pair rather than two, so the link is made once.
+        expressions = {
+            (subject, obj)
+            for subject, obj in self.graph.subject_objects(BF.expressionOf)
+        } | {
+            (obj, subject)
+            for subject, obj in self.graph.subject_objects(BF.hasExpression)
+        }
+        for s, o in sorted(expressions, key=lambda pair: (str(pair[0]), str(pair[1]))):
+            # a mention has no record of its own to link
+            if s in self._relation_stubs or o in self._relation_stubs:
+                continue
+            # Only link a Hub this document actually describes: an expressionOf
+            # pointing at a Hub described elsewhere has no row here to link to. And
+            # skip a subject that is itself a Hub, since LC types Hubs as both
+            # bf:Hub and bf:Work and works() leaves those out.
+            if (o, RDF.type, BF.Hub) not in self.graph:
+                continue
+            if (s, RDF.type, BF.Hub) in self.graph:
+                continue
+            logger.info(f"linking {s} to {o}")
+            work = self._get_first(session, Work, s, cache)
+            hub = self._get_first(session, Hub, o, cache)
+            work.hub = hub
+            session.add(work)
 
         # link Works and Instances to their Other Resources, which is a bit more
         # complex since a Work or Instance has a many to many relationship with
