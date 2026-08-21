@@ -1749,3 +1749,94 @@ def test_save_allows_distinct_titles(pg_session):
         saved = session.query(Work).one()
         titles = list(load_jsonld(saved.data).objects(URIRef(saved.uri), BF.title))
         assert len(titles) == 3
+
+
+def test_work_hub_link_is_saved(pg_session):
+    """
+    A CBD carrying a Work and the Hub it expresses should leave the two linked in
+    the database.
+
+    LC writes the relationship as bf:expressionOf. In the CBD for "AI & society",
+    for instance, works/20133027 is the expressionOf
+    hubs/e496c441-5e1b-5afe-1041-9f206e970775, and the Hub is described in the same
+    document. Work.hub_id exists to hold that link.
+    """
+    work_uri = f"https://bcld.info/works/{uuid.uuid4()}"
+    hub_uri = f"https://bcld.info/hubs/{uuid.uuid4()}"
+
+    save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@context": CONTEXT,
+                "@graph": [
+                    {
+                        "@id": work_uri,
+                        "@type": "Work",
+                        "title": {"@type": "Title", "mainTitle": "AI & society"},
+                        "expressionOf": {"@id": hub_uri},
+                    },
+                    {
+                        "@id": hub_uri,
+                        "@type": "Hub",
+                        "title": {
+                            "@type": "Title",
+                            "mainTitle": "AI & society (Online)",
+                        },
+                    },
+                ],
+            }
+        ),
+    )
+
+    with pg_session() as session:
+        hub = session.query(Hub).where(Hub.uri == hub_uri).one()
+        work = session.query(Work).where(Work.uri == work_uri).one()
+
+        assert work.hub is not None, "the Work was not linked to its Hub"
+        assert work.hub.uri == hub.uri
+        assert work in hub.works
+
+
+def test_work_hub_link_is_saved_from_hasExpression(pg_session):
+    """
+    The link is found whichever direction the payload wrote it.
+
+    A Work-centric CBD writes bf:expressionOf, but a Hub fetched from id.loc.gov
+    states the relationship only as bf:hasExpression, so which one appears depends
+    on which document you were given. BIBFRAME declares them owl:inverseOf one
+    another and _infer adds the missing direction, so _link finds either.
+    """
+    work_uri = f"https://bcld.info/works/{uuid.uuid4()}"
+    hub_uri = f"https://bcld.info/hubs/{uuid.uuid4()}"
+
+    save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@context": {**CONTEXT, "hasExpression": {"@type": "@id"}},
+                "@graph": [
+                    {
+                        "@id": work_uri,
+                        "@type": "Work",
+                        "title": {"@type": "Title", "mainTitle": "Piano sonatas"},
+                    },
+                    {
+                        "@id": hub_uri,
+                        "@type": "Hub",
+                        "title": {"@type": "Title", "mainTitle": "Sonatas, piano"},
+                        # the Hub end of the relationship, rather than the Work's
+                        "hasExpression": {"@id": work_uri},
+                    },
+                ],
+            }
+        ),
+    )
+
+    with pg_session() as session:
+        hub = session.query(Hub).where(Hub.uri == hub_uri).one()
+        work = session.query(Work).where(Work.uri == work_uri).one()
+
+        assert work.hub is not None, "bf:hasExpression did not produce a link"
+        assert work.hub.uri == hub.uri
+        assert work in hub.works

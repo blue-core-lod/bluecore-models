@@ -21,6 +21,7 @@ the Bluecore database models.
 
 ```mermaid
 erDiagram
+    ResourceBase ||--o{ Hub : "has"
     ResourceBase ||--o{ Instance : "has"
     ResourceBase ||--o{ Work : "has"
     ResourceBase ||--o{ OtherResource : "has"
@@ -28,12 +29,16 @@ erDiagram
     ResourceBase ||--o{ Version : "has versions"
     ResourceBase ||--o{ BibframeOtherResources : "has other resources"
 
+    Hub ||--o{ Work : "has"
     Work ||--o{ Instance : "has"
     
     BibframeClass ||--o{ ResourceBibframeClass : "classifies"
     
     OtherResource ||--o{ BibframeOtherResources : "links to"
 ```
+
+Works are linked to Instances by `bf:instanceOf` / `bf:hasInstance`, and to a Hub by
+`bf:expressionOf` (see `BluecoreGraph._link`).
 
 ### Database Migrations with Alembic
 The [Alembic](https://alembic.sqlalchemy.org/en/latest/) database migration package is used
