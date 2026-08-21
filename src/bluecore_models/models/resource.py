@@ -36,6 +36,7 @@ class ResourceBase(Base):
     Rest of the data is indexed without weights.
     All of them will be indexed with both 'simple' and 'english' configurations with unaccent.
     jsonb_to_tsv is a custom function that extracts text from jsonb and converts to tsvector - see pg_ext_func.py.
+    bluecore_normalize handles symbols and romanization marks before unaccenting - see pg_ext_func.py.
     """
     data_vector: Mapped[bytes] = mapped_column(
         TSVECTOR,
@@ -46,8 +47,8 @@ class ResourceBase(Base):
             "setweight(jsonb_to_tsv('english', data->'title', 'subtitle'), 'B') || "
             "setweight(to_tsvector('simple', coalesce(uri, '')), 'C') || "
             "setweight(to_tsvector('english', coalesce(uri, '')), 'C') || "
-            "to_tsvector('simple', f_unaccent(coalesce(data::text, ''))) || "
-            "to_tsvector('english', f_unaccent(coalesce(data::text, '')))",
+            "to_tsvector('simple', bluecore_normalize(coalesce(data::text, ''))) || "
+            "to_tsvector('english', bluecore_normalize(coalesce(data::text, '')))",
             persisted=True,
         ),
     )
