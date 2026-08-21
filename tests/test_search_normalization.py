@@ -1,6 +1,7 @@
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from bluecore_models.models import ResourceBase, Work
 from bluecore_models.utils.search import (
     SYMBOL_DELETIONS,
     SYMBOL_FOLDINGS,
@@ -286,3 +287,71 @@ def test_bluecore_normalize_is_immutable(pg_session: sessionmaker[Session]) -> N
             text("select provolatile from pg_proc where proname = 'bluecore_normalize'")
         ).scalar_one()
         assert volatility == "i"
+
+
+def _add_work(session, uri: str, main_title: str) -> None:
+    """Insert a Work so data_vector is computed by Postgres from its data.
+
+    The data needs @id and @type: ResourceBase frames the JSON-LD on insert,
+    and a fragment without them frames down to an empty object.
+    """
+    session.add(
+        Work(
+            uri=uri,
+            data={
+                "@id": uri,
+                "@type": ["Text", "Work", "Monograph"],
+                "title": {"@type": "Title", "mainTitle": main_title},
+            },
+        )
+    )
+    session.commit()
+
+
+def _matches(session, query: str, uri: str) -> bool:
+    stmt = select(ResourceBase).where(
+        func.to_tsquery("simple", query).op("@@")(ResourceBase.data_vector),
+        ResourceBase.uri == uri,
+    )
+    return session.execute(stmt).scalars().first() is not None
+
+
+def test_index_distinguishes_flat_from_sharp(
+    pg_session: sessionmaker[Session],
+) -> None:
+    """The bug in bluecore_api#203: the parser drops the musical signs, so a
+    search for one returns records containing the other."""
+    uri = "https://bluecore.info/works/symbol-flat"
+    with pg_session() as session:
+        _add_work(session, uri, "Nocturne in D♭ major")
+        assert _matches(session, "d & bcsymflat & major", uri)
+        assert not _matches(session, "d & bcsymsharp & major", uri)
+        # Searching without the symbol must keep working.
+        assert _matches(session, "d & major", uri)
+
+
+def test_index_strips_romanization_marks(pg_session: sessionmaker[Session]) -> None:
+    """unaccent turns the ayn into an apostrophe, which the parser splits on,
+    so "Sadi" finds nothing until the mark is deleted first."""
+    uri = "https://bluecore.info/works/symbol-romanization"
+    with pg_session() as session:
+        _add_work(session, uri, "Saʻdī. Gulistān")
+        assert _matches(session, "sadi", uri)
+        assert _matches(session, "gulistan", uri)
+
+
+def test_index_folds_subscripts(pg_session: sessionmaker[Session]) -> None:
+    """Subscripts act as separators, so C₆H₁₂O₆ indexes as bare c, h, o."""
+    uri = "https://bluecore.info/works/symbol-subscript"
+    with pg_session() as session:
+        _add_work(session, uri, "The chemistry of H₂O and C₆H₁₂O₆")
+        assert _matches(session, "h2o", uri)
+        assert _matches(session, "c6h12o6", uri)
+
+
+def test_index_deletes_ligature_halves(pg_session: sessionmaker[Session]) -> None:
+    uri = "https://bluecore.info/works/symbol-ligature"
+    with pg_session() as session:
+        _add_work(session, uri, "O nekotorykh aktualʹnykh problemakh transformat︠s︡ii")
+        assert _matches(session, "transformatsii", uri)
+        assert _matches(session, "aktualnykh", uri)
