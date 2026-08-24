@@ -6,7 +6,11 @@ from rdflib import RDFS, BNode, Graph, Literal, URIRef
 from sqlalchemy.orm import sessionmaker
 
 from bluecore_models import bluecore_graph
-from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
+from bluecore_models.bluecore_graph import (
+    BluecoreGraph,
+    DuplicateValueError,
+    save_graph,
+)
 from bluecore_models.models import (
     BibframeOtherResources,
     Hub,
@@ -1685,3 +1689,63 @@ def test_new_nested_resource_is_still_promoted(pg_session):
 
     assert len(bluecore_graph_.works()) == 1
     assert len(bluecore_graph_.instances()) == 1
+
+
+def test_save_rejects_duplicate_blank_node_values(pg_session):
+    """
+    A payload asserting an identical blank node value twice under one property is
+    refused. It means the document described the resource more than once, and
+    because the values are blank nodes RDF cannot merge them -- they would be
+    stored and exported as duplicates. See blue-core-lod/bluecore-workflows#161.
+    """
+    _remove_fixtures(pg_session)
+
+    work = URIRef("https://bcld.info/works/" + str(uuid.uuid4()))
+    graph = Graph()
+    graph.add((work, RDF.type, BF.Work))
+    for _ in range(2):
+        title = BNode()
+        graph.add((work, BF.title, title))
+        graph.add((title, RDF.type, BF.Title))
+        graph.add((title, BF.mainTitle, Literal("Pride and prejudice")))
+
+    with pytest.raises(DuplicateValueError) as excinfo:
+        save_graph(pg_session, graph)
+
+    # the message locates the offending resource, property and value
+    message = str(excinfo.value)
+    assert str(work) in message
+    assert "2 identical" in message
+    assert "Pride and prejudice" in message
+
+    # nothing was written
+    with pg_session() as session:
+        assert session.query(Work).count() == 0
+
+
+def test_save_allows_distinct_titles(pg_session):
+    """
+    The counterpart: titles that differ are kept, so a Work with a primary title
+    and variant titles still saves.
+    """
+    _remove_fixtures(pg_session)
+
+    work = URIRef("https://bcld.info/works/" + str(uuid.uuid4()))
+    graph = Graph()
+    graph.add((work, RDF.type, BF.Work))
+    for type_, value in [
+        (BF.Title, "Pride and prejudice"),
+        (BF.VariantTitle, "Pride & prejudice"),
+        (BF.VariantTitle, "First impressions"),
+    ]:
+        title = BNode()
+        graph.add((work, BF.title, title))
+        graph.add((title, RDF.type, type_))
+        graph.add((title, BF.mainTitle, Literal(value)))
+
+    save_graph(pg_session, graph)
+
+    with pg_session() as session:
+        saved = session.query(Work).one()
+        titles = list(load_jsonld(saved.data).objects(URIRef(saved.uri), BF.title))
+        assert len(titles) == 3
