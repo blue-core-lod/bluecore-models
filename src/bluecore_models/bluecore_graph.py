@@ -162,9 +162,9 @@ class BluecoreGraph:
     4. If it doesn't have a Bluecore subject URI mint one for it, update the graph
        to use it, and preserve the original URI as a bibframe:derivedFrom assertion.
     5. Save (or update) each Hub, Work, Instance and Other Resource to the database.
-    6. Save relationships between the Works, Instances and Other Resources, being
-       careful to remove existing many-to-many relations with Other Resources prior
-       to adding new ones.
+    6. Save relationships between the Hubs, Works, Instances and Other Resources,
+       being careful to remove existing many-to-many relations with Other Resources
+       prior to adding new ones.
     """
 
     def __init__(
@@ -438,9 +438,12 @@ class BluecoreGraph:
         """
         self._bump_revision()  # mutates self.graph
 
-        # create inverse properties
+        # Create inverse properties, so a relationship is found whichever end the
+        # payload stated it from. BIBFRAME declares both pairs owl:inverseOf one
+        # another, which licenses the inverse whatever the ends turn out to be.
         inverse_properties = [
             (BF.hasInstance, BF.instanceOf),
+            (BF.hasExpression, BF.expressionOf),
         ]
         for pred1, pred2 in inverse_properties:
             # add inverse of pred1
@@ -986,7 +989,10 @@ class BluecoreGraph:
 
     def _link(self, session) -> None:
         """
-        Save relations between Instances, Works and Other Resources in the graph.
+        Save relations between Hubs, Instances, Works and Other Resources in the
+        graph: bf:instanceOf and bf:hasInstance tie Instances to Works,
+        bf:expressionOf ties a Work to its Hub, and anything a Work or Instance
+        refers to becomes an Other Resource link.
         """
 
         # Cache resource lookups for the duration of this link operation. _link
@@ -997,15 +1003,12 @@ class BluecoreGraph:
         # already sees it.
         cache: dict[tuple, object] = {}
 
-        # use bibframe:instanceOf assertions to link instances with works
-        #
-        # Maybe we should have a simple inference step early on that infers missing
-        # bibframe:instanceOf assertions, and possible other inverse properties
-        # that we might rely on?
+        # Sort all the link iterations by URI so that, like _persist_resources,
+        # concurrent transactions acquire row locks in the same deterministic order.
 
-        # sort all the link iterations by URI so that, like _persist_resources, concurrent
-        # transactions acquire row locks in the same deterministic order.
-
+        # use bibframe:instanceOf to link instances with works. A payload stating the
+        # relationship the other way round, as bf:hasInstance, has already had this
+        # direction added for it by _infer.
         for s, o in sorted(
             self.graph.subject_objects(BF.instanceOf),
             key=lambda pair: (str(pair[0]), str(pair[1])),
@@ -1019,19 +1022,29 @@ class BluecoreGraph:
             instance.work = work
             session.add(instance)
 
-        # use bibframe:hasInstance to link works with instances
+        # use bibframe:expressionOf to link works with hubs. A payload stating the
+        # relationship the other way round, as bf:hasExpression, has already had this
+        # direction added for it by _infer.
         for s, o in sorted(
-            self.graph.subject_objects(BF.hasInstance),
+            self.graph.subject_objects(BF.expressionOf),
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
             # a mention has no record of its own to link
             if s in self._relation_stubs or o in self._relation_stubs:
                 continue
+            # Only link a Hub this document actually describes: an expressionOf
+            # pointing at a Hub described elsewhere has no row here to link to. And
+            # skip a subject that is itself a Hub, since LC types Hubs as both
+            # bf:Hub and bf:Work and works() leaves those out.
+            if (o, RDF.type, BF.Hub) not in self.graph:
+                continue
+            if (s, RDF.type, BF.Hub) in self.graph:
+                continue
             logger.info(f"linking {s} to {o}")
             work = self._get_first(session, Work, s, cache)
-            instance = self._get_first(session, Instance, o, cache)
-            instance.work = work
-            session.add(instance)
+            hub = self._get_first(session, Hub, o, cache)
+            work.hub = hub
+            session.add(work)
 
         # link Works and Instances to their Other Resources, which is a bit more
         # complex since a Work or Instance has a many to many relationship with
