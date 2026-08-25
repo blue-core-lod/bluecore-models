@@ -40,6 +40,12 @@ erDiagram
 Works are linked to Instances by `bf:instanceOf` / `bf:hasInstance`, and to a Hub by
 `bf:expressionOf` (see `BluecoreGraph._link`).
 
+Both ends of a link need a URI. A resource created in an editor arrives without one
+and is minted a Bluecore URI, but a blank node in a bulk-loaded record is an inline
+description of something the record merely refers to — LC catalog data often states
+`bf:expressionOf` against an anonymous `bf:Hub` — so it gets no record and no link
+(see `BluecoreGraph._anonymous_description`).
+
 ### Database Migrations with Alembic
 The [Alembic](https://alembic.sqlalchemy.org/en/latest/) database migration package is used
 to manage database changes with the Bluecore Data models.

@@ -250,6 +250,25 @@ class BluecoreGraph:
         """
         self._revision += 1
 
+    def _anonymous_description(self, subject: Node) -> bool:
+        """
+        Is this subject a blank node that shouldn't get a record of its own?
+
+        A resource newly created in an editor arrives without a URI, and minting one
+        for it is the whole point. The API says which kind it is authoritatively
+        writing (primary_class), so a blank node on that path is a resource being
+        created, and this returns False for it.
+
+        A bulk-loaded record is different. Its blank nodes are inline descriptions of
+        resources it merely refers to: LC catalog data routinely states
+        bf:expressionOf against an anonymous bf:Hub, and nests an anonymous bf:Work
+        under bf:instanceOf. Minting a URI for one of those invents an identity
+        nothing can ever match again, so a reload of the same record mints another,
+        and -- for Hubs -- they compete with the identified Hub for the single
+        Work.hub_id, where sort order decides which one wins.
+        """
+        return self._ingest and not isinstance(subject, URIRef)
+
     def _subgraphs(self, key: str, compute) -> list[Graph]:
         """
         Return the cached subgraph list for `key`, recomputing it (via `compute`)
@@ -279,6 +298,7 @@ class BluecoreGraph:
                 for s in self.graph.subjects(RDF.type, BF.Work)
                 if (s, RDF.type, BF.Hub) not in self.graph
                 and s not in self._relation_stubs
+                and not self._anonymous_description(s)
             ],
         )
 
@@ -470,12 +490,14 @@ class BluecoreGraph:
     def _extract_subgraphs(self, bibframe_class: URIRef) -> list[Graph]:
         """
         Returns a list of subgraphs for subjects of a given type, leaving out the
-        ones that are only a mention of the other end of a relationship.
+        ones that are only a mention of the other end of a relationship, and the
+        anonymous descriptions a bulk-loaded record carries (see
+        _anonymous_description).
         """
         return [
             generate_entity_graph(self.graph, s)
             for s in self.graph.subjects(RDF.type, bibframe_class)
-            if s not in self._relation_stubs
+            if s not in self._relation_stubs and not self._anonymous_description(s)
         ]
 
     def _extract_others(self) -> list[Graph]:
@@ -1016,6 +1038,9 @@ class BluecoreGraph:
             # a mention has no record of its own to link
             if s in self._relation_stubs or o in self._relation_stubs:
                 continue
+            # nor does an anonymous description in a bulk-loaded record
+            if self._anonymous_description(s) or self._anonymous_description(o):
+                continue
             logger.info(f"linking {s} to {o}")
             instance = self._get_first(session, Instance, s, cache)
             work = self._get_first(session, Work, o, cache)
@@ -1031,6 +1056,9 @@ class BluecoreGraph:
         ):
             # a mention has no record of its own to link
             if s in self._relation_stubs or o in self._relation_stubs:
+                continue
+            # nor does an anonymous description in a bulk-loaded record
+            if self._anonymous_description(s) or self._anonymous_description(o):
                 continue
             # Only link a Hub this document actually describes: an expressionOf
             # pointing at a Hub described elsewhere has no row here to link to. And
