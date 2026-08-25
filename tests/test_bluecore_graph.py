@@ -257,6 +257,12 @@ def test_blank_node_resource(
     brand-new resource is created in an editor) should be persisted with a freshly
     minted bluecore URI and NO derivedFrom assertion, since there is no original
     URI to derive from.
+
+    primary_class is what marks this as such a creation: the API routes always pass
+    it (see works.py, instances.py, hubs.py), and only a caller that says what it is
+    writing gets a URI minted for an anonymous resource. On the bulk path a blank
+    node means something else entirely -- see
+    test_bulk_load_ignores_anonymous_resources.
     """
     minted_uuid = "7dbb7674-7373-473f-9014-b9a993a2dd03"
     monkeypatch.setattr(bluecore_graph, "uuid4", lambda *args, **kwargs: minted_uuid)
@@ -272,7 +278,7 @@ def test_blank_node_resource(
     graph.add((title, BF.mainTitle, Literal("Gravity's Rainbow")))
 
     assert uuid_spy.call_count == 0
-    save_graph(pg_session, graph)
+    save_graph(pg_session, graph, primary_class=bf_class)
     assert uuid_spy.call_count == 1
 
     with pg_session() as session:
@@ -537,6 +543,12 @@ def test_work_instances(pg_session):
 
 
 def test_work_instance_bnode(pg_session, monkeypatch):
+    """
+    An editor POSTing a Work can nest a brand-new Instance that has no URI yet, and
+    it should be minted one and linked. primary_class is BF.Work here, as the works
+    route passes: the Work is what is being authoritatively written, but the
+    anonymous Instance under it is still a resource being created, not a mention.
+    """
     # patch the UUID function to return a known value during URI minting
     monkeypatch.setattr(
         bluecore_graph,
@@ -559,7 +571,7 @@ def test_work_instance_bnode(pg_session, monkeypatch):
         ],
     }
 
-    save_graph(pg_session, load_jsonld(jsonld_object))
+    save_graph(pg_session, load_jsonld(jsonld_object), primary_class=BF.Work)
 
     with pg_session() as session:
         work = (
@@ -1840,3 +1852,114 @@ def test_work_hub_link_is_saved_from_hasExpression(pg_session):
         assert work.hub is not None, "bf:hasExpression did not produce a link"
         assert work.hub.uri == hub.uri
         assert work in hub.works
+
+
+def test_bulk_load_ignores_anonymous_resources(pg_session):
+    """
+    A bulk-loaded record's anonymous Works, Instances and Hubs are descriptions of
+    things it refers to, not resources it creates, so they get no record and no link.
+
+    This is the shape of real LC catalog data. In instances/9002886 the Work carries
+    four bf:expressionOf assertions, three of them against an anonymous bf:Hub, and
+    in 8844569 and 3469704 an identified Hub sits alongside an anonymous one. Minting
+    a URI for an anonymous Hub invents an identity nothing can match again, so a
+    reload mints another; worse, each becomes a Hub row competing for the single
+    Work.hub_id, and sort order decides which one wins.
+
+    Contrast test_blank_node_resource and test_work_instance_bnode, where a blank
+    node arrives on the API path (primary_class is set) and does mean "create me".
+    """
+    work_uri = f"https://bcld.info/works/{uuid.uuid4()}"
+    hub_uri = f"https://bcld.info/hubs/{uuid.uuid4()}"
+
+    # the fixture seeds rows of its own, so compare against what was there before
+    with pg_session() as session:
+        hubs_before = {hub.uri for hub in session.query(Hub).all()}
+
+    save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@context": CONTEXT,
+                "@graph": [
+                    {
+                        "@id": work_uri,
+                        "@type": "Work",
+                        "title": {
+                            "@type": "Title",
+                            "mainTitle": "The fables of Bidpai",
+                        },
+                        "expressionOf": [
+                            {"@id": hub_uri},
+                            # the same record's anonymous alternatives
+                            {
+                                "@type": "Hub",
+                                "title": {
+                                    "@type": "Title",
+                                    "mainTitle": "Mostafa. English",
+                                },
+                            },
+                            {
+                                "@type": "Hub",
+                                "title": {
+                                    "@type": "Title",
+                                    "mainTitle": "Kalilah wa-Dimnah",
+                                },
+                            },
+                        ],
+                    },
+                    {
+                        "@id": hub_uri,
+                        "@type": "Hub",
+                        "title": {"@type": "Title", "mainTitle": "Panchatantra"},
+                    },
+                ],
+            }
+        ),
+    )
+
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).one()
+
+        created = {hub.uri for hub in session.query(Hub).all()} - hubs_before
+        assert created == {hub_uri}, (
+            f"anonymous Hubs were given records of their own: {created - {hub_uri}}"
+        )
+
+        assert work.hub is not None, "the Work was not linked to its identified Hub"
+        assert work.hub.uri == hub_uri
+
+
+def test_bulk_load_ignores_anonymous_work_under_instance(pg_session):
+    """
+    The same holds for the other end: an Instance CBD that describes its Work
+    anonymously under bf:instanceOf gets no Work record from it.
+    """
+    instance_uri = f"https://bcld.info/instances/{uuid.uuid4()}"
+
+    # the fixture seeds rows of its own, so compare against what was there before
+    with pg_session() as session:
+        works_before = session.query(Work).count()
+
+    save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@context": CONTEXT,
+                "@id": instance_uri,
+                "@type": "Instance",
+                "title": {"@type": "Title", "mainTitle": "Gravity's rainbow"},
+                "instanceOf": {
+                    "@type": "Work",
+                    "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
+                },
+            }
+        ),
+    )
+
+    with pg_session() as session:
+        instance = session.query(Instance).where(Instance.uri == instance_uri).one()
+        assert session.query(Work).count() == works_before, (
+            "an anonymous Work got a record"
+        )
+        assert instance.work is None
