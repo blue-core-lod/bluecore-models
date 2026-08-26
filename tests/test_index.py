@@ -1,6 +1,6 @@
 import pytest  # noqa
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from bluecore_models.models import ResourceBase, Work
@@ -116,3 +116,76 @@ def test_index_uri(pg_session: sessionmaker[Session]) -> None:
         stmt = select(ResourceBase).where(search_query.op("@@")(Work.data_vector))
         results = session.execute(stmt).scalars().all()
         assert len(results) == 2
+
+
+def test_title_vector_searches_only_requested_title_values(
+    pg_session: sessionmaker[Session],
+) -> None:
+    """The title vector finds each requested title field but ignores other data."""
+    uri = "https://bcld.info/works/title-vector-test"
+    with pg_session() as session:
+        session.add(
+            Work(
+                uri=uri,
+                data={
+                    "@id": uri,
+                    "@type": "Work",
+                    "title": [
+                        {
+                            "@type": "Title",
+                            "mainTitle": "primaryscope",
+                            "subtitle": "subtitlescope",
+                        },
+                        {"@type": "VariantTitle", "mainTitle": "variantscope"},
+                        {"@type": "ParallelTitle", "mainTitle": "parallelscope"},
+                    ],
+                    "note": {"@type": "Note", "label": "notescope"},
+                },
+            )
+        )
+        session.flush()
+
+        for term in (
+            "primaryscope",
+            "variantscope",
+            "parallelscope",
+            "subtitlescope",
+        ):
+            search_query = func.to_tsquery("english", term)
+            results = session.scalars(
+                select(Work).where(search_query.op("@@")(Work.title_vector))
+            ).all()
+            assert [result.uri for result in results] == [uri]
+
+        search_query = func.to_tsquery("english", "notescope")
+        title_results = session.scalars(
+            select(Work).where(search_query.op("@@")(Work.title_vector))
+        ).all()
+        broad_results = session.scalars(
+            select(Work).where(search_query.op("@@")(Work.data_vector))
+        ).all()
+        assert title_results == []
+        assert [result.uri for result in broad_results] == [uri]
+
+
+def test_title_vector_has_a_gin_index(pg_session: sessionmaker[Session]) -> None:
+    """The database creates and uses a GIN index for title matching."""
+    with pg_session() as session:
+        index_definition = session.scalar(
+            text(
+                "SELECT indexdef FROM pg_indexes "
+                "WHERE tablename = 'resource_base' "
+                "AND indexname = 'index_resource_base_on_title_vector'"
+            )
+        )
+        session.execute(text("SET LOCAL enable_seqscan = off"))
+        query_plan = session.scalars(
+            text(
+                "EXPLAIN SELECT id FROM resource_base "
+                "WHERE to_tsquery('english', 'Renewable') @@ title_vector"
+            )
+        ).all()
+
+    assert index_definition is not None
+    assert "USING gin (title_vector)" in index_definition
+    assert any("index_resource_base_on_title_vector" in line for line in query_plan)
