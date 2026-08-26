@@ -52,6 +52,17 @@ class ResourceBase(Base):
             persisted=True,
         ),
     )
+    # This vector lets PostgreSQL search title values only
+    title_vector: Mapped[bytes] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(bluecore_titles_to_tsv('simple', data->'title', 'mainTitle'), 'A') || "
+            "setweight(bluecore_titles_to_tsv('english', data->'title', 'mainTitle'), 'A') || "
+            "setweight(bluecore_titles_to_tsv('simple', data->'title', 'subtitle'), 'B') || "
+            "setweight(bluecore_titles_to_tsv('english', data->'title', 'subtitle'), 'B')",
+            persisted=True,
+        ),
+    )
 
     __mapper_args__: ClassVar[dict[str, Any]] = {
         "polymorphic_on": type,
@@ -78,6 +89,9 @@ class ResourceBase(Base):
         ),
         Index(
             "index_resource_base_on_data_vector", data_vector, postgresql_using="gin"
+        ),
+        Index(
+            "index_resource_base_on_title_vector", title_vector, postgresql_using="gin"
         ),
         Index("index_resource_base_on_uuid", uuid),
         Index("type_idx", type),

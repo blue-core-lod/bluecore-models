@@ -60,6 +60,48 @@ def sql_normalize_expression() -> str:
     )
 
 
+# Pulls the text out of a title, whatever shape it arrived in: a plain string, a
+# tagged object like {"@value": "Reader's guide", "@language": "zxx-latn"}, or a
+# list of either. Plain ->> hands back raw JSON for the last two, which indexes
+# "@value" and the language tag as if they were words in the title.
+BLUECORE_JSONB_TEXT = """
+                      CREATE
+                      OR REPLACE FUNCTION public.bluecore_jsonb_text(value jsonb)
+RETURNS text AS $$
+                      SELECT CASE jsonb_typeof(value)
+                                 WHEN 'string' THEN value #>> '{}'
+                                 WHEN 'number' THEN value #>> '{}'
+                                 WHEN 'object' THEN value ->> '@value'
+                                 WHEN 'array' THEN (SELECT string_agg(public.bluecore_jsonb_text(element), ' ')
+                                                    FROM jsonb_array_elements(value) element)
+                                 ELSE NULL
+                                 END
+                                 $$ LANGUAGE sql IMMUTABLE PARALLEL SAFE"""
+
+# jsonb_to_tsv, but reading through bluecore_jsonb_text. Kept separate on purpose:
+# jsonb_to_tsv also feeds data_vector, and changing it would rebuild that column
+# in production for nothing, since it indexes the whole document anyway.
+BLUECORE_TITLES_TO_TSV = """
+                      CREATE
+                      OR REPLACE FUNCTION public.bluecore_titles_to_tsv(lang_config text, data jsonb, key_name text)
+RETURNS tsvector AS $$
+                      BEGIN
+  IF
+                      jsonb_typeof(data) != 'array' THEN
+    RETURN to_tsvector(lang_config::regconfig, bluecore_normalize(coalesce(public.bluecore_jsonb_text(data -> key_name), '')));
+                      ELSE
+    RETURN (
+        SELECT to_tsvector(lang_config::regconfig, bluecore_normalize(coalesce(string_agg(public.bluecore_jsonb_text(value -> key_name), ' '), '')))
+        FROM jsonb_array_elements(data)
+    );
+                      END IF;
+                      EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'An unexpected error occurred for bluecore_titles_to_tsv: %', SQLERRM;
+                      RETURN ''::tsvector;
+                      END;
+$$
+                      LANGUAGE plpgsql IMMUTABLE"""
+
 PG_EXT_FUNC: list[str] = [
     "CREATE EXTENSION IF NOT EXISTS unaccent",
     """
@@ -94,4 +136,8 @@ EXCEPTION WHEN OTHERS THEN
   RETURN ''::tsvector;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE""",
+    # Both are needed here, not just in the migration: the test databases are
+    # built from this list, so title_vector cannot be created without them.
+    BLUECORE_JSONB_TEXT,
+    BLUECORE_TITLES_TO_TSV,
 ]
