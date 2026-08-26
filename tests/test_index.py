@@ -189,3 +189,156 @@ def test_title_vector_has_a_gin_index(pg_session: sessionmaker[Session]) -> None
     assert index_definition is not None
     assert "USING gin (title_vector)" in index_definition
     assert any("index_resource_base_on_title_vector" in line for line in query_plan)
+
+
+def test_title_vector_excludes_vocabulary_terms(
+    pg_session: sessionmaker[Session],
+) -> None:
+    """Vocabulary values must not be reachable through the title vector.
+
+    A record cites subjects, genre forms, contributors, classifications and
+    languages, each carrying a uri and often a label. All of it belongs in
+    data_vector and none of it in title_vector -- if a vocabulary label leaked in,
+    a title search would quietly answer with records whose *subject* matched,
+    which is the thing the scope exists to prevent.
+    """
+    uri = "https://bcld.info/works/vocabulary-scope-test"
+    with pg_session() as session:
+        session.add(
+            Work(
+                uri=uri,
+                data={
+                    "@id": uri,
+                    "@type": "Work",
+                    "title": {"@type": "Title", "mainTitle": "titlescope"},
+                    "subject": [
+                        {
+                            "@id": "http://id.loc.gov/authorities/subjects/sh85033827",
+                            "rdfs:label": "subjectscope",
+                        },
+                        {
+                            "@type": "Topic",
+                            "mads:authoritativeLabel": "madsscope",
+                        },
+                    ],
+                    "genreForm": {
+                        "@id": "http://id.loc.gov/authorities/genreForms/gf1",
+                        "rdfs:label": "genrescope",
+                    },
+                    "contribution": {
+                        "@type": "Contribution",
+                        "agent": {
+                            "@id": "http://id.loc.gov/rwo/agents/n1",
+                            "rdfs:label": "agentscope",
+                        },
+                        "role": {
+                            "@id": "http://id.loc.gov/vocabulary/relators/ctb",
+                            "code": "rolescope",
+                        },
+                    },
+                    "classification": {
+                        "@type": "ClassificationLcc",
+                        "classificationPortion": "classscope",
+                    },
+                    "language": {
+                        "@id": "http://id.loc.gov/vocabulary/languages/eng",
+                        "rdfs:label": "langscope",
+                    },
+                    "note": {"@type": "Note", "label": "notescope"},
+                },
+            )
+        )
+        session.flush()
+
+        # the title itself is found
+        found = session.scalars(
+            select(Work).where(
+                func.to_tsquery("english", "titlescope").op("@@")(Work.title_vector)
+            )
+        ).all()
+        assert [result.uri for result in found] == [uri]
+
+        for term in (
+            "subjectscope",
+            "madsscope",
+            "genrescope",
+            "agentscope",
+            "rolescope",
+            "classscope",
+            "langscope",
+            "notescope",
+        ):
+            search_query = func.to_tsquery("english", term)
+            assert (
+                session.scalars(
+                    select(Work).where(search_query.op("@@")(Work.title_vector))
+                ).all()
+                == []
+            ), f"{term} leaked into title_vector"
+            # but the record is still reachable by it through the broad vector
+            assert [
+                result.uri
+                for result in session.scalars(
+                    select(Work).where(search_query.op("@@")(Work.data_vector))
+                ).all()
+            ] == [uri], f"{term} missing from data_vector"
+
+
+def test_title_vector_indexes_the_text_of_a_language_tagged_title(
+    pg_session: sessionmaker[Session],
+) -> None:
+    """A title is not always a plain string.
+
+    bluecore_titles_to_tsv unwraps a {"@value", "@language"} object and a list mixing
+    those with strings, so only the title text is indexed. Reading such a title
+    with ->> instead would store "@value", "@language" and the language tag as
+    though they were words in it.
+    """
+    uri = "https://bcld.info/works/language-tagged-title"
+    with pg_session() as session:
+        session.add(
+            Work(
+                uri=uri,
+                data={
+                    "@id": uri,
+                    "@type": "Work",
+                    "title": [
+                        {
+                            "@type": "Title",
+                            "mainTitle": {
+                                "@value": "taggedscope",
+                                "@language": "zxx-latn",
+                            },
+                        },
+                        {
+                            "@type": "VariantTitle",
+                            "mainTitle": [
+                                "liststringscope",
+                                {"@value": "listtaggedscope"},
+                            ],
+                        },
+                    ],
+                },
+            )
+        )
+        session.flush()
+
+        for term in ("taggedscope", "liststringscope", "listtaggedscope"):
+            found = session.scalars(
+                select(Work).where(
+                    func.to_tsquery("english", term).op("@@")(Work.title_vector)
+                )
+            ).all()
+            assert [result.uri for result in found] == [uri], term
+
+        for structural in ("value", "language", "zxx", "latn"):
+            assert (
+                session.scalars(
+                    select(Work).where(
+                        func.to_tsquery("english", structural).op("@@")(
+                            Work.title_vector
+                        )
+                    )
+                ).all()
+                == []
+            ), f"{structural} indexed as a title word"

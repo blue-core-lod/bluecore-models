@@ -52,15 +52,14 @@ class ResourceBase(Base):
             persisted=True,
         ),
     )
-    # This smaller vector lets PostgreSQL search title values without scanning
-    # unrelated resource data. Both language modes preserve existing search behavior.
+    # This vector lets PostgreSQL search title values only
     title_vector: Mapped[bytes] = mapped_column(
         TSVECTOR,
         Computed(
-            "setweight(jsonb_to_tsv('simple', data->'title', 'mainTitle'), 'A') || "
-            "setweight(jsonb_to_tsv('english', data->'title', 'mainTitle'), 'A') || "
-            "setweight(jsonb_to_tsv('simple', data->'title', 'subtitle'), 'B') || "
-            "setweight(jsonb_to_tsv('english', data->'title', 'subtitle'), 'B')",
+            "setweight(bluecore_titles_to_tsv('simple', data->'title', 'mainTitle'), 'A') || "
+            "setweight(bluecore_titles_to_tsv('english', data->'title', 'mainTitle'), 'A') || "
+            "setweight(bluecore_titles_to_tsv('simple', data->'title', 'subtitle'), 'B') || "
+            "setweight(bluecore_titles_to_tsv('english', data->'title', 'subtitle'), 'B')",
             persisted=True,
         ),
     )
