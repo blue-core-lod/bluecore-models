@@ -1,0 +1,12 @@
+<collection xmlns="http://www.loc.gov/MARC21/slim">
+<record>
+  <leader>01234nam a2200289 a 4500</leader>
+  <controlfield tag="001">99123456</controlfield>
+  <controlfield tag="008">860506s1870    fr            000 1 fre d</controlfield>
+  <datafield tag="010" ind1=" " ind2=" "><subfield code="a">   70012345 </subfield></datafield>
+  <datafield tag="040" ind1=" " ind2=" ">
+    <subfield code="a">DLC</subfield><subfield code="b">eng</subfield><subfield code="c">DLC</subfield><subfield code="d">DLC</subfield>
+  </datafield>
+  <datafield tag="245" ind1="1" ind2="0"><subfield code="a">Test /</subfield></datafield>
+</record>
+</collection>
