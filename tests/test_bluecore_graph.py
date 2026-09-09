@@ -1963,3 +1963,56 @@ def test_bulk_load_ignores_anonymous_work_under_instance(pg_session):
             "an anonymous Work got a record"
         )
         assert instance.work is None
+
+
+def test_other_resource_link_does_not_depend_on_payload_shape(pg_session):
+    """
+    A Work's Other Resource links should follow from the data we store for it,
+    not from whether the payload happened to describe the authority inline.
+
+    The same Work cites the same heading in both saves, and its stored data is
+    identical either way -- only the payload differs. The first save describes
+    the heading inline and records the link; the second cites it by uri alone,
+    which is what a payload rebuilt from stored data looks like, and the link is
+    dropped even though the heading is still in other_resources.
+    """
+    work_uri = _new_uri("works")
+    subject_uri = "http://id.loc.gov/authorities/subjects/sh85100849"
+
+    def payload(describes_heading: bool) -> Graph:
+        # by uri alone the heading is a bare reference: the payload says nothing
+        # about it, which is what a graph rebuilt from stored data looks like
+        heading: dict = {"@id": subject_uri}
+        if describes_heading:
+            heading["@type"] = "mads:Topic"
+            heading["rdfs:label"] = "Physicians"
+        return load_jsonld(
+            {
+                "@context": CONTEXT,
+                "@id": work_uri,
+                "@type": "Work",
+                "subject": heading,
+            }
+        )
+
+    save_graph(pg_session, payload(describes_heading=True), primary_class=BF.Work)
+
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).one()
+        cites = work.data["subject"]
+        assert len(work.other_resources) == 1
+
+    save_graph(pg_session, payload(describes_heading=False), primary_class=BF.Work)
+
+    with pg_session() as session:
+        # the heading is still stored, and the Work still cites it
+        heading = (
+            session.query(OtherResource).where(OtherResource.uri == subject_uri).one()
+        )
+        assert heading.data["rdfs:label"] == "Physicians"
+
+        work = session.query(Work).where(Work.uri == work_uri).one()
+        assert work.data["subject"] == cites
+
+        # ... but the link row is gone
+        assert len(work.other_resources) == 1
