@@ -85,7 +85,7 @@ def test_other_resource(pg_session):
             session.query(OtherResource).where(OtherResource.id == 3).first()
         )
         assert other_resource.uri.startswith("https://bluecore.info/other-resource")
-        assert other_resource.data["rdfs:label"] == "test"
+        assert other_resource.data["rdfs:label"] == ["test"]
         assert other_resource.created_at
         assert other_resource.updated_at
 
@@ -309,10 +309,9 @@ def test_work_with_other_resources(pg_session):
         assert len(new_work.other_resources[2].other_resource.versions) == 2, (
             "Ensure 2 versions for other resource for McCorkindale after update"
         )
-        assert (
-            new_work.other_resources[2].other_resource.versions[1].data["rdfs:label"]
-            == "McCorkindale, ChristopherZ"
-        )
+        assert new_work.other_resources[2].other_resource.versions[1].data[
+            "rdfs:label"
+        ] == ["McCorkindale, ChristopherZ"]
 
 
 def test_hub(pg_session):
@@ -406,9 +405,9 @@ def test_work_jsonld_framing():
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
     assert work.data.get("@context") is None, "framing removed @context"
-    assert (
-        work.data["note"]["rdfs:label"] == "In Korean, with abstract also in English."
-    )
+    assert work.data["note"][0]["rdfs:label"] == [
+        "In Korean, with abstract also in English."
+    ]
 
 
 def test_instance_jsonld_framing():
@@ -423,13 +422,13 @@ def test_instance_jsonld_framing():
         instance.data["@id"]
         == "https://bluecore.info/instances/75d831b9-e0d6-40f0-abb3-e9130622eb8a"
     ), "framing set @uri"
-    assert instance.data["@type"] == "Instance"
+    assert instance.data["@type"] == ["Instance"]
     assert (
-        instance.data["title"]["mainTitle"][0]
+        instance.data["title"][0]["mainTitle"][0]
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
     assert instance.data.get("@context") is None, "framing removed @context"
-    assert instance.data["note"]["rdfs:label"] == "illustrations"
+    assert instance.data["note"][0]["rdfs:label"] == ["illustrations"]
 
 
 def test_other_resource_jsonld_framing():
@@ -438,7 +437,7 @@ def test_other_resource_jsonld_framing():
         "http://www.w3.org/2000/01/rdf-schema#label": "Other resource test",
     }
     other = OtherResource(uri="https://example.com/123", data=other_json)
-    assert other.data["rdfs:label"] == "Other resource test", (
+    assert other.data["rdfs:label"] == ["Other resource test"], (
         "setting OtherResource.data frames json-ld"
     )
 
@@ -551,7 +550,7 @@ def test_work_with_non_standard_namespaces(pg_session):
         assert version.created_at == work.updated_at
         assert work.uri.startswith("https://bcld.info/work")
         assert work.uuid == UUID("bb5eb231-a968-425f-b74c-39f21977fa54")
-        assert work.data["http://example.org/foo#test"]["@value"] == "bar"
+        assert work.data["http://example.org/foo#test"][0]["@value"] == "bar"
         assert work.created_at
         assert work.updated_at
         assert len(work.instances) == 0

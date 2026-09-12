@@ -2,14 +2,19 @@ import json
 from pathlib import Path
 
 import rdflib
+from pyld import jsonld
 from rdflib import DCTERMS, RDF, BNode, Literal, URIRef
+from rdflib.compare import to_isomorphic
 
 from bluecore_models.utils.graph import (
     BF,
     BFLC,
+    CONTEXT,
     MADS,
+    _as_arrays,
     _expand_bnode,
     find_duplicate_bnode_values,
+    frame_jsonld,
     generate_entity_graph,
     init_graph,
     load_jsonld,
@@ -230,3 +235,143 @@ def test_bnode_expansion():
     _expand_bnode(batch_graph, entity_graph, work_bnode)
 
     assert len(entity_graph) == 6, "DCTERMS assertions should be ignored"
+
+
+def _scalar_properties(node, found=None):
+    """Every property whose value is not a list, at any depth.
+
+    @context is skipped: it is a vocabulary rather than data, and its values are
+    left as they are.
+    """
+    found = [] if found is None else found
+    if isinstance(node, list):
+        for item in node:
+            _scalar_properties(item, found)
+        return found
+    if not isinstance(node, dict):
+        return found
+    for key, value in node.items():
+        if key == "@context":
+            continue
+        if not key.startswith("@") and not isinstance(value, list):
+            found.append(key)
+        _scalar_properties(value, found)
+    return found
+
+
+def test_frame_jsonld_leaves_no_scalar_properties():
+    """Every property is a list, even with one value, at every depth.
+
+    The point of the coercion: before it, 66 of 134 properties in a 300 record
+    sample came out sometimes as a bare value and sometimes as a list, so a
+    consumer had to branch on the type of every value it touched.
+    """
+    with Path("tests/data/23807141.jsonld").open() as fo:
+        framed = frame_jsonld(
+            "http://id.loc.gov/resources/instances/23807141", json.load(fo)
+        )
+
+    assert _scalar_properties(framed) == []
+    # and the thing that prompted it: a single identifier is still a list
+    assert isinstance(framed["identifiedBy"], list)
+
+
+def test_frame_jsonld_coercion_adds_and_removes_no_triples():
+    """Coercing to arrays is a change of shape, not of meaning.
+
+    Compared against the same document framed without the coercion, since a
+    one-value list and a bare value are the same statement in JSON-LD. If this
+    ever fails, the reframe backfill in bluecore-workflows would be rewriting
+    history rather than reserialising it.
+    """
+    with Path("tests/data/23807141.jsonld").open() as fo:
+        source = json.load(fo)
+
+    uri = "http://id.loc.gov/resources/instances/23807141"
+    coerced = frame_jsonld(uri, source)
+    uncoerced = jsonld.frame(
+        source, {"@context": CONTEXT, "@id": uri, "@embed": "@always"}
+    )
+
+    assert to_isomorphic(load_jsonld(dict(coerced))) == to_isomorphic(
+        load_jsonld(dict(uncoerced))
+    )
+
+
+def test_frame_jsonld_is_idempotent():
+    """Re-framing already framed data changes nothing.
+
+    The backfill may be run more than once -- and the plan for it uses exactly
+    this property as its check, by re-running in dry-run mode afterwards and
+    expecting zero changes.
+    """
+    with Path("tests/data/23807141.jsonld").open() as fo:
+        source = json.load(fo)
+
+    uri = "http://id.loc.gov/resources/instances/23807141"
+    once = frame_jsonld(uri, source)
+    twice = frame_jsonld(uri, dict(once))
+
+    assert twice == once
+
+
+def test_frame_jsonld_makes_node_types_a_list():
+    """A resource's @type is a list, however many types it has.
+
+    It is the property a consumer reads most often, and it was the last one
+    arriving both ways: over 200 corpus records, 201 resources came out with a
+    list and 199 with a bare string.
+    """
+    with Path("tests/data/23807141.jsonld").open() as fo:
+        framed = frame_jsonld(
+            "http://id.loc.gov/resources/instances/23807141", json.load(fo)
+        )
+
+    assert isinstance(framed["@type"], list)
+
+    def every_type(node, found):
+        if isinstance(node, list):
+            for item in node:
+                every_type(item, found)
+        elif isinstance(node, dict):
+            if "@type" in node and "@value" not in node:
+                found.append(node["@type"])
+            for key, value in node.items():
+                # not @context: a term definition such as {"@type": "@id"} is a
+                # dict with a scalar @type and no @value, so it is indis-
+                # tinguishable from a node to a walker that does not skip it
+                if key != "@context":
+                    every_type(value, found)
+        return found
+
+    types = every_type(framed, [])
+    assert types, "the fixture has typed nodes"
+    assert all(isinstance(t, list) for t in types), "at every depth, not just the top"
+
+
+def test_frame_jsonld_leaves_a_datatype_alone():
+    """In a value object @type is the literal's datatype, and must stay a string.
+
+    The spec requires it, and pyld enforces it: wrapping it produces JSON-LD that
+    will not expand, which loses every triple in the document rather than raising
+    anywhere that points at the cause. This is the guard for that, because the
+    mistake is invisible until something tries to read the data back.
+    """
+    coerced = _as_arrays(
+        {
+            "@type": "Place",
+            "code": {
+                "@value": "enk",
+                "@type": "http://www.w3.org/2001/XMLSchema#string",
+            },
+        }
+    )
+
+    assert coerced["@type"] == ["Place"], "a node's type is a list"
+    assert coerced["code"][0]["@type"] == "http://www.w3.org/2001/XMLSchema#string", (
+        "a datatype is not"
+    )
+
+    # and the whole thing still parses, which is what the guard protects
+    graph = load_jsonld({"@context": CONTEXT, "@id": "http://example.org/1", **coerced})
+    assert len(graph) > 0

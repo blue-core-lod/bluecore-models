@@ -31,11 +31,15 @@ def _derived_from_ids(data: dict) -> list[str]:
     admin_metadata = data.get("adminMetadata", [])
     if isinstance(admin_metadata, dict):
         admin_metadata = [admin_metadata]
-    return [
-        am["derivedFrom"]["@id"]
-        for am in admin_metadata
-        if isinstance(am, dict) and "derivedFrom" in am
-    ]
+    derived = []
+    for am in admin_metadata:
+        if not isinstance(am, dict) or "derivedFrom" not in am:
+            continue
+        # frame_jsonld makes every property a list; tests that pass an unframed
+        # payload here still see a bare dict, so accept both.
+        values = am["derivedFrom"]
+        derived.extend(values if isinstance(values, list) else [values])
+    return [value["@id"] for value in derived]
 
 
 def test_bluecore_graph():
@@ -190,8 +194,8 @@ def test_work(pg_session):
         )
         assert work is not None
         assert work.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
-        assert work.data["@type"] == "Work"
-        assert work.data["title"]["mainTitle"] == "Gravity's Rainbow"
+        assert work.data["@type"] == ["Work"]
+        assert work.data["title"][0]["mainTitle"] == ["Gravity's Rainbow"]
 
 
 def test_non_bluecore_work(pg_session, monkeypatch, mocker):
@@ -230,8 +234,8 @@ def test_non_bluecore_work(pg_session, monkeypatch, mocker):
         )
         assert work is not None
         assert work.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
-        assert work.data["@type"] == "Work"
-        assert work.data["title"]["mainTitle"] == "Gravity's Rainbow"
+        assert work.data["@type"] == ["Work"]
+        assert work.data["title"][0]["mainTitle"] == ["Gravity's Rainbow"]
         assert "https://example.com/1234" in _derived_from_ids(work.data)
 
     # saving the same JSON-LD again shouldn't cause a new bluecore URI to be
@@ -289,7 +293,7 @@ def test_blank_node_resource(
         )
         assert db_resource is not None
         assert db_resource.uuid == uuid.UUID(minted_uuid)
-        assert db_resource.data["title"]["mainTitle"] == "Gravity's Rainbow"
+        assert db_resource.data["title"][0]["mainTitle"] == ["Gravity's Rainbow"]
         # no derivedFrom should be recorded for a brand-new (blank node) resource
         assert _derived_from_ids(db_resource.data) == []
 
@@ -375,7 +379,7 @@ def test_work_update(pg_session):
             )
             .first()
         )
-        assert work.data["note"]["rdfs:label"] == "First Edition"
+        assert work.data["note"][0]["rdfs:label"] == ["First Edition"]
 
 
 def test_instance(pg_session):
@@ -399,8 +403,8 @@ def test_instance(pg_session):
         )
         assert work is not None
         assert work.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
-        assert work.data["@type"] == "Instance"
-        assert work.data["title"]["mainTitle"] == "Gravity's Rainbow"
+        assert work.data["@type"] == ["Instance"]
+        assert work.data["title"][0]["mainTitle"] == ["Gravity's Rainbow"]
 
 
 def test_non_bluecore_instance(pg_session, monkeypatch):
@@ -436,8 +440,8 @@ def test_non_bluecore_instance(pg_session, monkeypatch):
         )
         assert instance is not None
         assert instance.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
-        assert instance.data["@type"] == "Instance"
-        assert instance.data["title"]["mainTitle"] == "Gravity's Rainbow"
+        assert instance.data["@type"] == ["Instance"]
+        assert instance.data["title"][0]["mainTitle"] == ["Gravity's Rainbow"]
         assert "https://example.com/1234" in _derived_from_ids(instance.data)
 
 
@@ -470,7 +474,7 @@ def test_instance_update(pg_session):
             )
             .first()
         )
-        assert instance.data["note"]["rdfs:label"] == "First Edition"
+        assert instance.data["note"][0]["rdfs:label"] == ["First Edition"]
 
 
 def test_work_instances(pg_session):
@@ -508,7 +512,7 @@ def test_work_instances(pg_session):
             .first()
         )
         assert work is not None
-        assert work.data["title"]["mainTitle"] == "Gravity's Rainbow"
+        assert work.data["title"][0]["mainTitle"] == ["Gravity's Rainbow"]
 
         # the first instance is there
         instance = (
@@ -520,7 +524,9 @@ def test_work_instances(pg_session):
             .first()
         )
         assert instance is not None
-        assert instance.data["publicationStatement"] == "New York: Penguin Books, 1995"
+        assert instance.data["publicationStatement"] == [
+            "New York: Penguin Books, 1995"
+        ]
         assert instance.work is not None, "instance got linked to the work in the db"
 
         # the second instance is there
@@ -533,9 +539,9 @@ def test_work_instances(pg_session):
             .first()
         )
         assert instance is not None
-        assert (
-            instance.data["publicationStatement"] == "New Jersey: Penguin Books, 1987"
-        )
+        assert instance.data["publicationStatement"] == [
+            "New Jersey: Penguin Books, 1987"
+        ]
         assert instance.work is not None, "instance got linked to the work in the db"
 
         # and they are both available on the work
@@ -689,7 +695,7 @@ def test_other_resources(pg_session):
             .first()
         )
         assert other is not None
-        assert other.data["rdfs:label"] == "Pynchon, Thomas"
+        assert other.data["rdfs:label"] == ["Pynchon, Thomas"]
 
         # the Role other resource is there
         other = (
@@ -698,7 +704,7 @@ def test_other_resources(pg_session):
             .first()
         )
         assert other is not None
-        assert other.data["rdfs:label"] == "author"
+        assert other.data["rdfs:label"] == ["author"]
 
         # and so is the work
         work = (
@@ -710,7 +716,7 @@ def test_other_resources(pg_session):
             .first()
         )
         assert work is not None
-        assert work.data["title"]["mainTitle"] == "Gravity's Rainbow"
+        assert work.data["title"][0]["mainTitle"] == ["Gravity's Rainbow"]
 
         # the work should be attached to two other resources
         assert len(work.other_resources) == 2
@@ -719,18 +725,16 @@ def test_other_resources(pg_session):
         # so that they are in a predictable order that can be tested
         others = sorted(
             work.other_resources,
-            key=lambda o: o.other_resource.data["rdfs:label"].lower(),
+            key=lambda o: o.other_resource.data["rdfs:label"][0].lower(),
         )
-        assert (
-            others[0].bibframe_resource.data["title"]["mainTitle"]
-            == "Gravity's Rainbow"
-        )
-        assert others[0].other_resource.data["rdfs:label"] == "author"
-        assert (
-            others[1].bibframe_resource.data["title"]["mainTitle"]
-            == "Gravity's Rainbow"
-        )
-        assert others[1].other_resource.data["rdfs:label"] == "Pynchon, Thomas"
+        assert others[0].bibframe_resource.data["title"][0]["mainTitle"] == [
+            "Gravity's Rainbow"
+        ]
+        assert others[0].other_resource.data["rdfs:label"] == ["author"]
+        assert others[1].bibframe_resource.data["title"][0]["mainTitle"] == [
+            "Gravity's Rainbow"
+        ]
+        assert others[1].other_resource.data["rdfs:label"] == ["Pynchon, Thomas"]
 
         # the instance is there
         instance = (
@@ -742,14 +746,15 @@ def test_other_resources(pg_session):
             .first()
         )
         assert instance is not None
-        assert instance.data["publicationStatement"] == "New York: Penguin Books, 1995"
+        assert instance.data["publicationStatement"] == [
+            "New York: Penguin Books, 1995"
+        ]
 
         # the instance should be attached to one other resource
         assert len(instance.other_resources) == 1
-        assert (
-            instance.other_resources[0].other_resource.data["rdfs:label"]
-            == "computer disc"
-        )
+        assert instance.other_resources[0].other_resource.data["rdfs:label"] == [
+            "computer disc"
+        ]
 
 
 def test_other_resource_update(pg_session):
@@ -936,7 +941,7 @@ def test_hub(pg_session):
         assert hub is not None
         assert hub.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
         assert "Hub" in hub.data["@type"]
-        assert hub.data["title"]["mainTitle"] == "Hub Record"
+        assert hub.data["title"][0]["mainTitle"] == ["Hub Record"]
 
 
 def test_non_bluecore_hub(pg_session, monkeypatch, mocker):
@@ -974,7 +979,7 @@ def test_non_bluecore_hub(pg_session, monkeypatch, mocker):
         assert hub is not None
         assert hub.uuid == uuid.UUID("7dbb7674-7373-473f-9014-b9a993a2dd03")
         assert "Hub" in hub.data["@type"]
-        assert hub.data["title"]["mainTitle"] == "Hub Record"
+        assert hub.data["title"][0]["mainTitle"] == ["Hub Record"]
         assert "https://example.com/hubs/1234" in _derived_from_ids(hub.data)
 
     # saving the same JSON-LD again shouldn't mint a new URI
@@ -1044,7 +1049,7 @@ def test_hub_update(pg_session):
             )
             .first()
         )
-        assert hub.data["note"]["rdfs:label"] == "Updated note"
+        assert hub.data["note"][0]["rdfs:label"] == ["Updated note"]
 
 
 def test_admin_metadata(pg_session):
@@ -1153,7 +1158,7 @@ def test_reference_does_not_clobber_existing_instance(pg_session):
     with pg_session() as session:
         inst = session.query(Instance).where(Instance.uri == inst_uri).first()
         # full description preserved -- the sparse reference did not overwrite it
-        assert inst.data["title"]["mainTitle"] == "Full Instance"
+        assert inst.data["title"][0]["mainTitle"] == ["Full Instance"]
         assert json.dumps(inst.data, sort_keys=True) == before
         # link was still created
         work = session.query(Work).where(Work.uri == work_uri).first()
@@ -1190,7 +1195,7 @@ def test_reference_does_not_clobber_existing_work(pg_session):
 
     with pg_session() as session:
         work = session.query(Work).where(Work.uri == work_uri).first()
-        assert work.data["title"]["mainTitle"] == "Full Work"
+        assert work.data["title"][0]["mainTitle"] == ["Full Work"]
         assert json.dumps(work.data, sort_keys=True) == before
         inst = session.query(Instance).where(Instance.uri == inst_uri).first()
         assert inst is not None
@@ -1312,7 +1317,7 @@ def test_primary_class_none_still_overwrites(pg_session):
     )
     with pg_session() as session:
         inst = session.query(Instance).where(Instance.uri == inst_uri).first()
-        assert inst.data["title"]["mainTitle"] == "Second"
+        assert inst.data["title"][0]["mainTitle"] == ["Second"]
 
 
 def test_update_other_resources_flag(pg_session):
