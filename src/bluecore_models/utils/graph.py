@@ -281,15 +281,53 @@ def get_bf_classes(rdf_data: list[Any] | dict[str, Any], uri: str) -> list:
     return classes
 
 
+def _as_arrays(node: Any) -> Any:
+    """Force every property that is not a JSON-LD keyword to a list.
+
+    @context is left alone. It is a vocabulary rather than data, and coercing its
+    values would rewrite it into something no processor can read. Value Objects
+    are similarly not converted.
+
+    If we ever have a more detailed context using @set we could rely simply on
+    JSON-LD compaction here.
+    """
+    if isinstance(node, list):
+        return [_as_arrays(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    framed = {}
+    for key, value in node.items():
+        if key == "@context":
+            framed[key] = value
+            continue
+        # convert unless it's a Value Object (only a single value)
+        if key == "@type" and "@value" not in node:
+            framed[key] = value if isinstance(value, list) else [value]
+            continue
+        value = _as_arrays(value)
+        framed[key] = (
+            value if key.startswith("@") or isinstance(value, list) else [value]
+        )
+    return framed
+
+
 def frame_jsonld(
     bluecore_uri: str, jsonld_data: list[Any] | dict[str, Any]
 ) -> dict[str, Any]:
-    """Frames the JSON-LD data to a specific structure."""
-    return jsonld.frame(
-        jsonld_data,
-        {
-            "@context": CONTEXT,
-            "@id": bluecore_uri,
-            "@embed": "@always",
-        },
+    """Frames the JSON-LD data to a specific structure.
+
+    Every property in the result is a list, even of one value. See _as_arrays.
+    The coercion adds and removes no triples, and applying it twice is the same
+    as applying it once, so it is safe to re-run over already framed data -- which
+    the reframe DAG in bluecore-workflows relies on.
+    """
+    return _as_arrays(
+        jsonld.frame(
+            jsonld_data,
+            {
+                "@context": CONTEXT,
+                "@id": bluecore_uri,
+                "@embed": "@always",
+            },
+        )
     )
