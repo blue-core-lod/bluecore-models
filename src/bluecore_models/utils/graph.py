@@ -176,12 +176,17 @@ class DuplicateValue(NamedTuple):
     subject/predicate locate it and copies is how many identical values there are,
     so copies - 1 are redundant. label is a rendering of the value for a log
     message, or None where the value has nothing to render (see _duplicate_label).
+
+    redundant holds those copies: every copy past the first, which is
+    what strip_duplicate_bnode_values removes. Which one is kept is arbitrary and
+    makes no difference, the group being identical in content by construction.
     """
 
     subject: Node
     predicate: Node
     copies: int
     label: str | None
+    redundant: tuple[BNode, ...]
 
 
 # Predicates carrying a human-readable rendering of a value, best first.
@@ -232,11 +237,7 @@ def find_duplicate_bnode_values(graph: Graph) -> list[DuplicateValue]:
         <.../works/20133027>     bf:adminMetadata [ a bf:AdminMetadata ; bf:date "2026" ] .
         <.../instances/20133027> bf:adminMetadata [ a bf:AdminMetadata ; bf:date "2026" ] .
 
-    A finding therefore always means a redundant assertion rather than a distinction
-    to be interpreted. It usually means the document described the resource in more
-    than one place: LC's marc2bibframe2 v3.0.0 decomposed each Item's bf:itemOf
-    back-link and gave it a courtesy bf:title, so an Instance with three Items ended
-    up with four identical titles.
+    A finding therefore always means a redundant assertion.
 
     Read-only: reports what it finds and changes nothing.
     """
@@ -254,8 +255,45 @@ def find_duplicate_bnode_values(graph: Graph) -> list[DuplicateValue]:
                         predicate,
                         len(nodes),
                         _duplicate_label(graph, nodes[0]),
+                        tuple(nodes[1:]),
                     )
                 )
+    return duplicates
+
+
+def remove_bnode(graph: Graph, bnode: BNode) -> None:
+    """Recursively removes a blank node and any blank nodes it references."""
+    for pred, obj in list(graph.predicate_objects(subject=bnode)):
+        graph.remove((bnode, pred, obj))
+        # remove any nested blank nodes (e.g. bf:agent [ a bf:Agent ... ])
+        if isinstance(obj, BNode):
+            remove_bnode(graph, obj)
+
+
+def strip_duplicate_bnode_values(graph: Graph) -> list[DuplicateValue]:
+    """Remove blank node values a resource carries more than once.
+
+    See find_duplicate_bnode_values for what counts as a duplicate, and for the
+    kinds of repetition that are left alone. One copy of each duplicated value is
+    kept, so nothing is lost: a finding always means the same value asserted more
+    than once, never a distinction being drawn.
+
+    Mutates the graph and returns what it removed, so the caller can report on it.
+    Running it again reports nothing, there being nothing left to remove.
+    """
+    duplicates = find_duplicate_bnode_values(graph)
+    for duplicate in duplicates:
+        for bnode in duplicate.redundant:
+            graph.remove((duplicate.subject, duplicate.predicate, bnode))
+            # The same blank node can be the object of more than one triple (see
+            # _bnode_fingerprint on nodes reachable from two branches). Unlink it
+            # either way, but only take its description with it when this was the
+            # last thing pointing at it, so an assertion we were not asked to
+            # touch keeps its value. Anything left behind is unreachable from the
+            # subject, and generate_entity_graph walks out from there, so it is
+            # never persisted.
+            if (None, None, bnode) not in graph:
+                remove_bnode(graph, bnode)
     return duplicates
 
 

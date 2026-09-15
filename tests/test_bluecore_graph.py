@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 
 import pytest
@@ -8,7 +9,6 @@ from sqlalchemy.orm import sessionmaker
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
     BluecoreGraph,
-    DuplicateValueError,
     save_graph,
 )
 from bluecore_models.models import (
@@ -1708,12 +1708,12 @@ def test_new_nested_resource_is_still_promoted(pg_session):
     assert len(bluecore_graph_.instances()) == 1
 
 
-def test_save_rejects_duplicate_blank_node_values(pg_session):
+def test_save_strips_duplicate_blank_node_values(pg_session, caplog):
     """
     A payload asserting an identical blank node value twice under one property is
-    refused. It means the document described the resource more than once, and
-    because the values are blank nodes RDF cannot merge them -- they would be
-    stored and exported as duplicates. See blue-core-lod/bluecore-workflows#161.
+    loaded with one copy of that value. It means the document described the
+    resource more than once, and because the values are blank nodes RDF cannot
+    merge them; stored as-is they would be exported and displayed as duplicates.
     """
     _remove_fixtures(pg_session)
 
@@ -1726,18 +1726,21 @@ def test_save_rejects_duplicate_blank_node_values(pg_session):
         graph.add((title, RDF.type, BF.Title))
         graph.add((title, BF.mainTitle, Literal("Pride and prejudice")))
 
-    with pytest.raises(DuplicateValueError) as excinfo:
+    with caplog.at_level(logging.WARNING):
         save_graph(pg_session, graph)
 
-    # the message locates the offending resource, property and value
-    message = str(excinfo.value)
-    assert str(work) in message
-    assert "2 identical" in message
-    assert "Pride and prejudice" in message
-
-    # nothing was written
+    # the record was written, carrying the title once
     with pg_session() as session:
-        assert session.query(Work).count() == 0
+        assert session.query(Work).count() == 1
+        saved = session.query(Work).one()
+        assert len(saved.data["title"]) == 1
+        assert saved.data["title"][0]["mainTitle"] == ["Pride and prejudice"]
+
+    # and the log locates the resource, property and value it came out of
+    assert str(work) in caplog.text
+    assert "2 identical" in caplog.text
+    assert "Pride and prejudice" in caplog.text
+    assert "stripped 1" in caplog.text
 
 
 def test_save_allows_distinct_titles(pg_session):

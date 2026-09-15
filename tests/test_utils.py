@@ -19,6 +19,7 @@ from bluecore_models.utils.graph import (
     init_graph,
     load_jsonld,
     replace_uri,
+    strip_duplicate_bnode_values,
 )
 
 
@@ -139,6 +140,78 @@ def test_repeated_description_duplicates_bnode_values():
     assert dup.copies == 2
     assert dup.label == "AI & society"
 
+    # and one of the two is named as the copy to remove
+    assert len(dup.redundant) == 1
+    assert dup.redundant[0] in graph.objects(instance_uri, BF.title)
+
+
+def test_strip_duplicate_bnode_values():
+    """
+    Stripping the LC record leaves one of the two identical titles, with its own
+    description intact, and doesn't touch the note that was never duplicated.
+    """
+    graph = init_graph()
+    graph.parse(data=LC_REPEATED_DESCRIPTION, format="xml")
+    instance_uri = URIRef("http://id.loc.gov/resources/instances/20133027")
+    before = len(graph)
+
+    stripped = strip_duplicate_bnode_values(graph)
+
+    assert len(stripped) == 1
+    assert stripped[0].copies == 2
+
+    # one title survives, still described
+    titles = list(graph.objects(instance_uri, BF.title))
+    assert len(titles) == 1
+    assert graph.value(subject=titles[0], predicate=BF.mainTitle) == Literal(
+        "AI & society"
+    )
+    assert (titles[0], RDF.type, BF.Title) in graph
+
+    # the note is the control: never duplicated, so never touched
+    assert len(list(graph.objects(instance_uri, BF.note))) == 1
+
+    # the discarded title's description went with it, and nothing else did: the
+    # bf:title edge, plus the rdf:type and bf:mainTitle describing the node
+    assert len(graph) == before - 3
+
+    # and there is nothing left to find, in this pass or another
+    assert find_duplicate_bnode_values(graph) == []
+    assert strip_duplicate_bnode_values(graph) == []
+
+
+def test_strip_duplicate_bnode_values_keeps_shared_node():
+    """
+    The same blank node can be the value of more than one resource. Unlinking it
+    from the resource that duplicated it must leave the other resource's
+    assertion, and its description, alone.
+    """
+    graph = init_graph()
+    work = URIRef("http://example.com/work")
+    other = URIRef("http://example.com/other")
+
+    shared, copy = BNode(), BNode()
+    for node in (shared, copy):
+        graph.add((work, BF.title, node))
+        graph.add((node, RDF.type, BF.Title))
+        graph.add((node, BF.mainTitle, Literal("AI and society")))
+    graph.add((other, BF.title, shared))
+
+    stripped = strip_duplicate_bnode_values(graph)
+    assert len(stripped) == 1
+    assert stripped[0].copies == 2
+
+    # the work is down to one title
+    assert len(list(graph.objects(work, BF.title))) == 1
+
+    # whichever copy was dropped, the other resource keeps its value described
+    kept = graph.value(subject=other, predicate=BF.title)
+    assert kept == shared
+    assert graph.value(subject=shared, predicate=BF.mainTitle) == Literal(
+        "AI and society"
+    )
+    assert (shared, RDF.type, BF.Title) in graph
+
 
 def test_find_duplicate_bnode_values_ignores_distinct_values():
     """
@@ -172,6 +245,11 @@ def test_find_duplicate_bnode_values_ignores_distinct_values():
 
     assert find_duplicate_bnode_values(graph) == []
     assert len(list(graph.objects(work, BF.title))) == 4
+
+    # so stripping leaves the graph exactly as it was
+    before = len(graph)
+    assert strip_duplicate_bnode_values(graph) == []
+    assert len(graph) == before
 
 
 def test_replace_uri():
