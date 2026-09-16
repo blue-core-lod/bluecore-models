@@ -20,9 +20,10 @@ from bluecore_models.models import (
 from bluecore_models.models.version import CURRENT_USER_ID
 from bluecore_models.namespaces import BF, BFLC, MADS, RDF, RDFS
 from bluecore_models.utils.graph import (
-    find_duplicate_bnode_values,
     generate_entity_graph,
+    remove_bnode,
     replace_uri,
+    strip_duplicate_bnode_values,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,18 +67,6 @@ RELATION_PREDICATES = (BF.associatedResource, BFLC.associatedResource)
 
 class BluecoreGraphError(Exception):
     """Raised for BluecoreGraph errors that aren't a type mismatch."""
-
-
-class DuplicateValueError(BluecoreGraphError):
-    """Raised when a resource carries the same blank node value more than once.
-
-    Blank nodes have no identity, so identical ones cannot be merged by RDF and
-    would be persisted and exported as repeated values. A payload asserting the
-    same value twice under one property is malformed rather than making a
-    distinction, so we decline to load it. This typically means the document
-    described the resource in more than one place -- see
-    find_duplicate_bnode_values.
-    """
 
 
 # (predicate, rdf:type) pairs identifying blank nodes that are stripped out of
@@ -374,12 +363,12 @@ class BluecoreGraph:
         self._spot_stubs = primary_class is None and bool(self._described)
         self._ingest = primary_class is None
 
-        # Reject blank node values the payload itself duplicated, before anything
+        # Strip blank node values the payload itself duplicated, before anything
         # here has had a chance to alter the graph. A caller is answerable for what
         # it sent us, not for what our own normalisation went on to do with it -- if
         # a later step leaves two blank nodes identical, that is ours to fix rather
-        # than grounds for turning the payload away.
-        self._check_duplicate_values()
+        # than something to attribute to the payload in the log.
+        self._strip_duplicate_values()
 
         # An explicit write from the API is a real description, so it isn't a
         # stub any more.
@@ -601,14 +590,6 @@ class BluecoreGraph:
         self.graph.add((STUB_STATUS, RDFS.label, Literal("incomplete")))
         self.graph.add((STUB_STATUS, BF.code, Literal("incmp")))
 
-    def _remove_bnode(self, graph: Graph, bnode: BNode) -> None:
-        """Recursively removes a blank node and any blank nodes it references."""
-        for pred, obj in list(graph.predicate_objects(subject=bnode)):
-            graph.remove((bnode, pred, obj))
-            # remove any nested blank nodes (e.g. bf:agent [ a bf:Agent ... ])
-            if isinstance(obj, BNode):
-                self._remove_bnode(graph, obj)
-
     def _remove_admin_metadata(self, graph: Graph, subject: URIRef | None = None):
         """
         Removes existing AdminMetadata nodes. If a subject is supplied only that
@@ -622,7 +603,7 @@ class BluecoreGraph:
             if not isinstance(admin_metadata, BNode):
                 continue
             # remove all triples describing the AdminMetadata blank node (and any nested ones)
-            self._remove_bnode(graph, admin_metadata)
+            remove_bnode(graph, admin_metadata)
             # remove the link from the resource to the AdminMetadata node
             graph.remove((s, BF.adminMetadata, admin_metadata))
 
@@ -638,7 +619,7 @@ class BluecoreGraph:
             if not isinstance(obj, BNode):
                 continue
             if (obj, RDF.type, type_) in graph:
-                self._remove_bnode(graph, obj)
+                remove_bnode(graph, obj)
                 graph.remove((s, predicate, obj))
 
     def _subject(self, graph: Graph, class_: Node | None = None) -> IdentifiedNode:
@@ -894,32 +875,24 @@ class BluecoreGraph:
         uri = self._subject(graph, class_)
         return self._is_stub(class_, uri) and str(uri) not in self._created
 
-    def _check_duplicate_values(self) -> None:
+    def _strip_duplicate_values(self) -> None:
         """
-        Refuse to save a graph in which a resource carries the same blank node value
-        more than once. See find_duplicate_bnode_values for what counts as a
-        duplicate, and for the kinds of repetition that are left alone.
+        Drop blank node values a resource carries more than once, keeping one of
+        each. See find_duplicate_bnode_values for what counts as a duplicate, and
+        for the kinds of repetition that are left alone.
 
         Called first from save(), so it judges the graph as it was handed to us
-        rather than after our own normalisation has been over it. Every finding is
-        logged before raising, so a rejected payload says what was wrong with it
-        rather than only that something was.
+        rather than after our own normalisation has been over it.
+        See blue-core-lod/bluecore-models#170.
         """
-        duplicates = find_duplicate_bnode_values(self.graph)
-        if not duplicates:
-            return
-
         where = f"{self.source}: " if self.source else ""
-        described = []
-        for dup in duplicates:
+        for dup in strip_duplicate_bnode_values(self.graph):
             value = f": {dup.label!r}" if dup.label else ""
-            described.append(
-                f"<{dup.subject}> has {dup.copies} identical "
-                f"<{dup.predicate}> values{value}"
+            logger.warning(
+                f"{where}duplicate value: <{dup.subject}> had {dup.copies} "
+                f"identical <{dup.predicate}> values{value}; "
+                f"stripped {dup.copies - 1}"
             )
-            logger.error(f"{where}duplicate value: {described[-1]}")
-
-        raise DuplicateValueError(where + "; ".join(described))
 
     def _persist_resources(
         self, class_: URIRef | None, session: Session, is_primary: bool = True
