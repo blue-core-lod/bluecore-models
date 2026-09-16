@@ -3,7 +3,7 @@ from pathlib import Path
 
 import rdflib
 from pyld import jsonld
-from rdflib import DCTERMS, RDF, BNode, Literal, URIRef
+from rdflib import DCTERMS, RDF, RDFS, BNode, Literal, URIRef
 from rdflib.compare import to_isomorphic
 
 from bluecore_models.utils.graph import (
@@ -211,6 +211,43 @@ def test_strip_duplicate_bnode_values_keeps_shared_node():
         "AI and society"
     )
     assert (shared, RDF.type, BF.Title) in graph
+
+
+def test_strip_duplicate_bnode_values_keeps_shared_nested_node():
+    """
+    Two values can be distinct nodes that nest the *same* node, rather than
+    copies of it: here two bf:Contribution nodes share one bf:agent. Sharing a
+    nested node is what makes the parents identical in content in the first
+    place, so this shape arrives already reported as a duplicate -- and removing
+    one parent's description must not follow the shared agent down and strip the
+    description the surviving parent still points at.
+    """
+    graph = init_graph()
+    work = URIRef("http://example.com/work")
+
+    agent = BNode()
+    graph.add((agent, RDF.type, BF.Agent))
+    graph.add((agent, RDFS.label, Literal("Jane Austen")))
+
+    for _ in range(2):
+        contribution = BNode()
+        graph.add((work, BF.contribution, contribution))
+        graph.add((contribution, RDF.type, BF.Contribution))
+        graph.add((contribution, BF.agent, agent))
+
+    stripped = strip_duplicate_bnode_values(graph)
+    assert len(stripped) == 1
+    assert stripped[0].copies == 2
+
+    # one contribution survives, still typed and still pointing at the agent
+    contributions = list(graph.objects(work, BF.contribution))
+    assert len(contributions) == 1
+    assert (contributions[0], RDF.type, BF.Contribution) in graph
+    assert graph.value(subject=contributions[0], predicate=BF.agent) == agent
+
+    # and the agent it points at is still described
+    assert graph.value(subject=agent, predicate=RDFS.label) == Literal("Jane Austen")
+    assert (agent, RDF.type, BF.Agent) in graph
 
 
 def test_find_duplicate_bnode_values_ignores_distinct_values():

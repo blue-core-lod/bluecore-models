@@ -270,6 +270,32 @@ def remove_bnode(graph: Graph, bnode: BNode) -> None:
             remove_bnode(graph, obj)
 
 
+def _remove_unshared_bnode(graph: Graph, bnode: BNode) -> None:
+    """Remove a blank node's description, stopping at anything still shared.
+
+    A blank node can be the object of more than one triple: two values can nest
+    the same node rather than a copy of it, and _bnode_fingerprint contemplates
+    exactly that in noting a node "reachable from two different branches". Such a
+    node is left described, because something we were not asked to touch is still
+    pointing at it -- and sharing a nested node is *why* two values come out
+    identical, so it is the ordinary case here rather than a curiosity.
+
+    The caller unlinks the node first, so the entry check sees the graph without
+    that reference. Each edge is likewise removed before its object is considered,
+    so a nested node isn't held up by the very edge we are removing.
+
+    Anything left behind is unreachable from the subject, and generate_entity_graph
+    walks out from there, so it is never persisted. A node caught in a cycle is
+    held by its own descendant and so stays, which is that same harmless case.
+    """
+    if (None, None, bnode) in graph:
+        return
+    for pred, obj in list(graph.predicate_objects(subject=bnode)):
+        graph.remove((bnode, pred, obj))
+        if isinstance(obj, BNode):
+            _remove_unshared_bnode(graph, obj)
+
+
 def strip_duplicate_bnode_values(graph: Graph) -> list[DuplicateValue]:
     """Remove blank node values a resource carries more than once.
 
@@ -285,15 +311,7 @@ def strip_duplicate_bnode_values(graph: Graph) -> list[DuplicateValue]:
     for duplicate in duplicates:
         for bnode in duplicate.redundant:
             graph.remove((duplicate.subject, duplicate.predicate, bnode))
-            # The same blank node can be the object of more than one triple (see
-            # _bnode_fingerprint on nodes reachable from two branches). Unlink it
-            # either way, but only take its description with it when this was the
-            # last thing pointing at it, so an assertion we were not asked to
-            # touch keeps its value. Anything left behind is unreachable from the
-            # subject, and generate_entity_graph walks out from there, so it is
-            # never persisted.
-            if (None, None, bnode) not in graph:
-                remove_bnode(graph, bnode)
+            _remove_unshared_bnode(graph, bnode)
     return duplicates
 
 
