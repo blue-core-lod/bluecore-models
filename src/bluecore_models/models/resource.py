@@ -29,7 +29,7 @@ class ResourceBase(Base):
         "BibframeOtherResources", back_populates="bibframe_resource"
     )
     versions: Mapped[list["Version"]] = relationship(  # type: ignore  # noqa: F821
-        "Version", back_populates="resource"
+        "Version", back_populates="resource", order_by="Version.id"
     )
     """
     Boost mainTitle with highest ranking order at A, subtitle at B, and uri at C.
