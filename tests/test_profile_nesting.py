@@ -61,8 +61,10 @@ def test_saving_a_parent_records_one_nesting_per_reference(pg_session):
         )
 
         recorded = {
-            nesting.child_template_id
-            for nesting in session.query(ProfileNesting).filter_by(parent_id=parent.id)
+            ref.child_template_id
+            for ref in session.query(ProfileNesting).filter_by(
+                parent_profile_id=parent.id
+            )
         }
         assert recorded == {"bluecore:bf2:Note:General", "bluecore:bf2:Note:Language"}
 
@@ -158,7 +160,9 @@ def test_a_reference_to_a_template_that_is_not_stored_is_kept(pg_session):
     with pg_session() as session:
         parent = add(session, "bluecore:bf2:Work:Map", nests=("bluecore:bf2:Ghost",))
 
-        assert [n.child_template_id for n in parent.nestings] == ["bluecore:bf2:Ghost"]
+        assert [r.child_template_id for r in parent.nested_refs] == [
+            "bluecore:bf2:Ghost"
+        ]
         assert parent.children() == []
 
 

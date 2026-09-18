@@ -66,7 +66,8 @@ def _backfill(connection) -> None:
         for child in sorted(nested):
             connection.execute(
                 sa.text(
-                    "INSERT INTO profile_nestings (parent_id, child_template_id)"
+                    "INSERT INTO profile_nestings"
+                    " (parent_profile_id, child_template_id)"
                     " VALUES (:id, :child) ON CONFLICT DO NOTHING"
                 ),
                 {"id": profile_id, "child": child},
@@ -80,11 +81,13 @@ def upgrade() -> None:
     op.create_table(
         "profile_nestings",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("parent_id", sa.Integer(), nullable=False),
+        sa.Column("parent_profile_id", sa.Integer(), nullable=False),
         sa.Column("child_template_id", sa.String(), nullable=False),
-        sa.ForeignKeyConstraint(["parent_id"], ["profiles.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["parent_profile_id"], ["profiles.id"], ondelete="CASCADE"
+        ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("parent_id", "child_template_id"),
+        sa.UniqueConstraint("parent_profile_id", "child_template_id"),
     )
     op.create_index(
         "ix_profile_nestings_child_template_id",

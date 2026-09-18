@@ -62,7 +62,13 @@ class Profile(ResourceBase):
         Integer, ForeignKey("resource_base.id"), primary_key=True
     )
     template_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    nestings: Mapped[list["ProfileNesting"]] = relationship(
+    # The join table rows, not the profiles.
+    #
+    # delete-orphan rather than the default SQLAlchemy de-association:
+    # dropping a nesting has to DELETE the row, because a join row with no
+    # parent means nothing.
+    # parent_profile_id is NOT NULL, so default behavior would raise instead.
+    nested_refs: Mapped[list["ProfileNesting"]] = relationship(
         "ProfileNesting",
         back_populates="parent",
         cascade="all, delete-orphan",
@@ -78,9 +84,9 @@ class Profile(ResourceBase):
         A reference to a template that is not stored resolves to nothing.
         """
         session = object_session(self)
-        if session is None or not self.nestings:
+        if session is None or not self.nested_refs:
             return []
-        wanted = [nesting.child_template_id for nesting in self.nestings]
+        wanted = [ref.child_template_id for ref in self.nested_refs]
         return list(
             session.scalars(select(Profile).where(Profile.template_id.in_(wanted)))
         )
@@ -93,9 +99,9 @@ class Profile(ResourceBase):
         return list(
             session.scalars(
                 select(Profile)
-                .join(ProfileNesting, ProfileNesting.parent_id == Profile.id)
+                .join(ProfileNesting, ProfileNesting.parent_profile_id == Profile.id)
                 .where(ProfileNesting.child_template_id == self.template_id)
-                .where(ProfileNesting.parent_id != self.id)
+                .where(ProfileNesting.parent_profile_id != self.id)
             )
         )
 
@@ -113,21 +119,23 @@ class ProfileNesting(Base):
     """
 
     __tablename__ = "profile_nestings"
-    __table_args__ = (UniqueConstraint("parent_id", "child_template_id"),)
+    __table_args__ = (UniqueConstraint("parent_profile_id", "child_template_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    parent_id: Mapped[int] = mapped_column(
+    # Named apart on purpose: the parent is a profiles row, the child is the
+    # template id as written in the JSON-LD, which may name nothing stored.
+    parent_profile_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
     )
-    parent: Mapped[Profile] = relationship("Profile", back_populates="nestings")
+    parent: Mapped[Profile] = relationship("Profile", back_populates="nested_refs")
     child_template_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
 
     def __repr__(self):
-        return f"<ProfileNesting {self.parent_id} -> {self.child_template_id}>"
+        return f"<ProfileNesting {self.parent_profile_id} -> {self.child_template_id}>"
 
 
-def _sync_nestings(profile: Profile) -> None:
-    """Extract the profile's template id and the nestings its data asserts.
+def _sync_nested_refs(profile: Profile) -> None:
+    """Extract the profile's template id and the references its data asserts.
 
     Only the profile's own rows change, so no other profile is visited and save
     order does not matter.
@@ -136,18 +144,18 @@ def _sync_nestings(profile: Profile) -> None:
     # Keep the rows that still apply rather than rebuilding the lot: a flush
     # emits its inserts before its deletes, so re-adding a row that is already
     # there trips the unique constraint.
-    profile.nestings[:] = [
-        nesting for nesting in profile.nestings if nesting.child_template_id in asserted
+    profile.nested_refs[:] = [
+        ref for ref in profile.nested_refs if ref.child_template_id in asserted
     ]
-    held = {nesting.child_template_id for nesting in profile.nestings}
-    profile.nestings.extend(
+    held = {ref.child_template_id for ref in profile.nested_refs}
+    profile.nested_refs.extend(
         ProfileNesting(child_template_id=child) for child in sorted(asserted - held)
     )
 
 
 @event.listens_for(Session, "before_flush")
-def sync_nestings(session, flush_context, instances):
-    """Keep every pending Profile's nestings in step with its data.
+def sync_nested_refs(session, flush_context, instances):
+    """Keep every pending Profile's nested_refs in step with its data.
 
     This runs before the flush plan is built. A mapper-level before_insert or
     before_update fires once the plan is fixed, too late for the collection
@@ -155,7 +163,7 @@ def sync_nestings(session, flush_context, instances):
     """
     for obj in list(session.new) + list(session.dirty):
         if isinstance(obj, Profile):
-            _sync_nestings(obj)
+            _sync_nested_refs(obj)
 
 
 @event.listens_for(Profile, "after_insert")
