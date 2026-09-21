@@ -1,3 +1,6 @@
+from bluecore_models.models.activity_streams_cursor import (
+    ActivityStreamsCursor as ActivityStreamsCursor,
+)
 from bluecore_models.models.base import Base as Base
 from bluecore_models.models.bf_classes import (
     BibframeClass as BibframeClass,
