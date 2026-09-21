@@ -1,7 +1,7 @@
 from contextvars import ContextVar
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,6 +31,7 @@ class Version(Base):
         UniqueConstraint(
             "resource_id", "created_at", name="uq_versions_resource_id_created_at"
         ),
+        Index("index_versions_on_resource_id_id", "resource_id", "id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
