@@ -1,5 +1,6 @@
-import pytest  # noqa
+from collections.abc import Sequence
 
+import pytest  # noqa
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -15,7 +16,7 @@ def test_regular_search(pg_session: sessionmaker[Session]) -> None:
         stmt = select(ResourceBase).where(
             search_query.op("@@")(ResourceBase.data_vector)
         )
-        results = session.execute(stmt).scalars().all()
+        results: Sequence[ResourceBase] = session.execute(stmt).scalars().all()
         assert len(results) == 2
 
 
@@ -27,7 +28,7 @@ def test_index_phrase(pg_session: sessionmaker[Session]) -> None:
     with pg_session() as session:
         search_query = func.to_tsquery("simple", "Renewable <-> energy")
         stmt = select(Work).where(search_query.op("@@")(Work.data_vector))
-        results = session.execute(stmt).scalars().all()
+        results: Sequence[Work] = session.execute(stmt).scalars().all()
         assert len(results) == 1
         assert (
             results[0].uri
@@ -43,7 +44,7 @@ def test_index_diacritics(pg_session: sessionmaker[Session]) -> None:
     with pg_session() as session:
         search_query = func.to_tsquery("simple", func.unaccent("Chaesaeng <-> enŏji"))
         stmt = select(Work).where(search_query.op("@@")(Work.data_vector))
-        results = session.execute(stmt).scalars().all()
+        results: Sequence[Work] = session.execute(stmt).scalars().all()
         assert len(results) == 1
         assert (
             results[0].uri
@@ -58,7 +59,7 @@ def test_index_phrase_incomplete_words(pg_session: sessionmaker[Session]) -> Non
             "simple", "Rene <-> ener <-> poli <-> in <-> Kor"
         )
         stmt = select(Work).where(search_query.op("@@")(Work.data_vector))
-        results = session.execute(stmt).scalars().all()
+        results: Sequence[Work] = session.execute(stmt).scalars().all()
         assert len(results) == 0
 
 
@@ -70,7 +71,7 @@ def test_index_phrase_with_wildcard(pg_session: sessionmaker[Session]) -> None:
             "Rene:* <-> ener:* <-> poli:* <-> in <-> Kor:*",
         )
         stmt = select(Work).where(search_query.op("@@")(Work.data_vector))
-        results = session.execute(stmt).scalars().all()
+        results: Sequence[Work] = session.execute(stmt).scalars().all()
         assert len(results) == 1
         assert (
             results[0].uri
@@ -95,7 +96,7 @@ def test_index_exact_phrase_with_ranking(pg_session: sessionmaker[Session]) -> N
             .where(search_query.op("@@")(ResourceBase.data_vector))
             .order_by(func.ts_rank(ResourceBase.data_vector, search_query).desc())
         )
-        results = session.execute(stmt).scalars().all()
+        results: Sequence[ResourceBase] = session.execute(stmt).scalars().all()
         assert len(results) == 2
         assert (
             results[0].uri
@@ -114,7 +115,7 @@ def test_index_uri(pg_session: sessionmaker[Session]) -> None:
             "https\\://bluecore.info/works/23db8603-1932-4c3f-968c-ae584ef1b4bb",
         )
         stmt = select(ResourceBase).where(search_query.op("@@")(Work.data_vector))
-        results = session.execute(stmt).scalars().all()
+        results: Sequence[ResourceBase] = session.execute(stmt).scalars().all()
         assert len(results) == 2
 
 
@@ -152,16 +153,16 @@ def test_title_vector_searches_only_requested_title_values(
             "subtitlescope",
         ):
             search_query = func.to_tsquery("english", term)
-            results = session.scalars(
+            results: Sequence[Work] = session.scalars(
                 select(Work).where(search_query.op("@@")(Work.title_vector))
             ).all()
             assert [result.uri for result in results] == [uri]
 
         search_query = func.to_tsquery("english", "notescope")
-        title_results = session.scalars(
+        title_results: Sequence[Work] = session.scalars(
             select(Work).where(search_query.op("@@")(Work.title_vector))
         ).all()
-        broad_results = session.scalars(
+        broad_results: Sequence[Work] = session.scalars(
             select(Work).where(search_query.op("@@")(Work.data_vector))
         ).all()
         assert title_results == []
@@ -251,7 +252,7 @@ def test_title_vector_excludes_vocabulary_terms(
         session.flush()
 
         # the title itself is found
-        found = session.scalars(
+        found: Sequence[Work] = session.scalars(
             select(Work).where(
                 func.to_tsquery("english", "titlescope").op("@@")(Work.title_vector)
             )
@@ -276,7 +277,7 @@ def test_title_vector_excludes_vocabulary_terms(
                 == []
             ), f"{term} leaked into title_vector"
             # but the record is still reachable by it through the broad vector
-            assert [
+            assert [  # type: ignore
                 result.uri
                 for result in session.scalars(
                     select(Work).where(search_query.op("@@")(Work.data_vector))
@@ -324,7 +325,7 @@ def test_title_vector_indexes_the_text_of_a_language_tagged_title(
         session.flush()
 
         for term in ("taggedscope", "liststringscope", "listtaggedscope"):
-            found = session.scalars(
+            found: Sequence[Work] = session.scalars(
                 select(Work).where(
                     func.to_tsquery("english", term).op("@@")(Work.title_vector)
                 )

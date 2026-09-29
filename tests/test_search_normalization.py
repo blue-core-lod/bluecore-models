@@ -283,7 +283,7 @@ def test_bluecore_normalize_is_immutable(pg_session: sessionmaker[Session]) -> N
     """Generated columns reject non-IMMUTABLE functions, so data_vector cannot
     be built from this unless the volatility is right."""
     with pg_session() as session:
-        volatility = session.execute(
+        volatility = session.execute(  #  type:ignore
             text("select provolatile from pg_proc where proname = 'bluecore_normalize'")
         ).scalar_one()
         assert volatility == "i"
