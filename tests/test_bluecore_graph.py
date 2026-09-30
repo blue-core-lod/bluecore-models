@@ -382,6 +382,101 @@ def test_work_update(pg_session):
         assert work.data["note"][0]["rdfs:label"] == ["First Edition"]
 
 
+def test_second_batch_load_does_not_update_the_work(pg_session, monkeypatch, mocker):
+    """
+    Once a batch load has stored a full description of an external Work, a later batch
+    load of the same external Work *should not* overlay.
+    """
+    monkeypatch.setattr(
+        bluecore_graph,
+        "uuid4",
+        lambda *_, **__: "7dbb7674-7373-473f-9014-b9a993a2dd03",
+    )
+    uuid_spy = mocker.spy(bluecore_graph, "uuid4")
+
+    lc_uri = "http://id.loc.gov/resources/works/13187321"
+    work_uri = "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03"
+
+    jsonld_object = {
+        "@context": CONTEXT,
+        "@id": lc_uri,
+        "@type": BF.Work,
+        "title": ["Superman"],
+    }
+
+    save_graph(pg_session, load_jsonld(jsonld_object))
+
+    assert uuid_spy.call_count == 1
+
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).first()
+        assert work is not None
+        assert _derived_from_ids(work.data) == [lc_uri]
+        assert work.data["title"] == ["Superman"]
+
+    # now update the description and save it
+    jsonld_object["title"] = ["Superman 2"]
+    save_graph(pg_session, load_jsonld(jsonld_object))
+
+    # the reload resolved to the Work already stored, so nothing was minted
+    assert uuid_spy.call_count == 1
+
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).first()
+        # the original desciption was not ovewritten
+        assert work.data["title"] == ["Superman"]
+
+
+def test_batch_load_with_the_bluecore_uri_updates_the_work(
+    pg_session, monkeypatch, mocker
+):
+    """
+    When we load an external Work (e.g. from LC) we mint a Blue Core URI for the
+    Work. If an updated description of that Blue Core Work is batch loaded it
+    *should* update the original description.
+    """
+    monkeypatch.setattr(
+        bluecore_graph,
+        "uuid4",
+        lambda *_, **__: "7dbb7674-7373-473f-9014-b9a993a2dd03",
+    )
+    uuid_spy = mocker.spy(bluecore_graph, "uuid4")
+
+    lc_uri = "http://id.loc.gov/resources/works/13187321"
+    work_uri = "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03"
+
+    jsonld_object = {
+        "@context": CONTEXT,
+        "@id": lc_uri,
+        "@type": BF.Work,
+        "title": ["Superman"],
+    }
+
+    save_graph(pg_session, load_jsonld(jsonld_object))
+
+    assert uuid_spy.call_count == 1
+
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).first()
+        assert work is not None
+        assert _derived_from_ids(work.data) == [lc_uri]
+        assert work.data["title"] == ["Superman"]
+        # the description is round-tripped, so it now carries the Blue Core URI
+        described = dict(work.data)
+
+    described["title"] = ["Superman 2"]
+    save_graph(pg_session, load_jsonld(described))
+
+    # the URI was already ours, so there was nothing to mint or resolve
+    assert uuid_spy.call_count == 1
+
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).first()
+        assert work.data["title"] == ["Superman 2"]
+        # and it is still tied back to the record it was derived from
+        assert _derived_from_ids(work.data) == [lc_uri]
+
+
 def test_instance(pg_session):
     jsonld_object = {
         "@context": CONTEXT,
