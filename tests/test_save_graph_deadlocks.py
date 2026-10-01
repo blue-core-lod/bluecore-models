@@ -1,7 +1,7 @@
 import random
 import threading
 
-from psycopg2 import errors as pg_errors
+from psycopg import errors as pg_errors
 from rdflib import Graph
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session

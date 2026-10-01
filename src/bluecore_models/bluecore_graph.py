@@ -3,9 +3,9 @@ import json
 import logging
 from uuid import uuid4
 
-from psycopg2 import errors as psycopg2_errors
+from psycopg import errors as psycopg_errors
 from rdflib import XSD, BNode, Graph, IdentifiedNode, Literal, Namespace, Node, URIRef
-from sqlalchemy import func
+from sqlalchemy import func, literal_column
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm.session import Session, sessionmaker
 from tenacity import Retrying, retry_if_exception, stop_after_attempt
@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 #   shared Other Resource uri and both tried to INSERT it. On a retry the SELECT
 #   finds the row the winner committed and takes the update/no-op path instead.
 RETRYABLE_PG_ERRORS = (
-    psycopg2_errors.DeadlockDetected,
-    psycopg2_errors.SerializationFailure,
-    psycopg2_errors.UniqueViolation,
+    psycopg_errors.DeadlockDetected,
+    psycopg_errors.SerializationFailure,
+    psycopg_errors.UniqueViolation,
 )
 
 # How many times to attempt save() before giving up on serialization failures.
@@ -81,7 +81,7 @@ def _is_retryable_pg_error(error: BaseException) -> bool:
     """
     A graph save is only retried when Postgres aborted the transaction with one
     of the retryable errors above (surfaced by sqlalchemy as an OperationalError
-    or IntegrityError wrapping the psycopg2 error in .orig).
+    or IntegrityError wrapping the psycopg error in .orig).
     """
     return isinstance(error, (OperationalError, IntegrityError)) and isinstance(
         error.orig, RETRYABLE_PG_ERRORS
@@ -694,13 +694,20 @@ class BluecoreGraph:
                 # previously saved with an adminMetadata derivedFrom assertion
 
                 if bluecore_uri is None:
+                    # The path and '{}' are rendered as typed SQL literals rather
+                    # than bound parameters: psycopg sends parameters server-side
+                    # as varchar, which doesn't resolve to jsonpath / text[], and
+                    # the expression has to match the functional index on
+                    # derivedFrom for the planner to use it.
                     resource = (
                         session.query(sqla_class)
                         .where(
                             func.jsonb_path_query_first(
                                 sqla_class.data,
-                                '$.adminMetadata[*].derivedFrom."@id"',
-                            ).op("#>>")("{}")
+                                literal_column(
+                                    """'$.adminMetadata[*].derivedFrom."@id"'::jsonpath"""
+                                ),
+                            ).op("#>>")(literal_column("'{}'::text[]"))
                             == str(uri)
                         )
                         .first()

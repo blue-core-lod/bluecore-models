@@ -30,7 +30,7 @@ config = context.config
 
 # Chooses which database Alembic runs migrations against.
 #
-# alembic.ini uses a hardcoded `sqlalchemy.url` default "postgresql+psycopg2://airflow:airflow@localhost/bluecore".
+# alembic.ini uses a hardcoded `sqlalchemy.url` default "postgresql+psycopg://airflow:airflow@localhost/bluecore".
 # When DATABASE_URL is set in the environment (e.g. the compose files from bluecore-stack build it from DATABASE_* ),
 # override the .ini value so migrations target the actual runtime database.
 database_url = os.getenv("DATABASE_URL")

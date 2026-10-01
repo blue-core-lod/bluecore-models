@@ -112,7 +112,7 @@ creates the schema if it isn't there.
 #### Run the benchmark (50 saves of the sample graphs)
 ```
 uv run python benchmarks/save_graph_bench.py \
-  --database-url postgresql+psycopg2://airflow:airflow@localhost:5432/bluecore \
+  --database-url postgresql+psycopg://airflow:airflow@localhost:5432/bluecore \
   --count 50
 ```
 
@@ -120,7 +120,7 @@ uv run python benchmarks/save_graph_bench.py \
 Add `--profile`:
 ```
 uv run python benchmarks/save_graph_bench.py \
-  --database-url postgresql+psycopg2://airflow:airflow@localhost:5432/bluecore \
+  --database-url postgresql+psycopg://airflow:airflow@localhost:5432/bluecore \
   --count 50 --profile
 ```
 
