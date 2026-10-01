@@ -14,7 +14,7 @@ Requires a Postgres to write to. Point it at any database via ``--database-url``
 (or the ``DATABASE_URL`` env var); the local bluecore-stack DB works well:
 
     uv run python benchmarks/save_graph_bench.py \\
-        --database-url postgresql+psycopg2://airflow:airflow@localhost:5432/bluecore \\
+        --database-url postgresql+psycopg://airflow:airflow@localhost:5432/bluecore \\
         --count 50 --profile
 
 Use ``--reset`` to TRUNCATE the resource tables first (don't point that at a
