@@ -25,6 +25,7 @@ erDiagram
     ResourceBase ||--o{ Instance : "has"
     ResourceBase ||--o{ Work : "has"
     ResourceBase ||--o{ OtherResource : "has"
+    ResourceBase ||--o{ Profile : "has"
     ResourceBase ||--o{ ResourceBibframeClass : "has classes"
     ResourceBase ||--o{ Version : "has versions"
     ResourceBase ||--o{ BibframeOtherResources : "has other resources"
@@ -35,7 +36,39 @@ erDiagram
     BibframeClass ||--o{ ResourceBibframeClass : "classifies"
     
     OtherResource ||--o{ BibframeOtherResources : "links to"
+
+    Profile ||--o{ ProfileRelation : "nests"
+    Profile ||--o{ ProfileRelation : "is nested by"
 ```
+
+### Profile nesting
+
+A Profile is a Sinopia profile: JSON-LD describing how to edit a kind of resource. Its
+`data` is stored unframed, because Sinopia Editor needs back the shape it sent.
+
+A profile's data may name other profiles that it nests, with
+`sinopia:hasResourceTemplateId`. Those references are stored as profile URIs, and each
+one that resolves is recorded as a `ProfileRelation` row with a foreign key on both
+ends. The nesting is many-to-many — one profile is commonly nested by several others —
+so it cannot be a column on `profiles`.
+
+Both foreign keys cascade, so deleting either end removes the edge, and a `CHECK`
+constraint stops a profile nesting itself. That means "is this profile nested by
+anything?" is derived rather than stored, and cannot go stale:
+
+```python
+# Every top-level profile, as one SQL statement with an inlined NOT EXISTS.
+session.scalars(select(Profile).where(~Profile.is_nested))
+```
+
+`Profile.is_nested` is deferred, so an ordinary `select(Profile)` does not carry the
+subquery. It is meant for filtering in SQL: reading it off an instance that did not
+select it issues a query, so it is an N+1 in a loop. Use `Profile.children` and
+`Profile.parents` to walk the relation itself.
+
+References are expected to be profile URIs. A reference naming nothing stored records
+no row rather than raising — bluecore_api rejects those on save, where there is a
+cataloger to tell.
 
 Works are linked to Instances by `bf:instanceOf` / `bf:hasInstance`, and to a Hub by
 `bf:expressionOf` (see `BluecoreGraph._link`).
