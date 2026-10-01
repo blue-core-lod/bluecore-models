@@ -406,3 +406,50 @@ def test_a_profile_whose_data_is_not_json_ld_still_saves(
             assert saved.id is not None
             assert saved.data == data
             assert edges(session, saved) == set()
+
+
+def test_moving_a_child_from_one_parent_to_another(pg_session: sessionmaker[Session]):
+    """Re-parenting is two edits, to the parents, and each touches only its own rows.
+
+    A profile's data says nothing about what nests it, so moving a child from
+    one parent to another means editing both parents, not the child. The new
+    parent's save must not disturb the old parent's row, and the old parent's
+    save must remove only its own.
+    """
+    with pg_session() as session:
+        child = add(session, "Moving:Child")
+        old_parent = add(session, "Old:Parent", nests=(uri("Moving:Child"),))
+        new_parent = add(session, "New:Parent")
+        assert [p.id for p in child.parents] == [old_parent.id]
+
+        new_parent.data = profile("New:Parent", (uri("Moving:Child"),))
+        session.commit()
+        assert {p.id for p in child.parents} == {old_parent.id, new_parent.id}
+
+        old_parent.data = profile("Old:Parent")
+        session.commit()
+        assert [p.id for p in child.parents] == [new_parent.id]
+        assert edges(session, old_parent) == set()
+        assert edges(session, new_parent) == {child.id}
+
+
+def test_updating_a_child_does_not_change_who_nests_it(
+    pg_session: sessionmaker[Session],
+):
+    """The child has no say in it.
+
+    Saving a profile reconciles the rows where it is the parent. Rows where it
+    is the child belong to whoever asserted them, so editing the child leaves
+    them alone -- otherwise a cataloger editing a nested profile would silently
+    orphan it from its parents.
+    """
+    with pg_session() as session:
+        child = add(session, "Edited:Child")
+        parent = add(session, "Unaware:Parent", nests=(uri("Edited:Child"),))
+        assert [p.id for p in child.parents] == [parent.id]
+
+        child.data = profile("Edited:Child", nests=(uri("Some:Other"),))
+        session.commit()
+
+        assert [p.id for p in child.parents] == [parent.id]
+        assert edges(session, parent) == {child.id}
