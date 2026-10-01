@@ -146,10 +146,14 @@ def test_a_profile_stays_nested_until_the_last_parent_goes(
         second = add(session, "Parent:Two", nests=(uri("Status:Only"),))
 
         delete_profile(session, first)
-        assert [p.id for p in session.get(Profile, child.id).parents] == [second.id]
+        reloaded = session.get(Profile, child.id)
+        assert reloaded is not None
+        assert [p.id for p in reloaded.parents] == [second.id]
 
         delete_profile(session, second)
-        assert session.get(Profile, child.id).parents == []
+        reloaded = session.get(Profile, child.id)
+        assert reloaded is not None
+        assert reloaded.parents == []
 
 
 def test_deleting_a_child_removes_its_edges(pg_session: sessionmaker[Session]):
@@ -219,14 +223,19 @@ def test_is_nested_filters_in_sql(pg_session: sessionmaker[Session]):
         child = add(session, "Filter:Child")
         parent = add(session, "Filter:Parent", nests=(uri("Filter:Child"),))
 
-        nested = set(session.scalars(select(Profile.id).where(Profile.is_nested)))
-        top_level = set(session.scalars(select(Profile.id).where(~Profile.is_nested)))
+        nested: set[int] = set(
+            session.scalars(select(Profile.id).where(Profile.is_nested))
+        )
+        top_level: set[int] = set(
+            session.scalars(select(Profile.id).where(~Profile.is_nested))
+        )
 
         assert child.id in nested
         assert parent.id in top_level
         assert child.id not in top_level
 
         # The filter and the relationship must agree on every row.
+        found: Profile
         for found in session.scalars(select(Profile)):
             assert found.is_nested == bool(found.parents)
 
@@ -280,7 +289,7 @@ def test_a_save_that_does_not_touch_data_leaves_the_edges_alone(
     with pg_session() as session:
         child = add(session, "Stable:Child")
         parent = add(session, "Stable:Parent", nests=(uri("Stable:Child"),))
-        before = set(
+        before: set[int] = set(
             session.scalars(
                 select(ProfileRelation.id).where(
                     ProfileRelation.parent_profile_id == parent.id
@@ -292,7 +301,7 @@ def test_a_save_that_does_not_touch_data_leaves_the_edges_alone(
         parent.uri = uri("Stable:Parent:Renamed")
         session.commit()
 
-        after = set(
+        after: set[int] = set(
             session.scalars(
                 select(ProfileRelation.id).where(
                     ProfileRelation.parent_profile_id == parent.id
