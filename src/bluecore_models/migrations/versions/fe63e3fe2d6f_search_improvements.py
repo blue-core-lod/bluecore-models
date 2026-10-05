@@ -72,6 +72,7 @@ def downgrade() -> None:
             postgresql.TSVECTOR(),
             sa.Computed(
                 "to_tsvector('english', data)",
+                persisted=True,
             ),
             nullable=False,
         ),
