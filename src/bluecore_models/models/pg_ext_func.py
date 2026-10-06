@@ -142,7 +142,8 @@ DECLARE
   isbn text;
   lccn_serial_number text;
 BEGIN
-  IF cleaned_value IS NULL OR cleaned_value = '' THEN
+  -- A value with no digits ("", "-", "ebook", "(pbk.)") is not an identifier
+  IF cleaned_value IS NULL OR cleaned_value !~ '[0-9]' THEN
     RETURN '{}';
   END IF;
 
@@ -186,9 +187,10 @@ BEGIN
   END IF;
 
   IF scheme = 'doi' THEN
-    -- DOIs ignore case. Drop a leading "https://doi.org/" or "doi:"
+    -- DOIs ignore case. Drop a leading "https://doi.org/" or "doi:", and any
+    -- spaces after it ("doi: 10.1000/abc")
     RETURN array_remove(
-      ARRAY[regexp_replace(lower(cleaned_value), '^(https?://(dx\.)?doi\.org/|doi:)', '')], '');
+      ARRAY[regexp_replace(lower(cleaned_value), '^(https?://(dx\.)?doi\.org/|doi:)[[:space:]]*', '')], '');
   END IF;
 
   -- Any other scheme (local, upc, ...) is not indexed
@@ -202,34 +204,35 @@ $$ LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE"""
 # all schemes. This feeds the identifiers column.
 #
 # The scheme comes from the identifier's @type ("Isbn", "bf:Isbn" or a full
-# IRI). A generic "Identifier" type uses its source code instead.
+# IRI). If @type is a list, every specific type in it counts, in any order. A
+# generic "Identifier" type uses its source code instead. If rdf:value is a list,
+# each value in it is its own identifier.
+#
+# "$[*]" reads a JSON list, and reads a single value as a list of one.
+#
+# jit is off because the planner guesses each list holds 1,000 items, which
+# makes it compile this tiny query on every call: about 250 times slower.
 BLUECORE_IDENTIFIERS = """
 CREATE OR REPLACE FUNCTION public.bluecore_identifiers(data jsonb)
 RETURNS text[] AS $$
   SELECT coalesce(array_agg(DISTINCT token ORDER BY token), '{}')
-  FROM (
-    SELECT
-      lower(coalesce(
-        nullif(
-          regexp_replace(
-            CASE WHEN jsonb_typeof(identifier_node->'@type') = 'array'
-                 THEN identifier_node->'@type'->>-1
-                 ELSE identifier_node->>'@type' END,
-            '^.*[/#:]', ''),
-          'Identifier'),
-        identifier_node->'source'->>'code')) AS scheme,
-      public.bluecore_jsonb_text(identifier_node->'rdf:value') AS raw_value
-    FROM jsonb_array_elements(
-      CASE WHEN jsonb_typeof(data->'identifiedBy') = 'array'
-           THEN data->'identifiedBy'
-           ELSE jsonb_build_array(data->'identifiedBy') END) AS identifier_node
-  ) identifier,
-  LATERAL unnest(public.bluecore_identifier_values(identifier.scheme, identifier.raw_value))
+  FROM jsonb_path_query(data->'identifiedBy', '$[*]') AS identifier_node,
+  LATERAL (
+    SELECT coalesce(
+      (SELECT array_agg(lower(type_name))
+       FROM jsonb_path_query(identifier_node->'@type', '$[*]') AS type_value,
+       LATERAL regexp_replace(type_value #>> '{}', '^.*[/#:]', '') AS type_name
+       WHERE type_name <> 'Identifier'),
+      ARRAY[lower(identifier_node->'source'->>'code')]) AS schemes
+  ) identifier_schemes,
+  LATERAL unnest(identifier_schemes.schemes) AS scheme,
+  LATERAL jsonb_path_query(identifier_node->'rdf:value', '$[*]') AS value_node,
+  LATERAL unnest(public.bluecore_identifier_values(scheme, public.bluecore_jsonb_text(value_node)))
     AS normalized_value,
-  LATERAL unnest(ARRAY[identifier.scheme || ':' || normalized_value, normalized_value])
+  LATERAL unnest(ARRAY[scheme || ':' || normalized_value, normalized_value])
     AS token
-  WHERE identifier.scheme IS NOT NULL
-$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE"""
+  WHERE scheme IS NOT NULL
+$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE SET jit = off"""
 
 PG_EXT_FUNC: list[str] = [
     "CREATE EXTENSION IF NOT EXISTS unaccent",

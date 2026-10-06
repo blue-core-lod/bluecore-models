@@ -68,9 +68,15 @@ def test_isbn_keeps_both_forms(
         ("doi", "https://doi.org/10.1000/ABC", ["10.1000/abc"]),
         ("doi", "doi:10.1000/x:y", ["10.1000/x:y"]),
         ("doi", "10.1000/ABC", ["10.1000/abc"]),
+        ("doi", "doi: 10.1000/ABC", ["10.1000/abc"]),  # space after the prefix
         ("local", "ABC123", []),  # other schemes are not indexed
         ("upc", "012345", []),
         ("isbn", "   ", []),
+        # values with no digits are not identifiers
+        ("isbn", "-", []),
+        ("isbn", "(pbk.)", []),
+        ("isbn", "ebook", []),
+        ("issn", "-", []),
     ],
 )
 def test_other_schemes(
@@ -135,6 +141,35 @@ def test_record_identifier_shapes(pg_session: sessionmaker[Session]):
         ) == ["00471607", "10.1000/abc", "doi:10.1000/abc", "issn:00471607"]
 
         assert identifiers_for(session, {"title": "no identifiers"}) == []
+
+
+def test_record_identifier_lists(pg_session: sessionmaker[Session]):
+    with pg_session() as session:
+        # Each value in a list is its own identifier
+        assert identifiers_for(
+            session,
+            {
+                "identifiedBy": [
+                    {"@type": "Isbn", "rdf:value": ["0878880690", "9780140449112"]}
+                ]
+            },
+        ) == [
+            "0140449116",
+            "0878880690",
+            "9780140449112",
+            "9780878880690",
+            "isbn:0140449116",
+            "isbn:0878880690",
+            "isbn:9780140449112",
+            "isbn:9780878880690",
+        ]
+
+        # The order of a type list doesn't matter
+        for types in [["Lccn", "Identifier"], ["Identifier", "Lccn"]]:
+            assert identifiers_for(
+                session,
+                {"identifiedBy": [{"@type": types, "rdf:value": "sn85009985"}]},
+            ) == ["lccn:sn85009985", "sn85009985"]
 
 
 def test_cancelled_identifiers_are_still_indexed(pg_session: sessionmaker[Session]):
