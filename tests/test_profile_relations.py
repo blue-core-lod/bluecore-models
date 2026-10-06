@@ -264,10 +264,25 @@ def test_saving_does_not_rewrite_the_stored_document(
         assert saved.data == {"label": "unchanged"}
 
 
-def test_a_compacted_document_is_read_the_same(pg_session: sessionmaker[Session]):
-    """A reference is found whether the document is expanded or compacted."""
+def test_a_compacted_document_yields_no_edges(pg_session: sessionmaker[Session]):
+    """A profile carrying its own context is stored, and its edges are skipped.
+
+    This used to find the reference. `load_jsonld` no longer reads an inline
+    context, because one can reference a remote context in ways that are not
+    visible in the value, so a compacted profile is refused rather than
+    resolved. `profile_refs` catches that and logs, which is the same outcome
+    it already produced for a profile naming a remote context.
+
+    Nothing in stage is affected: all 96 profiles there are expanded JSON-LD
+    with full property URIs and no `@context` at all, so they take the other
+    branch of the rule. This covers a shape sinopia-editor could send rather
+    than one it does.
+
+    Framing profiles would make this work properly again, by giving them our
+    context on the way in like every other resource.
+    """
     with pg_session() as session:
-        child = add(session, "Compact:Child")
+        add(session, "Compact:Child")
         parent = Profile(
             uri=uri("Compact:Parent"),
             data={
@@ -279,7 +294,9 @@ def test_a_compacted_document_is_read_the_same(pg_session: sessionmaker[Session]
         session.add(parent)
         session.commit()
 
-        assert edges(session, parent) == {child.id}
+        # stored intact -- the refusal is about reading references, not writing
+        assert parent.data["@context"] == {"sinopia": SINOPIA}
+        assert edges(session, parent) == set()
 
 
 def test_a_save_that_does_not_touch_data_leaves_the_edges_alone(

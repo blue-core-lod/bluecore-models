@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bluecore_models.models.base import Base
-from bluecore_models.utils.graph import CONTEXT, frame_jsonld
+from bluecore_models.utils.graph import framed_for_storage, validate_jsonld
 
 
 class ResourceBase(Base):
@@ -141,14 +141,11 @@ def set_jsonld(target, value, oldvalue, initiator) -> dict[str, Any] | None:
             "For automatic jsonld framing to work you must ensure the uri property is set before the data property, even when constructing an object."
         )
     elif value is not None:
-        if isinstance(value, dict) and "@context" not in value:
-            # Our data in DB contains compact JSON-LD with namespaces.
-            # But we removed the @context, so it doesn't know where those namespaces came from.
-            # Add back the @context so that framing works properly.
-            # We keep the @context if it exists, in case it contains additional namespaces that are not in our default context.
-            value["@context"] = CONTEXT
-        doc = frame_jsonld(target.uri, value)
-        doc.pop("@context", None)
+        doc = framed_for_storage(target.uri, value)
+        # Monitoring, not a gate. A write that refused a non-conforming document
+        # would refuse the record hardest to recover: the one framing has just
+        # broken. Logged so the rate is visible instead of assumed.
+        validate_jsonld(doc, target.uri)
         return doc
     else:
         return None
