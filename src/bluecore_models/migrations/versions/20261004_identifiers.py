@@ -55,6 +55,9 @@ def upgrade() -> None:
         unique=False,
         postgresql_using="gin",
     )
+    # Tells Postgres that each identifier is rare, so lookups use the index
+    op.execute("ALTER TABLE resource_base ALTER COLUMN identifiers SET STATISTICS 1000")
+    op.execute("ANALYZE resource_base (identifiers)")
 
 
 # Removes the index and column first, since they depend on the functions
