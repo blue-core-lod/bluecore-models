@@ -3,6 +3,7 @@
 import logging
 from typing import Any, NamedTuple
 
+import bibframe_json
 from pyld import jsonld
 from rdflib import (
     DCTERMS,
@@ -42,7 +43,24 @@ WHERE {
 }
 """)
 
-CONTEXT: dict[str, Any] = {
+# The context comes from bibframe-json, which publishes it.
+CONTEXT_URL: str = bibframe_json.CONTEXT_URL
+CONTEXT: dict[str, Any] = bibframe_json.context()["@context"]
+
+# The legacy context is transitional, and the condition for deleting it is a number rather
+# than a judgment. Once the reframe DAG has swept an environment, every row
+# there names its context and the absent case cannot arise, so:
+#
+#     SELECT count(*) FROM resource_base
+#     WHERE type <> 'profiles' AND NOT data ? '@context';
+#
+# At zero, in every environment, LEGACY_CONTEXT goes and `terms_for` raises on
+# a document with no `@context` instead of guessing one. Profiles are excluded
+# because their data is a JSON-LD array and was never framed. Do not read zero
+# once and delete: a deploy still running an older bluecore-models writes rows
+# without the marker, so the count has to stay at zero after every writer is
+# upgraded, not merely reach it.
+LEGACY_CONTEXT: dict[str, Any] = {
     "@vocab": "http://id.loc.gov/ontologies/bibframe/",
     "bflc": "http://id.loc.gov/ontologies/bflc/",
     "mads": "http://www.loc.gov/mads/rdf/v1#",
@@ -54,38 +72,227 @@ CONTEXT: dict[str, Any] = {
 }
 
 
+def _refuse_to_fetch(url: str, options: dict[str, Any] | None = None) -> dict:
+    """The fallback for a context bibframe-json does not ship.
+
+    Framing has to refuse the same contexts reading refuses, and it has to
+    refuse them on purpose. `bibframe_json.document_loader()` otherwise falls
+    through to pyld's default, which is whichever of these pyld settled on at
+    import:
+
+        try:    _default_document_loader = requests_document_loader()
+        except ImportError:
+            _default_document_loader = dummy_document_loader
+
+    `requests` is not a dependency here today, so that default raises and the
+    write path refuses by accident. Anything that pulls `requests` in -- and
+    plenty of libraries do, transitively -- would turn the fallback into a real
+    HTTP loader and framing would start fetching inside a flush, with no change
+    to any code in this repo.
+    """
+    raise ValueError(
+        f"{url} is not a context this package ships, and fetching one is not "
+        f"something this library does; bibframe_json.VERSIONS has "
+        f"{bibframe_json.VERSIONS}"
+    )
+
+
+# So pyld answers for CONTEXT_URL out of the installed package while framing,
+# and refuses anything else rather than reaching for the network.
+jsonld.set_document_loader(bibframe_json.document_loader(_refuse_to_fetch))
+
+
+def validate_jsonld(document: dict[str, Any], uri: str) -> list[Any]:
+    """Check a framed document against bibframe-json, and report rather than refuse.
+
+    Deliberately not a gate. The documents most worth knowing about are the ones
+    framing has just mangled, and refusing to store those is refusing to store
+    the only copy. So this logs and returns; the caller writes either way.
+
+    The `ontology` layer is off. Those findings are about BIBFRAME's own domains
+    and ranges, which real records contradict often enough that they are
+    warnings about cataloging rather than about this shape.
+
+    One known class of finding, as of writing: a blank node carrying an `@id`,
+    in roughly 9% of Works. The labels are load-bearing there -- something else
+    in the same document refers to them -- so they are not strippable, and
+    skolemizing them is tracked separately.
+    """
+    try:
+        findings = bibframe_json.validate(document, ontology=False)
+    except Exception as error:  # noqa: BLE001 - monitoring must not break a write
+        logger.warning(f"{uri}: could not validate: {error}")
+        return []
+    if findings:
+        logger.info(
+            f"{uri}: {len(findings)} bibframe-json findings: "
+            + "; ".join(str(f) for f in findings[:5])
+        )
+    return findings
+
+
+def terms_for(document: dict[str, Any]) -> dict[str, Any]:
+    """The context a document is read with: ours, or none, or an error.
+
+    Two forms are accepted and there is no third:
+
+    1. no `@context`, which is read with LEGACY_CONTEXT
+    2. a `@context` that is a URL bibframe-json ships, resolved from the
+       installed package
+
+    Anything else raises. That rules out an inline context, an array of them,
+    and a URL we do not ship, which between them are every way a document can
+    reach for a context we have not vetted.
+
+    The alternative was to allow inline contexts and try to establish that each
+    one holds no remote reference, and the trouble is that a context can reach
+    the network in more ways than are obvious: a URL in an array entry, an
+    `@import`, a scoped `@context` on a term definition. rdflib follows all of
+    them. Each is easy to handle once seen and the set is easy to believe you
+    have finished. An allowlist does not have to be finished -- a reader
+    checking that this library makes no network request has one function to
+    read and two cases in it.
+
+    What that costs is a document whose context genuinely lives elsewhere,
+    which can no longer be read here at all. Nothing in Blue Core is such a
+    document: every stored resource is framed on the way in and names our
+    context, and every profile in stage carries no context at all, being
+    expanded JSON-LD with full property URIs. A caller who needs otherwise
+    wants rdflib directly rather than this function.
+    """
+    named = document.get("@context")
+    if named is None:
+        return LEGACY_CONTEXT
+    # One rejection for both ways of failing the rule, since a caller can do
+    # nothing different about an inline context than about a URL we do not
+    # ship: neither is readable here.
+    shipped = bibframe_json.context_for(named) if isinstance(named, str) else None
+    if shipped is None:
+        # Named rather than repr'd: an inline context is 251 terms, and a
+        # traceback carrying all of them buries the sentence explaining it.
+        got = (
+            repr(named)
+            if isinstance(named, str)
+            else f"an inline {type(named).__name__}"
+        )
+        raise ValueError(
+            f"@context must be absent or a URL bibframe-json ships "
+            f"({', '.join(bibframe_json.VERSIONS)}), got {got}. An inline "
+            f"context is not read here because it can reference a remote one."
+        )
+    return shipped["@context"]
+
+
+def _without_context(document: dict[str, Any]) -> dict[str, Any]:
+    """The document minus `@context`, as a copy of it.
+
+    The context is resolved separately and handed to rdflib as `context=`, so
+    it has to come out of the document first or the parser finds the URL and
+    fetches it. It does a copy so as not to mutate an object that is given and
+    cause hard to track bugs if there is ever multithreading.
+    """
+    return {key: value for key, value in document.items() if key != "@context"}
+
+
+def bind_namespaces(graph: Graph) -> Graph:
+    """Bind the prefixes this codebase expects to see in serialized output.
+
+    Applied after parsing as well as before it. rdflib's JSON-LD parser replaces
+    the store's prefix bindings with those of the context it is handed, and
+    LEGACY_CONTEXT reaches BIBFRAME through `@vocab` rather than a `bf` prefix,
+    so parsing with a context would otherwise drop the `bf` binding and change
+    how every Turtle serialisation reads.
+    """
+    graph.namespace_manager.bind("bf", BF, override=True)
+    graph.namespace_manager.bind("bflc", BFLC, override=True)
+    graph.namespace_manager.bind("mads", MADS, override=True)
+    graph.namespace_manager.bind("lclocal", LCLOCAL, override=True)
+    return graph
+
+
 def init_graph() -> Graph:
     """Initialize a new RDF graph with the necessary namespaces."""
-    new_graph = Graph()
-    new_graph.namespace_manager.bind("bf", BF)
-    new_graph.namespace_manager.bind("bflc", BFLC)
-    new_graph.namespace_manager.bind("mads", MADS)
-    new_graph.namespace_manager.bind("lclocal", LCLOCAL)
-    return new_graph
+    return bind_namespaces(Graph())
 
 
 def load_jsonld(jsonld_data: list[Any] | dict[str, Any]) -> Graph:
     """
-    Load a JSON-LD represented as a Python list or dict into a rdflib Graph.
+    Load a JSON-LD represented as a dict (or a list of dicts) into a rdflib Graph.
+
+    **A context is never fetched**, and the rule that guarantees it is small
+    enough to check by reading `terms_for`: a document carries no `@context`,
+    or one that is a URL bibframe-json ships. Anything else raises ValueError.
+    An array of node objects is held to the same rule member by member.
+
+    The restriction is deliberate. This runs inside ORM flushes, where a fetch
+    holds a transaction open against a third-party server, and across sweeps of
+    the whole table, where nothing caches the result and the same URL would be
+    asked for once per row.
+
+    It is an allowlist on purpose. The alternative, allowing an inline context
+    and checking it for remote references, means finding every way a context
+    can reach the network -- a URL in an array, an `@import`, a scoped
+    `@context` on a term definition -- and rdflib follows all of them. Refusing
+    inline contexts closes the ways nobody has thought of as well.
+
+    So a URL is resolved out of the installed bibframe-json and handed to
+    rdflib as `context=`, rather than being left in the document for the parser
+    to find and fetch. `_refuse_to_fetch` holds the same line on the framing
+    side, where pyld does the resolving instead of rdflib.
     """
     graph = init_graph()
     # rdflib's json-ld parsing from a python object doesn't support a list yet
     # see: https://github.com/RDFLib/rdflib/issues/3166
     match jsonld_data:
         case list():
-            # parse each JSON-LD dict in the list into the graph
+            # An array document is an array of node objects, each of which may
+            # carry its own @context -- JSON-LD 1.1 §4.1, "Using multiple
+            # contexts". So every member is checked on its own, against the
+            # same rule.
+            #
+            # Passing no context, as this used to, was wrong twice over. A
+            # member naming its context by URL had it fetched -- once per
+            # document and never cached, so a sweep would ask the same server
+            # once a row, and a profile save would do it inside a flush while
+            # holding a transaction open. A member with no context lost its
+            # terms silently, leaving `@type: ["Work"]` to resolve "Work" as a
+            # relative IRI against the process's working directory.
             for obj in jsonld_data:
-                graph.parse(data=obj, format="json-ld")
+                if not isinstance(obj, dict):
+                    # Refused rather than handed to rdflib. A string member is
+                    # read as a document in its own right, context and all, so
+                    # it was the one way left to reach the network from here --
+                    # and an array of anything but node objects is not JSON-LD
+                    # to begin with.
+                    raise TypeError(
+                        f"a JSON-LD array holds node objects, got a "
+                        f"{type(obj).__name__}"
+                    )
+                terms = terms_for(obj)
+                graph.parse(
+                    data=_without_context(obj),  # type: ignore[arg-type]
+                    format="json-ld",
+                    context=terms,
+                )
         case dict():
-            if "@context" not in jsonld_data:
-                jsonld_data["@context"] = CONTEXT
-            graph.parse(data=jsonld_data, format="json-ld")  # type: ignore
+            terms = terms_for(jsonld_data)
+            graph.parse(
+                data=_without_context(jsonld_data),  # type: ignore[arg-type]
+                format="json-ld",
+                context=terms,
+            )
         case _:
-            raise ValueError(
+            # TypeError rather than the ValueError this used to raise, to match
+            # the member check above and `reframe` in bluecore-workflows, which
+            # says the same thing about the same mistake. Nothing caught the
+            # old type specifically; `profile_refs` catches both.
+            raise TypeError(
                 f"JSON-LD must be a list or dict, got {type(jsonld_data).__name__}"
             )
 
-    return graph
+    # Parsing with a context replaces the store's prefix bindings. See
+    # bind_namespaces.
+    return bind_namespaces(graph)
 
 
 def replace_uri(graph: Graph, old_uri: IdentifiedNode, new_uri: URIRef) -> None:
@@ -376,8 +583,13 @@ def frame_jsonld(
     The coercion adds and removes no triples, and applying it twice is the same
     as applying it once, so it is safe to re-run over already framed data -- which
     the reframe DAG in bluecore-workflows relies on.
+
+    The result names its context by URL. pyld returns the terms inlined, which is
+    around 12,000 bytes of vocabulary in front of the description it is about, so
+    the URL replaces them: a document that says which context framed it can be
+    read back without anyone having to assume. terms_for is the other half.
     """
-    return _as_arrays(
+    framed = _as_arrays(
         jsonld.frame(
             jsonld_data,
             {
@@ -387,3 +599,30 @@ def frame_jsonld(
             },
         )
     )
+    framed["@context"] = CONTEXT_URL
+    return framed
+
+
+def framed_for_storage(
+    bluecore_uri: str, jsonld_data: list[Any] | dict[str, Any]
+) -> dict[str, Any]:
+    """What the database should hold for this resource.
+
+    One definition of the write path, because there are two callers and they
+    have already drifted apart once. `set_jsonld` calls this on an ORM write;
+    the reframe DAG in bluecore-workflows calls it directly, because going
+    through the ORM would fire `after_update` and record a cataloging edit for
+    what is only a re-serialisation.
+
+    That DAG used to reproduce the logic instead, and when `@context` started
+    being stored it was still stripping it on the way out -- which would have
+    quietly undone the change for every row it touched. Reproducing a write path
+    is the kind of duplication that looks harmless until the original moves.
+
+    A document with no `@context` gets LEGACY_CONTEXT, since its compact keys
+    came from there. One that names or carries a context is left to say so for
+    itself.
+    """
+    if isinstance(jsonld_data, dict) and "@context" not in jsonld_data:
+        jsonld_data = {**jsonld_data, "@context": LEGACY_CONTEXT}
+    return frame_jsonld(bluecore_uri, jsonld_data)

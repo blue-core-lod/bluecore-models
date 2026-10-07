@@ -19,7 +19,7 @@ from bluecore_models.models import (
     Version,
     Work,
 )
-from bluecore_models.utils.graph import BF, load_jsonld
+from bluecore_models.utils.graph import BF, CONTEXT_URL, load_jsonld
 
 
 def test_bibframe_class(pg_session):
@@ -384,7 +384,7 @@ def test_hub_jsonld_framing():
     ), "framing preserved @id"
     assert "Hub" in hub.data["@type"], "framing compacted bf:Hub type"
     assert "Work" in hub.data["@type"], "framing compacted bf:Work type"
-    assert hub.data.get("@context") is None, "framing removed @context"
+    assert hub.data["@context"] == CONTEXT_URL, "framing records which context it used"
 
 
 def test_work_jsonld_framing():
@@ -404,7 +404,7 @@ def test_work_jsonld_framing():
         work.data["title"][0]["mainTitle"][0]
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
-    assert work.data.get("@context") is None, "framing removed @context"
+    assert work.data["@context"] == CONTEXT_URL, "framing records which context it used"
     assert work.data["note"][0]["rdfs:label"] == [
         "In Korean, with abstract also in English."
     ]
@@ -427,7 +427,9 @@ def test_instance_jsonld_framing():
         instance.data["title"][0]["mainTitle"][0]
         == "Chaesaeng en\u014fji kumae chedo mit chiw\u014fn ch\u014fngch'aek kaes\u014fn kwaje"
     )
-    assert instance.data.get("@context") is None, "framing removed @context"
+    assert instance.data["@context"] == CONTEXT_URL, (
+        "framing records which context it used"
+    )
     assert instance.data["note"][0]["rdfs:label"] == ["illustrations"]
 
 
@@ -530,7 +532,7 @@ def test_work_with_non_standard_namespaces(pg_session):
     Ensure that a Work with non-standard namespaces in its JSON-LD can be
     persisted and retrieved.
     """
-    with pathlib.Path("tests/data/foo_work.jsonld").open() as fo:
+    with pathlib.Path("tests/data/work_nonstandard.jsonld").open() as fo:
         work_data = json.load(fo)
     with pg_session() as session:
         time_now = datetime.now(UTC)
@@ -555,6 +557,7 @@ def test_work_with_non_standard_namespaces(pg_session):
         assert work.updated_at
         assert len(work.instances) == 0
         assert len(work.versions) == 1
-        assert len(work.classes) == 0
-        # I expected to see at least one classes but maybe this is because the
-        # test data doesn't have all the necessary parts?
+        # One, now that the fixture's `bf` prefix is BIBFRAME's namespace rather
+        # than http://loc.gov. This used to assert 0 with a note wondering why,
+        # and the answer was that bf:Work never expanded to a BIBFRAME class.
+        assert len(work.classes) == 1
