@@ -943,7 +943,7 @@ def test_inference(pg_session):
 def test_instance_linking(pg_session):
     """
     Ensure that works and instances are linked correctly when external related
-    reources are used. In this case the hasInstance and instanceOf assertions
+    resources are used. In this case the hasInstance and instanceOf assertions
     point at id.loc.gov resources. This test exercises the logic that looks in
     the graph that is being saved for derivedFrom links.
     """
@@ -2066,3 +2066,93 @@ def test_bulk_load_ignores_anonymous_work_under_instance(pg_session):
             "an anonymous Work got a record"
         )
         assert instance.work is None
+
+
+# ---------------------------------------------------------------------------
+# primary_class: references keep their Other Resource links (#195)
+# ---------------------------------------------------------------------------
+
+
+def _other_resource(g: Graph, uri: str, class_: URIRef, label: str) -> URIRef:
+    """Describe an Other Resource the way the editor's expanded payload does."""
+    g.add((URIRef(uri), RDF.type, class_))
+    g.add((URIRef(uri), RDFS.label, Literal(label)))
+    return URIRef(uri)
+
+
+def test_instance_save_keeps_its_works_other_resource_links(pg_session):
+    """
+    Saving an Instance names its Work through bf:instanceOf, which makes the Work
+    a reference. The Work's own Other Resource links must survive, while the
+    Instance gets the links its own description gives it.
+    """
+    work_uri = _new_uri("works")
+    subject = f"http://id.loc.gov/authorities/subjects/{uuid.uuid4()}"
+    agent = f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}"
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.subject, _other_resource(g, subject, BF.Topic, "S")))
+    g.add((URIRef(work_uri), BF.contributor, _other_resource(g, agent, BF.Agent, "A")))
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    with pg_session() as session:
+        work = _fetch(session, work_uri)
+        assert sorted(_linked_others(session, work)) == sorted([subject, agent])
+
+    inst_uri = _new_uri("instances")
+    carrier = f"http://id.loc.gov/vocabulary/carriers/{uuid.uuid4()}"
+    g = Graph()
+    g.add((URIRef(inst_uri), RDF.type, BF.Instance))
+    g.add((URIRef(inst_uri), BF.instanceOf, URIRef(work_uri)))
+    g.add((URIRef(work_uri), RDFS.label, Literal("display label")))
+    g.add((URIRef(inst_uri), BF.carrier, _other_resource(g, carrier, BF.Carrier, "C")))
+    save_graph(pg_session, g, primary_class=BF.Instance)
+
+    with pg_session() as session:
+        work = _fetch(session, work_uri)
+        assert sorted(_linked_others(session, work)) == sorted([subject, agent]), (
+            "saving the Instance dropped its Work's Other Resource links"
+        )
+        inst = session.query(Instance).where(Instance.uri == inst_uri).one()
+        assert _linked_others(session, inst) == [carrier]
+        assert inst.work_id == work.id
+
+    # the Work is still authoritative for its own links: re-saving it without
+    # the subject drops that link and keeps the other
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.contributor, _other_resource(g, agent, BF.Agent, "A")))
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    with pg_session() as session:
+        assert _linked_others(session, _fetch(session, work_uri)) == [agent]
+
+
+def test_work_save_keeps_its_instances_other_resource_links(pg_session):
+    """
+    The same holds the other way round: saving a Work that names an existing
+    Instance through bf:hasInstance must leave the Instance's links alone.
+    """
+    inst_uri = _new_uri("instances")
+    carrier = f"http://id.loc.gov/vocabulary/carriers/{uuid.uuid4()}"
+    g = Graph()
+    g.add((URIRef(inst_uri), RDF.type, BF.Instance))
+    g.add((URIRef(inst_uri), BF.carrier, _other_resource(g, carrier, BF.Carrier, "C")))
+    save_graph(pg_session, g, primary_class=BF.Instance)
+
+    work_uri = _new_uri("works")
+    subject = f"http://id.loc.gov/authorities/subjects/{uuid.uuid4()}"
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.hasInstance, URIRef(inst_uri)))
+    g.add((URIRef(work_uri), BF.subject, _other_resource(g, subject, BF.Topic, "S")))
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    with pg_session() as session:
+        inst = session.query(Instance).where(Instance.uri == inst_uri).one()
+        assert _linked_others(session, inst) == [carrier], (
+            "saving the Work dropped its Instance's Other Resource links"
+        )
+        work = _fetch(session, work_uri)
+        assert _linked_others(session, work) == [subject]
+        assert inst.work_id == work.id
