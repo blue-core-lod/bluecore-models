@@ -10,6 +10,7 @@ from bluecore_models.utils.graph import (
     BF,
     BFLC,
     CONTEXT,
+    CONTEXT_URL,
     MADS,
     _as_arrays,
     _expand_bnode,
@@ -407,6 +408,9 @@ def test_frame_jsonld_coercion_adds_and_removes_no_triples():
     uncoerced = jsonld.frame(
         source, {"@context": CONTEXT, "@id": uri, "@embed": "@always"}
     )
+    # pyld returns the context inlined; frame_jsonld replaces it with the URL,
+    # and load_jsonld reads only the URL form
+    uncoerced["@context"] = CONTEXT_URL
 
     assert to_isomorphic(load_jsonld(dict(coerced))) == to_isomorphic(
         load_jsonld(dict(uncoerced))
@@ -488,5 +492,7 @@ def test_frame_jsonld_leaves_a_datatype_alone():
     )
 
     # and the whole thing still parses, which is what the guard protects
-    graph = load_jsonld({"@context": CONTEXT, "@id": "http://example.org/1", **coerced})
+    graph = load_jsonld(
+        {"@context": CONTEXT_URL, "@id": "http://example.org/1", **coerced}
+    )
     assert len(graph) > 0
