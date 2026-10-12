@@ -198,6 +198,10 @@ class BluecoreGraph:
         # was writing: the API routes always do, the record loader never does.
         # So this is how we know a save came from a load. See _keep_existing.
         self._ingest = False
+        # The kind of resource an API save names as the one it is writing; any
+        # other Work or Instance in the graph is only a reference to it, so it
+        # keeps the links it already has. None on the bulk path. See save().
+        self._primary_class = None
         # Work this out before _infer, which adds the very links that would
         # make a legitimately new resource look like a nested mention.
         self._relation_stubs = self._find_relation_stubs()
@@ -362,7 +366,7 @@ class BluecoreGraph:
         }
         self._spot_stubs = primary_class is None and bool(self._described)
         self._ingest = primary_class is None
-
+        self._primary_class = primary_class
         # Strip blank node values the payload itself duplicated, before anything
         # here has had a chance to alter the graph. A caller is answerable for what
         # it sent us, not for what our own normalisation went on to do with it -- if
@@ -876,11 +880,17 @@ class BluecoreGraph:
     def _keeps_own_links(self, class_: URIRef, graph: Graph) -> bool:
         """
         Whether this resource's existing links should be left alone: it is one we
-        only have a stub of, and it was already here to have links in the first
-        place. A stub we just created has none, so it links like anything else.
+        only have a stub of, or only a reference to because an API save named a
+        different kind as the one it is writing (an Instance save names its Work
+        through bf:instanceOf), and it was already here to have links in
+        the first place. One we just created has none, so it links like anything
+        else.
         """
         uri = self._subject(graph, class_)
-        return self._is_stub(class_, uri) and str(uri) not in self._created
+        is_reference = self._primary_class is not None and self._primary_class != class_
+        return (is_reference or self._is_stub(class_, uri)) and str(
+            uri
+        ) not in self._created
 
     def _strip_duplicate_values(self) -> None:
         """
