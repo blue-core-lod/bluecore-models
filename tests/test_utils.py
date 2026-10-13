@@ -64,6 +64,25 @@ def test_generate_entity_graph():
     assert work_dcterm_part_of is None
 
 
+def test_generate_entity_graph_keeps_literals_named_like_dcterms():
+    """
+    A literal whose text happens to be a DCTERMS term name ("language", "title")
+    is not in the DCTERMS namespace. rdflib's DefinedNamespace matches bare local
+    names, so it used to be filtered out -- leaving e.g. mnotetype/lang, whose only
+    triple is rdfs:label "language", with an empty graph and no subject to save.
+    """
+    graph = init_graph()
+    note_type = URIRef("http://id.loc.gov/vocabulary/mnotetype/lang")
+    graph.add((note_type, RDFS.label, Literal("language", lang="en")))
+    graph.add((note_type, DCTERMS.title, Literal("title")))
+
+    entity_graph = generate_entity_graph(graph, note_type)
+
+    assert list(entity_graph) == [
+        (note_type, RDFS.label, Literal("language", lang="en"))
+    ]
+
+
 # LC serializations routinely describe the same resource more than once in a
 # single document: the Instance appears standalone, and again nested inside the
 # Work's bf:hasInstance. The nested copy is abbreviated -- it repeats the title
