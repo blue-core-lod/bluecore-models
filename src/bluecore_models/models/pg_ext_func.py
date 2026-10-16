@@ -102,6 +102,138 @@ RETURNS tsvector AS $$
 $$
                       LANGUAGE plpgsql IMMUTABLE"""
 
+# Works out the last character (check digit) of an ISBN-10 from its first nine
+# digits. Used to turn an ISBN-13 into its matching ISBN-10.
+BLUECORE_ISBN10_CHECK_DIGIT = """
+CREATE OR REPLACE FUNCTION public.bluecore_isbn10_check_digit(first_nine_digits text)
+RETURNS text AS $$
+  SELECT CASE WHEN weighted_total % 11 = 10 THEN 'X' ELSE (weighted_total % 11)::text END
+  FROM (
+    SELECT sum(digit_position * substr(first_nine_digits, digit_position, 1)::int) AS weighted_total
+    FROM generate_series(1, 9) AS digit_position
+  ) totals
+$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT"""
+
+# Works out the last character (check digit) of an ISBN-13 from its first
+# twelve digits. Used to turn an ISBN-10 into its matching ISBN-13.
+BLUECORE_ISBN13_CHECK_DIGIT = """
+CREATE OR REPLACE FUNCTION public.bluecore_isbn13_check_digit(first_twelve_digits text)
+RETURNS text AS $$
+  SELECT ((10 - weighted_total % 10) % 10)::text
+  FROM (
+    SELECT sum(
+      substr(first_twelve_digits, digit_position, 1)::int
+      * CASE WHEN digit_position % 2 = 0 THEN 3 ELSE 1 END
+    ) AS weighted_total
+    FROM generate_series(1, 12) AS digit_position
+  ) totals
+$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT"""
+
+# Cleans up one identifier value so it can be matched exactly, using the rules
+# for its scheme. Only ISBN, ISSN, LCCN and DOI are indexed; any other scheme
+# returns nothing. Returns a list because a valid ISBN comes back in both its
+# 10- and 13-digit forms. The search API runs user input through this same
+# function, so what people type and what is stored always line up.
+BLUECORE_IDENTIFIER_VALUES = r"""
+CREATE OR REPLACE FUNCTION public.bluecore_identifier_values(scheme text, raw_value text)
+RETURNS text[] AS $$
+DECLARE
+  cleaned_value text := btrim(raw_value);
+  isbn text;
+  lccn_serial_number text;
+BEGIN
+  -- A value with no digits ("", "-", "ebook", "(pbk.)") is not an identifier
+  IF cleaned_value IS NULL OR cleaned_value !~ '[0-9]' THEN
+    RETURN '{}';
+  END IF;
+
+  IF scheme = 'isbn' THEN
+    -- Drop spaces and hyphens, then keep only the leading number, so a
+    -- qualifier like "(pbk.)" is ignored. A longer number is left as is.
+    cleaned_value := upper(regexp_replace(cleaned_value, '[[:space:]-]', '', 'g'));
+    isbn := substring(cleaned_value FROM '^([0-9]{13}|[0-9]{9}[0-9X])(?![0-9X])');
+    IF isbn IS NULL THEN
+      RETURN ARRAY[cleaned_value];
+    END IF;
+    -- A valid ISBN-10 also gets its ISBN-13 form, and the other way around
+    IF length(isbn) = 10 AND right(isbn, 1) = public.bluecore_isbn10_check_digit(left(isbn, 9)) THEN
+      RETURN ARRAY[isbn, '978' || left(isbn, 9) || public.bluecore_isbn13_check_digit('978' || left(isbn, 9))];
+    END IF;
+    IF left(isbn, 3) = '978' AND right(isbn, 1) = public.bluecore_isbn13_check_digit(left(isbn, 12)) THEN
+      RETURN ARRAY[isbn, substr(isbn, 4, 9) || public.bluecore_isbn10_check_digit(substr(isbn, 4, 9))];
+    END IF;
+    RETURN ARRAY[isbn];
+  END IF;
+
+  IF scheme = 'issn' THEN
+    -- Drop spaces and the hyphen, then keep only the leading number
+    cleaned_value := upper(regexp_replace(cleaned_value, '[[:space:]-]', '', 'g'));
+    RETURN ARRAY[coalesce(substring(cleaned_value FROM '^[0-9]{7}[0-9X](?![0-9X])'), cleaned_value)];
+  END IF;
+
+  IF scheme = 'lccn' THEN
+    -- Library of Congress rules: https://www.loc.gov/marc/lccn-namespace.html
+    -- Remove all spaces, and anything from a "/" onward
+    cleaned_value := split_part(regexp_replace(cleaned_value, '[[:space:]]', '', 'g'), '/', 1);
+    -- "n78-890351" becomes "n78890351", and "85-2" becomes "85000002"
+    IF position('-' IN cleaned_value) > 0 THEN
+      lccn_serial_number := substr(cleaned_value, position('-' IN cleaned_value) + 1);
+      IF lccn_serial_number !~ '^[0-9]{1,6}$' THEN
+        RETURN '{}';
+      END IF;
+      cleaned_value := split_part(cleaned_value, '-', 1) || lpad(lccn_serial_number, 6, '0');
+    END IF;
+    RETURN array_remove(ARRAY[lower(cleaned_value)], '');
+  END IF;
+
+  IF scheme = 'doi' THEN
+    -- DOIs ignore case. Drop a leading "https://doi.org/" or "doi:", and any
+    -- spaces after it ("doi: 10.1000/abc")
+    RETURN array_remove(
+      ARRAY[regexp_replace(lower(cleaned_value), '^(https?://(dx\.)?doi\.org/|doi:)[[:space:]]*', '')], '');
+  END IF;
+
+  -- Any other scheme (local, upc, ...) is not indexed
+  RETURN '{}';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE"""
+
+# Collects the ISBNs, ISSNs, LCCNs and DOIs listed in a record's top-level
+# identifiedBy and returns them cleaned up, each one twice: with its scheme ("isbn:9780140449112")
+# for lookups by scheme, and without it ("9780140449112") for lookups across
+# all schemes. This feeds the identifiers column.
+#
+# The scheme comes from the identifier's @type ("Isbn", "bf:Isbn" or a full
+# IRI). If @type is a list, every specific type in it counts, in any order. A
+# generic "Identifier" type uses its source code instead. If rdf:value is a list,
+# each value in it is its own identifier.
+#
+# "$[*]" reads a JSON list, and reads a single value as a list of one.
+#
+# jit is off because the planner guesses each list holds 1,000 items, which
+# makes it compile this tiny query on every call: about 250 times slower.
+BLUECORE_IDENTIFIERS = """
+CREATE OR REPLACE FUNCTION public.bluecore_identifiers(data jsonb)
+RETURNS text[] AS $$
+  SELECT coalesce(array_agg(DISTINCT token ORDER BY token), '{}')
+  FROM jsonb_path_query(data->'identifiedBy', '$[*]') AS identifier_node,
+  LATERAL (
+    SELECT coalesce(
+      (SELECT array_agg(lower(type_name))
+       FROM jsonb_path_query(identifier_node->'@type', '$[*]') AS type_value,
+       LATERAL regexp_replace(type_value #>> '{}', '^.*[/#:]', '') AS type_name
+       WHERE type_name <> 'Identifier'),
+      ARRAY[lower(identifier_node->'source'->>'code')]) AS schemes
+  ) identifier_schemes,
+  LATERAL unnest(identifier_schemes.schemes) AS scheme,
+  LATERAL jsonb_path_query(identifier_node->'rdf:value', '$[*]') AS value_node,
+  LATERAL unnest(public.bluecore_identifier_values(scheme, public.bluecore_jsonb_text(value_node)))
+    AS normalized_value,
+  LATERAL unnest(ARRAY[scheme || ':' || normalized_value, normalized_value])
+    AS token
+  WHERE scheme IS NOT NULL
+$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE SET jit = off"""
+
 PG_EXT_FUNC: list[str] = [
     "CREATE EXTENSION IF NOT EXISTS unaccent",
     """
@@ -140,4 +272,9 @@ $$ LANGUAGE plpgsql IMMUTABLE""",
     # built from this list, so title_vector cannot be created without them.
     BLUECORE_JSONB_TEXT,
     BLUECORE_TITLES_TO_TSV,
+    # Order matters: each function must exist before one that calls it.
+    BLUECORE_ISBN10_CHECK_DIGIT,
+    BLUECORE_ISBN13_CHECK_DIGIT,
+    BLUECORE_IDENTIFIER_VALUES,
+    BLUECORE_IDENTIFIERS,
 ]

@@ -1,8 +1,18 @@
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-from sqlalchemy import Computed, Connection, DateTime, Index, String, Uuid, event, text
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy import (
+    Computed,
+    Connection,
+    DateTime,
+    Index,
+    String,
+    Text,
+    Uuid,
+    event,
+    text,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bluecore_models.models.base import Base
@@ -63,6 +73,13 @@ class ResourceBase(Base):
             persisted=True,
         ),
     )
+    # Cleaned-up ISBNs, ISSNs, LCCNs and DOIs for exact-match lookups, e.g.
+    # "isbn:9780140449112" and "9780140449112". Postgres fills this in on every
+    # insert and update - see bluecore_identifiers in pg_ext_func.py.
+    identifiers: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        Computed("bluecore_identifiers(data)", persisted=True),
+    )
 
     __mapper_args__: ClassVar[dict[str, Any]] = {
         "polymorphic_on": type,
@@ -92,6 +109,9 @@ class ResourceBase(Base):
         ),
         Index(
             "index_resource_base_on_title_vector", title_vector, postgresql_using="gin"
+        ),
+        Index(
+            "index_resource_base_on_identifiers", identifiers, postgresql_using="gin"
         ),
         Index("index_resource_base_on_uuid", uuid),
         Index("type_idx", type),
