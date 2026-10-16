@@ -308,7 +308,14 @@ def replace_uri(graph: Graph, old_uri: IdentifiedNode, new_uri: URIRef) -> None:
 
 
 def _check_for_namespace(node: Node) -> bool:
-    """Check if a node is in the LCLOCAL or DCTERMS namespace."""
+    """Check if a node is in the LCLOCAL or DCTERMS namespace.
+
+    Only a URIRef can belong to a namespace. rdflib's DefinedNamespace also
+    matches bare local names, so without this a Literal such as "language" or
+    "title" counts as a DCTERMS term and the triple carrying it is dropped.
+    """
+    if not isinstance(node, URIRef):
+        return False
     return node in LCLOCAL or node in DCTERMS  # type: ignore
 
 
