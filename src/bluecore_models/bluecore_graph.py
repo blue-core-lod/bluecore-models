@@ -496,32 +496,35 @@ class BluecoreGraph:
 
     def _extract_others(self) -> list[Graph]:
         """
-        Returns a list of subgraphs for resources that are referenced but not fully
-        described in the Bluecore Graph.
+        Returns a list of subgraphs for the cited resources this payload describes,
+        which are the Other Resource rows the save writes. Which ones get linked is
+        decided by what each Work or Instance cites, see _link.
         """
         others = []
         other_uris = set()
 
         for g in self.works() + self.instances() + self.hubs():
-            # iterate through each object in the graph
-            for o in g.objects():
-                # skip the object if it:
-                # - is not a URI (a BNode or a Literal)
-                # - is a term from the Bibframe, MADS or RDF vocabularies
-                # - is a Work, Instance or Hub, each stored as its own record
-                if (
-                    not isinstance(o, URIRef)
-                    or self._exclude_uri_from_other_resources(o)
-                    or self._is_bibframe_resource(o, self.graph)
-                ):
-                    continue
-
-                # otherwise return the object URI, and its graph
+            # only a uri the payload says something about has a description to store
+            for o in sorted(self._cited_uris(g)):
                 if o in self.graph.subjects() and o not in other_uris:
                     others.append(generate_entity_graph(self.graph, o))
                     other_uris.add(o)
 
         return others
+
+    def _cited_uris(self, g: Graph) -> set[URIRef]:
+        """
+        The uris a resource's subgraph cites that could be Other Resources: every
+        object uri, nested ones included, except terms from the Bibframe, MADS or
+        RDF vocabularies and Works, Instances or Hubs, each stored as its own record.
+        """
+        return {
+            o
+            for o in g.objects()
+            if isinstance(o, URIRef)
+            and not self._exclude_uri_from_other_resources(o)
+            and not self._is_bibframe_resource(o, self.graph)
+        }
 
     def _generate_admin_metadata(
         self,
@@ -586,10 +589,10 @@ class BluecoreGraph:
         """
         Describe the status term we mark stubs with.
 
-        _extract_others only promotes a referenced uri to an Other Resource if it
-        also appears as a subject in the graph, so a bare reference would be
-        invisible to linking and leave the UI nothing but a uri to display.
-        Incoming LC records describe the vocabulary terms they use the same way.
+        _extract_others only stores an Other Resource for a referenced uri that
+        also appears as a subject in the graph, so a bare reference would leave
+        the UI nothing but a uri to display. Incoming LC records describe the
+        vocabulary terms they use the same way.
         """
         self.graph.add((STUB_STATUS, RDF.type, BF.Status))
         self.graph.add((STUB_STATUS, RDFS.label, Literal("incomplete")))
@@ -1018,8 +1021,8 @@ class BluecoreGraph:
         """
         Save relations between Hubs, Instances, Works and Other Resources in the
         graph: bf:instanceOf and bf:hasInstance tie Instances to Works,
-        bf:expressionOf ties a Work to its Hub, and anything a Work or Instance
-        refers to becomes an Other Resource link.
+        bf:expressionOf ties a Work to its Hub, and a Work or Instance is linked to
+        every Other Resource it cites that we hold a row for.
         """
 
         # Cache resource lookups for the duration of this link operation. _link
@@ -1103,44 +1106,42 @@ class BluecoreGraph:
             if not self._keeps_own_links(BF.Instance, g)
         ]
 
-        for other_graph in sorted(self.others(), key=lambda g: str(self._subject(g))):
-            other_uri = self._subject(other_graph)
+        # Link each one to every Other Resource it cites that we hold a row for,
+        # whether or not this payload happened to describe it: the links follow
+        # from the resource's own data, so a save citing a term by uri alone
+        # doesn't lose them. A uri we hold nothing about stays a bare reference.
+        cited = [
+            (sqla_class, self._subject(g, class_), self._cited_uris(g))
+            for sqla_class, class_, graphs in (
+                (Work, BF.Work, work_graphs),
+                (Instance, BF.Instance, instance_graphs),
+            )
+            for g in graphs
+        ]
 
-            # look at each Work graph and see if the Other Resource URI appears
-            # as an object within it. If it does create a link between the Work and
-            # the Other Resource.
-            for g in work_graphs:
-                if other_uri in g.objects():
-                    work_uri = self._subject(g, BF.Work)
-                    logger.info(f"linking {work_uri} to {other_uri}")
-                    work_model = self._resolve(session, Work, work_uri, cache)
-                    other_model = self._resolve(
-                        session, OtherResource, other_uri, cache
-                    )
-                    session.add(
-                        BibframeOtherResources(
-                            bibframe_resource=work_model, other_resource=other_model
-                        )
-                    )
+        # resolve every cited uri in one query rather than one per uri
+        all_cited = sorted({str(uri) for _, _, uris in cited for uri in uris})
+        held = {
+            other.uri: other
+            for other in session.query(OtherResource).where(
+                OtherResource.uri.in_(all_cited)
+            )
+        }
+        for uri in all_cited:
+            cache[(OtherResource, uri)] = held.get(uri)
 
-            # do the same thing for each Instance graph
-            # TODO: maybe this very similar logic could be abstracted into a helper method
-            # but that might also further obscure what is going on?
-            for g in instance_graphs:
-                if other_uri in g.objects():
-                    instance_uri = self._subject(g, BF.Instance)
-                    logger.info(f"linking {instance_uri} to {other_uri}")
-                    instance_model = self._resolve(
-                        session, Instance, instance_uri, cache
+        for sqla_class, resource_uri, uris in cited:
+            for other_uri in sorted(uris):
+                other_model = self._resolve(session, OtherResource, other_uri, cache)
+                if other_model is None:
+                    continue
+                logger.info(f"linking {resource_uri} to {other_uri}")
+                resource_model = self._resolve(session, sqla_class, resource_uri, cache)
+                session.add(
+                    BibframeOtherResources(
+                        bibframe_resource=resource_model, other_resource=other_model
                     )
-                    other_model = self._resolve(
-                        session, OtherResource, other_uri, cache
-                    )
-                    session.add(
-                        BibframeOtherResources(
-                            bibframe_resource=instance_model, other_resource=other_model
-                        )
-                    )
+                )
 
     def _delete_other_links(
         self, class_: URIRef, session: Session, cache: dict
