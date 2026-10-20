@@ -175,6 +175,25 @@ def test_record_identifier_lists(pg_session: sessionmaker[Session]):
             ) == ["lccn:sn85009985", "sn85009985"]
 
 
+def test_full_iri_value_key_is_read(pg_session: sessionmaker[Session]):
+    # rdf:value spelled out as its full IRI
+    data = {
+        "identifiedBy": [
+            {
+                "@type": "Isbn",
+                "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9782226489784",
+            }
+        ]
+    }
+    with pg_session() as session:
+        assert identifiers_for(session, data) == [
+            "2226489789",
+            "9782226489784",
+            "isbn:2226489789",
+            "isbn:9782226489784",
+        ]
+
+
 def test_cancelled_identifiers_are_still_indexed(pg_session: sessionmaker[Session]):
     data = {
         "identifiedBy": [
