@@ -159,7 +159,7 @@ BEGIN
     IF length(isbn) = 10 AND right(isbn, 1) = public.bluecore_isbn10_check_digit(left(isbn, 9)) THEN
       RETURN ARRAY[isbn, '978' || left(isbn, 9) || public.bluecore_isbn13_check_digit('978' || left(isbn, 9))];
     END IF;
-    IF left(isbn, 3) = '978' AND right(isbn, 1) = public.bluecore_isbn13_check_digit(left(isbn, 12)) THEN
+    IF length(isbn) = 13 AND left(isbn, 3) = '978' AND right(isbn, 1) = public.bluecore_isbn13_check_digit(left(isbn, 12)) THEN
       RETURN ARRAY[isbn, substr(isbn, 4, 9) || public.bluecore_isbn10_check_digit(substr(isbn, 4, 9))];
     END IF;
     RETURN ARRAY[isbn];
@@ -205,8 +205,9 @@ $$ LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE"""
 #
 # The scheme comes from the identifier's @type ("Isbn", "bf:Isbn" or a full
 # IRI). If @type is a list, every specific type in it counts, in any order. A
-# generic "Identifier" type uses its source code instead. If rdf:value is a list,
-# each value in it is its own identifier.
+# generic "Identifier" type uses its source code instead. The value is read from
+# rdf:value, or from its full IRI when a record spells it out. If the value is a
+# list, each value in it is its own identifier.
 #
 # "$[*]" reads a JSON list, and reads a single value as a list of one.
 #
@@ -226,7 +227,10 @@ RETURNS text[] AS $$
       ARRAY[lower(identifier_node->'source'->>'code')]) AS schemes
   ) identifier_schemes,
   LATERAL unnest(identifier_schemes.schemes) AS scheme,
-  LATERAL jsonb_path_query(identifier_node->'rdf:value', '$[*]') AS value_node,
+  LATERAL jsonb_path_query(
+    coalesce(identifier_node->'rdf:value',
+             identifier_node->'http://www.w3.org/1999/02/22-rdf-syntax-ns#value'),
+    '$[*]') AS value_node,
   LATERAL unnest(public.bluecore_identifier_values(scheme, public.bluecore_jsonb_text(value_node)))
     AS normalized_value,
   LATERAL unnest(ARRAY[scheme || ':' || normalized_value, normalized_value])

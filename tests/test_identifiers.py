@@ -49,6 +49,9 @@ def test_lccn_follows_library_of_congress_rules(
         ("0878880690 (pbk.)", ["0878880690", "9780878880690"]),
         ("979-10-90636-07-1", ["9791090636071"]),  # 979 has no ISBN-10 form
         ("0878880691", ["0878880691"]),  # bad check digit: kept as written
+        # 10 characters starting with 978 but not a valid ISBN-10
+        ("9781234567", ["9781234567"]),
+        ("978123456X", ["978123456X"]),
         ("08788806901", ["08788806901"]),  # too long to be an ISBN
     ],
 )
@@ -170,6 +173,25 @@ def test_record_identifier_lists(pg_session: sessionmaker[Session]):
                 session,
                 {"identifiedBy": [{"@type": types, "rdf:value": "sn85009985"}]},
             ) == ["lccn:sn85009985", "sn85009985"]
+
+
+def test_full_iri_value_key_is_read(pg_session: sessionmaker[Session]):
+    # rdf:value spelled out as its full IRI
+    data = {
+        "identifiedBy": [
+            {
+                "@type": "Isbn",
+                "http://www.w3.org/1999/02/22-rdf-syntax-ns#value": "9782226489784",
+            }
+        ]
+    }
+    with pg_session() as session:
+        assert identifiers_for(session, data) == [
+            "2226489789",
+            "9782226489784",
+            "isbn:2226489789",
+            "isbn:9782226489784",
+        ]
 
 
 def test_cancelled_identifiers_are_still_indexed(pg_session: sessionmaker[Session]):
