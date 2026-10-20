@@ -159,7 +159,7 @@ BEGIN
     IF length(isbn) = 10 AND right(isbn, 1) = public.bluecore_isbn10_check_digit(left(isbn, 9)) THEN
       RETURN ARRAY[isbn, '978' || left(isbn, 9) || public.bluecore_isbn13_check_digit('978' || left(isbn, 9))];
     END IF;
-    IF left(isbn, 3) = '978' AND right(isbn, 1) = public.bluecore_isbn13_check_digit(left(isbn, 12)) THEN
+    IF length(isbn) = 13 AND left(isbn, 3) = '978' AND right(isbn, 1) = public.bluecore_isbn13_check_digit(left(isbn, 12)) THEN
       RETURN ARRAY[isbn, substr(isbn, 4, 9) || public.bluecore_isbn10_check_digit(substr(isbn, 4, 9))];
     END IF;
     RETURN ARRAY[isbn];

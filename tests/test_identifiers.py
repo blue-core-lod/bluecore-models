@@ -49,6 +49,9 @@ def test_lccn_follows_library_of_congress_rules(
         ("0878880690 (pbk.)", ["0878880690", "9780878880690"]),
         ("979-10-90636-07-1", ["9791090636071"]),  # 979 has no ISBN-10 form
         ("0878880691", ["0878880691"]),  # bad check digit: kept as written
+        # 10 characters starting with 978 but not a valid ISBN-10
+        ("9781234567", ["9781234567"]),
+        ("978123456X", ["978123456X"]),
         ("08788806901", ["08788806901"]),  # too long to be an ISBN
     ],
 )
