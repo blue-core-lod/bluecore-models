@@ -32,6 +32,8 @@ erDiagram
 
     Hub ||--o{ Work : "has"
     Work ||--o{ Instance : "has"
+    Instance ||--o{ InstanceExport : "exported as"
+    Version ||--o{ InstanceExport : "snapshot"
     
     BibframeClass ||--o{ ResourceBibframeClass : "classifies"
     
@@ -78,6 +80,33 @@ and is minted a Bluecore URI, but a blank node in a bulk-loaded record is an inl
 description of something the record merely refers to — LC catalog data often states
 `bf:expressionOf` against an anonymous `bf:Hub` — so it gets no record and no link
 (see `BluecoreGraph._anonymous_description`).
+
+### Instance exports
+
+An `InstanceExport` records one export of an Instance to another system, such as
+FOLIO or Alma. It stores the Keycloak user who exported it, the Keycloak group it was
+exported on behalf of, when it happened, the Version exported, and the identifier the
+record received in the target system, if one is known.
+
+Exports are recorded explicitly, not by an ORM event, since an export doesn't change
+the Instance:
+
+```python
+from bluecore_models.utils.db import add_instance_export
+
+add_instance_export(session, instance, target_identifier="in00000123")
+session.commit()
+```
+
+The user, username and group are read from the `CURRENT_USER_ID`, `CURRENT_USERNAME`
+and `CURRENT_GROUP` context vars, which bluecore_api sets from the token. Callers outside
+HTTP, such as bluecore-workflows, pass `keycloak_user_id`, `keycloak_username` and
+`keycloak_group` instead. The version defaults to the Instance's latest. A missing
+user id or group raises `ValueError`, since an anonymous export isn't a useful audit
+record.
+
+Exports outlive the Instance: both foreign keys are `ON DELETE SET NULL`, and
+`instance_uri` keeps a copy of the Instance's URI to identify it afterwards.
 
 ### Database Migrations with Alembic
 The [Alembic](https://alembic.sqlalchemy.org/en/latest/) database migration package is used

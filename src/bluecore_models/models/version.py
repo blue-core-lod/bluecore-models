@@ -10,6 +10,7 @@ from bluecore_models.models.resource import ResourceBase
 
 CURRENT_USER_ID: ContextVar[str | None] = ContextVar("current_user_id", default=None)
 CURRENT_USERNAME: ContextVar[str | None] = ContextVar("current_username", default=None)
+CURRENT_GROUP: ContextVar[str | None] = ContextVar("current_group", default=None)
 
 
 class Version(Base):
