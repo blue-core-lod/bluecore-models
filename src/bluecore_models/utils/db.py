@@ -2,7 +2,13 @@ import rdflib
 from sqlalchemy import delete, insert, inspect, select
 
 from bluecore_models.models.bf_classes import BibframeClass, ResourceBibframeClass
-from bluecore_models.models.version import CURRENT_USER_ID, CURRENT_USERNAME, Version
+from bluecore_models.models.instance_export import InstanceExport
+from bluecore_models.models.version import (
+    CURRENT_GROUP,
+    CURRENT_USER_ID,
+    CURRENT_USERNAME,
+    Version,
+)
 from bluecore_models.utils.graph import get_bf_classes
 
 
@@ -95,3 +101,57 @@ def update_bf_classes(connection, resource):
             bf_class_id=bf_class_id, resource_id=resource.id
         )
         connection.execute(stmt)
+
+
+def add_instance_export(
+    session,
+    instance,
+    *,
+    target_identifier: str | None = None,
+    version: Version | None = None,
+    keycloak_user_id: str | None = None,
+    keycloak_username: str | None = None,
+    keycloak_group: str | None = None,
+) -> InstanceExport:
+    """
+    Records that an Instance was exported to a target system such as FOLIO or
+    Alma, and returns the new InstanceExport. The caller commits.
+
+    The user, username and group are read from the context vars the HTTP layer
+    sets from the token; the keyword arguments override them, for non-HTTP
+    callers such as bluecore-workflows. version defaults to the Instance's
+    latest Version.
+
+    Unlike add_version(), which leaves the user NULL for batch writers, this
+    raises ValueError when the user id or group can't be determined, since an
+    anonymous export isn't a useful audit record.
+    """
+    uid = keycloak_user_id or CURRENT_USER_ID.get()
+    username = keycloak_username or CURRENT_USERNAME.get()
+    group = keycloak_group or CURRENT_GROUP.get()
+    if not uid:
+        raise ValueError("Cannot record an Instance export without a Keycloak user id")
+    if not group:
+        raise ValueError("Cannot record an Instance export without a Keycloak group")
+
+    if version is None:
+        # The Instance needs its id, and its Version from the after_insert hook
+        session.flush()
+        version = session.scalars(
+            select(Version)
+            .where(Version.resource_id == instance.id)
+            .order_by(Version.id.desc())
+            .limit(1)
+        ).first()
+
+    export = InstanceExport(
+        instance=instance,
+        instance_uri=instance.uri,
+        version=version,
+        keycloak_user_id=uid,
+        keycloak_username=username,
+        keycloak_group=group,
+        target_identifier=target_identifier,
+    )
+    session.add(export)
+    return export

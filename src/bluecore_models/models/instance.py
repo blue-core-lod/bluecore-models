@@ -32,6 +32,14 @@ class Instance(ResourceBase):
     work: Mapped["Work"] = relationship(  # type: ignore  # noqa: F821
         "Work", foreign_keys=work_id, back_populates="instances"
     )
+    # passive_deletes: the database's ON DELETE SET NULL keeps the export rows
+    # when the Instance is deleted, so the ORM doesn't load them to do it.
+    exports: Mapped[list["InstanceExport"]] = relationship(  # type: ignore  # noqa: F821
+        "InstanceExport",
+        back_populates="instance",
+        order_by="InstanceExport.exported_at",
+        passive_deletes=True,
+    )
     __mapper_args__: ClassVar[dict[str, Any]] = {
         "polymorphic_identity": "instances",
     }

@@ -10,6 +10,9 @@ from bluecore_models.models.bf_classes import (
 )
 from bluecore_models.models.hub import Hub as Hub
 from bluecore_models.models.instance import Instance as Instance
+from bluecore_models.models.instance_export import (
+    InstanceExport as InstanceExport,
+)
 from bluecore_models.models.other_resource import (
     BibframeOtherResources as BibframeOtherResources,
 )
