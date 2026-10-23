@@ -38,9 +38,11 @@ if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
+# This line sets up loggers basically. disable_existing_loggers=False keeps
+# loggers created before migrations run (e.g. bluecore_models.bluecore_graph
+# when migrations run in-process from tests or Airflow) from being silenced.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
