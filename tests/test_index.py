@@ -343,3 +343,20 @@ def test_title_vector_indexes_the_text_of_a_language_tagged_title(
                 ).all()
                 == []
             ), f"{structural} indexed as a title word"
+
+
+def test_resource_bibframe_classes_has_a_resource_id_index(
+    pg_session: sessionmaker[Session],
+) -> None:
+    """update_bf_classes looks up a resource's classes through an index."""
+    with pg_session() as session:
+        session.execute(text("SET LOCAL enable_seqscan = off"))
+        query_plan = session.scalars(
+            text(
+                "EXPLAIN SELECT id FROM resource_bibframe_classes WHERE resource_id = 1"
+            )
+        ).all()
+
+    assert any(
+        "index_resource_bibframe_classes_on_resource_id" in line for line in query_plan
+    )

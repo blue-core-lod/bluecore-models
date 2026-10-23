@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import (
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
 )
@@ -43,6 +44,13 @@ class ResourceBibframeClass(Base):
         Integer, ForeignKey("resource_base.id"), nullable=False
     )
     resource: Mapped[ResourceBase] = relationship("ResourceBase", backref="classes")
+
+    __table_args__ = (
+        # update_bf_classes looks up a resource's classes by resource_id on every
+        # update, and deleting from resource_base checks this foreign key.
+        # Without the index both scan the whole table.
+        Index("index_resource_bibframe_classes_on_resource_id", resource_id),
+    )
 
     def __repr__(self):
         return f"<ResourceBibframeClass {self.bf_class.name} for {self.resource.uri}>"
