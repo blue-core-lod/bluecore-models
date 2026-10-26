@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
     BluecoreGraph,
+    BluecoreGraphError,
     save_graph,
 )
 from bluecore_models.models import (
@@ -20,7 +21,7 @@ from bluecore_models.models import (
     Work,
 )
 from bluecore_models.namespaces import BF, MADS, RDF
-from bluecore_models.utils.graph import CONTEXT_URL, load_jsonld
+from bluecore_models.utils.graph import CONTEXT_URL, NEW_RESOURCE, load_jsonld
 
 
 def _derived_from_ids(data: dict) -> list[str]:
@@ -644,23 +645,16 @@ def test_work_instances(pg_session):
         assert len(work.instances) == 2
 
 
-def test_work_instance_bnode(pg_session, monkeypatch):
+def test_work_keeps_a_blank_node_instance_inline(pg_session):
     """
-    An editor POSTing a Work can nest a brand-new Instance that has no URI yet, and
-    it should be minted one and linked. primary_class is BF.Work here, as the works
-    route passes: the Work is what is being authoritatively written, but the
-    anonymous Instance under it is still a resource being created, not a mention.
+    An Instance without a URI nested under a Work has no identity of its own, so
+    it stays inline in the Work's record rather than being minted and linked. A
+    client creates the Work, then the Instance with bf:instanceOf pointing at it.
     """
-    # patch the UUID function to return a known value during URI minting
-    monkeypatch.setattr(
-        bluecore_graph,
-        "uuid4",
-        lambda *args, **kwargs: "2B8CE2D3-BBD2-4F30-94BB-F382F39E5320",
-    )
-
+    work_uri = f"https://bcld.info/works/{uuid.uuid4()}"
     jsonld_object = {
         "@context": CONTEXT_URL,
-        "@id": "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03",
+        "@id": work_uri,
         "@type": BF.Work,
         "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
         "hasInstance": [
@@ -668,7 +662,6 @@ def test_work_instance_bnode(pg_session, monkeypatch):
                 "@id": "_:123",
                 "@type": "Instance",
                 "publicationStatement": "New York: Penguin Books, 1995",
-                "title": {"@type": "Title", "mainTitle": "Gravity's rainbow"},
             },
         ],
     }
@@ -676,20 +669,16 @@ def test_work_instance_bnode(pg_session, monkeypatch):
     save_graph(pg_session, load_jsonld(jsonld_object), primary_class=BF.Work)
 
     with pg_session() as session:
-        work = (
-            session.query(Work)
-            .where(
-                Work.uri
-                == "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03"
-            )
-            .first()
-        )
-        assert work is not None
-        assert len(work.instances) == 1, "work has instance"
-        assert (
-            work.instances[0].uri
-            == "https://bcld.info/instances/2B8CE2D3-BBD2-4F30-94BB-F382F39E5320"
-        ), "bnode turned into URI"
+        work = session.query(Work).where(Work.uri == work_uri).one()
+        assert work.instances == []
+        assert work.data["hasInstance"] == [
+            {
+                "@type": ["Instance"],
+                # added by _infer, as for an inline Instance in a bulk load
+                "instanceOf": [work_uri],
+                "publicationStatement": ["New York: Penguin Books, 1995"],
+            }
+        ]
 
 
 def test_other_resources_autoflush_disabled(engine):
@@ -1786,11 +1775,10 @@ def test_relation_stub_does_not_accumulate(pg_session):
         assert session.query(Instance).count() == 0
 
 
-def test_new_nested_resource_is_still_promoted(pg_session):
+def test_new_nested_instance_stays_inline(pg_session):
     """
-    An untyped, uri-less Instance nested under a Work is a new resource being
-    written (the API's POST /works/ does this), not a mention, so it is still
-    given a type and saved.
+    An untyped, uri-less Instance nested under a new Work is described inside it,
+    so only the Work is extracted as a resource of its own.
     """
     cbd_jsonld = {
         "@context": CONTEXT_URL,
@@ -1801,7 +1789,183 @@ def test_new_nested_resource_is_still_promoted(pg_session):
     bluecore_graph_ = BluecoreGraph(load_jsonld(cbd_jsonld))
 
     assert len(bluecore_graph_.works()) == 1
-    assert len(bluecore_graph_.instances()) == 1
+    assert len(bluecore_graph_.instances()) == 0
+
+
+def test_new_work_keeps_a_nested_blank_node_work_inline(pg_session):
+    """
+    A Work without a uri nested in a new Work has no identity of its own, so it
+    stays inline (the editor's Monograph Work template nests one under
+    bf:accompaniedBy). See https://github.com/blue-core-lod/bluecore-models/issues/203
+    """
+    graph = save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@context": CONTEXT_URL,
+                "@type": "Work",
+                "accompaniedBy": {
+                    "@type": "Work",
+                    "language": {"@id": "http://id.loc.gov/vocabulary/languages/lat"},
+                },
+            }
+        ),
+        primary_class=BF.Work,
+    )
+
+    work_uri = next(graph.subjects(BF.accompaniedBy))
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == str(work_uri)).one()
+
+    assert work.data["accompaniedBy"] == [
+        {
+            "@type": ["Work"],
+            "language": [{"@id": "http://id.loc.gov/vocabulary/languages/lat"}],
+        }
+    ]
+
+
+def test_updated_work_keeps_a_nested_blank_node_work_inline(pg_session):
+    """
+    Updating a Work doesn't split out a nested blank node Work either.
+    """
+    work_uri = f"https://bcld.info/works/{uuid.uuid4()}"
+    save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@context": CONTEXT_URL,
+                "@id": work_uri,
+                "@type": "Work",
+                "accompaniedBy": {
+                    "@type": "Work",
+                    "language": {"@id": "http://id.loc.gov/vocabulary/languages/lat"},
+                },
+            }
+        ),
+        primary_class=BF.Work,
+    )
+
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).one()
+
+    assert work.data["accompaniedBy"] == [
+        {
+            "@type": ["Work"],
+            "language": [{"@id": "http://id.loc.gov/vocabulary/languages/lat"}],
+        }
+    ]
+
+
+def test_new_work_keeps_a_blank_node_hub_inline(pg_session):
+    """
+    A Hub without a URI under a new Work's bf:expressionOf stays inline too, and
+    the Work isn't linked to a Hub until it points at one with a URI.
+    """
+    graph = save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@context": CONTEXT_URL,
+                "@type": "Work",
+                "expressionOf": {
+                    "@type": "Hub",
+                    "title": {"@type": "Title", "mainTitle": "Physica"},
+                },
+            }
+        ),
+        primary_class=BF.Work,
+    )
+
+    work_uri = next(graph.subjects(BF.expressionOf))
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == str(work_uri)).one()
+        assert work.hub is None
+        assert work.data["expressionOf"][0]["@type"] == ["Hub"]
+
+
+def test_new_instance_is_created_when_its_item_points_back(pg_session):
+    """
+    A blank node pointing back at the resource being created doesn't make that
+    resource look like it is described inside something else.
+    """
+    graph = save_graph(
+        pg_session,
+        load_jsonld(
+            {
+                "@context": CONTEXT_URL,
+                "@id": "_:instance",
+                "@type": "Instance",
+                "hasItem": {"@type": "Item", "itemOf": {"@id": "_:instance"}},
+            }
+        ),
+        primary_class=BF.Instance,
+    )
+
+    instance_uri = next(graph.subjects(BF.hasItem))
+    assert isinstance(instance_uri, URIRef)
+    with pg_session() as session:
+        assert session.query(Instance).where(Instance.uri == str(instance_uri)).one()
+
+
+def _work_with_part_pointing_back(work_id: str) -> dict:
+    return {
+        "@context": CONTEXT_URL,
+        "@id": work_id,
+        "@type": "Work",
+        "hasPart": {"@type": "Work", "partOf": {"@id": work_id}},
+    }
+
+
+def test_new_works_describing_each_other_are_refused(pg_session):
+    """
+    Two blank node Works that each describe the other don't say which one is
+    being created, so the save is refused rather than guessed at.
+    """
+    with pytest.raises(BluecoreGraphError, match="empty @id"):
+        save_graph(
+            pg_session,
+            load_jsonld(_work_with_part_pointing_back("_:work")),
+            primary_class=BF.Work,
+        )
+
+
+def test_other_relative_ids_are_refused():
+    """
+    Only an empty @id names the resource being created. Any other relative @id
+    would resolve to a URI of its own and be taken for a real identity.
+    """
+    graph = load_jsonld(
+        {
+            "@context": CONTEXT_URL,
+            "@type": "Work",
+            "hasPart": {"@id": "#part", "@type": "Work"},
+        },
+        base=NEW_RESOURCE,
+    )
+
+    with pytest.raises(BluecoreGraphError, match='relative @id "#part"'):
+        BluecoreGraph(graph)
+
+
+def test_empty_id_names_the_work_being_created(pg_session):
+    """
+    An empty @id says which Work is being created, so the part pointing back at
+    it stays inline and points at the Work's new URI.
+    """
+    graph = save_graph(
+        pg_session,
+        load_jsonld(_work_with_part_pointing_back(""), base=NEW_RESOURCE),
+        primary_class=BF.Work,
+    )
+
+    work_uri = next(graph.subjects(BF.hasPart))
+    assert isinstance(work_uri, URIRef)
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == str(work_uri)).one()
+        assert work.data["hasPart"] == [
+            {"@type": ["Work"], "partOf": [{"@id": str(work_uri)}]}
+        ]
 
 
 def test_save_strips_duplicate_blank_node_values(pg_session, caplog):

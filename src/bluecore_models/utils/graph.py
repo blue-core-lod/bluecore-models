@@ -47,6 +47,14 @@ WHERE {
 CONTEXT_URL: str = bibframe_json.CONTEXT_URL
 CONTEXT: dict[str, Any] = bibframe_json.context()["@context"]
 
+# What a payload creating a resource calls it, by giving it an empty @id: parsed
+# with load_jsonld(..., base=NEW_RESOURCE) that resolves to this, which
+# BluecoreGraph then takes to be the resource being created. This follows Linked
+# Data Platform 1.0, where a POST's null relative URI names the resource being
+# created: https://www.w3.org/TR/ldp/#ldpc-post-rdfnullrel
+# See BluecoreGraph._name_new_resource.
+NEW_RESOURCE: str = "urn:bluecore:new-resource/"
+
 # The legacy context is transitional, and the condition for deleting it is a number rather
 # than a judgment. Once the reframe DAG has swept an environment, every row
 # there names its context and the absent case cannot arise, so:
@@ -215,9 +223,17 @@ def init_graph() -> Graph:
     return bind_namespaces(Graph())
 
 
-def load_jsonld(jsonld_data: list[Any] | dict[str, Any]) -> Graph:
+def load_jsonld(
+    jsonld_data: list[Any] | dict[str, Any], base: str | None = None
+) -> Graph:
     """
     Load a JSON-LD represented as a dict (or a list of dicts) into a rdflib Graph.
+
+    base is the IRI that relative @id values resolve against; without one,
+    rdflib uses the current directory as a file:// URL. Pass NEW_RESOURCE when
+    the document creates a resource: an empty @id then resolves to
+    NEW_RESOURCE, which BluecoreGraph treats as the resource being created, as
+    in Linked Data Platform 1.0 (https://www.w3.org/TR/ldp/#ldpc-post-rdfnullrel).
 
     **A context is never fetched**, and the rule that guarantees it is small
     enough to check by reading `terms_for`: a document carries no `@context`,
@@ -273,6 +289,7 @@ def load_jsonld(jsonld_data: list[Any] | dict[str, Any]) -> Graph:
                     data=_without_context(obj),  # type: ignore[arg-type]
                     format="json-ld",
                     context=terms,
+                    base=base,
                 )
         case dict():
             terms = terms_for(jsonld_data)
@@ -280,6 +297,7 @@ def load_jsonld(jsonld_data: list[Any] | dict[str, Any]) -> Graph:
                 data=_without_context(jsonld_data),  # type: ignore[arg-type]
                 format="json-ld",
                 context=terms,
+                base=base,
             )
         case _:
             # TypeError rather than the ValueError this used to raise, to match
