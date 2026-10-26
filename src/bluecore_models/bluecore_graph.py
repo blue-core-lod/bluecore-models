@@ -7,6 +7,7 @@ from psycopg import errors as psycopg_errors
 from rdflib import XSD, BNode, Graph, IdentifiedNode, Literal, Namespace, Node, URIRef
 from sqlalchemy import func, literal_column
 from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.orm import Query
 from sqlalchemy.orm.session import Session, sessionmaker
 from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
@@ -698,24 +699,9 @@ class BluecoreGraph:
                 # previously saved with an adminMetadata derivedFrom assertion
 
                 if bluecore_uri is None:
-                    # The path and '{}' are rendered as typed SQL literals rather
-                    # than bound parameters: psycopg sends parameters server-side
-                    # as varchar, which doesn't resolve to jsonpath / text[], and
-                    # the expression has to match the functional index on
-                    # derivedFrom for the planner to use it.
-                    resource = (
-                        session.query(sqla_class)
-                        .where(
-                            func.jsonb_path_query_first(
-                                sqla_class.data,
-                                literal_column(
-                                    """'$.adminMetadata[*].derivedFrom."@id"'::jsonpath"""
-                                ),
-                            ).op("#>>")(literal_column("'{}'::text[]"))
-                            == str(uri)
-                        )
-                        .first()
-                    )
+                    resource = self._derived_from_query(
+                        sqla_class, uri, session
+                    ).first()
                     if resource is not None:
                         bluecore_uri = resource.uri
 
@@ -732,6 +718,35 @@ class BluecoreGraph:
                     derived_from = uri
                     bluecore_uri = self._mint_uri(class_)
                     self._switch_uris(derived_from, bluecore_uri)
+
+    @staticmethod
+    def _derived_from_query(
+        sqla_class: type[Hub] | type[Work] | type[Instance],
+        uri: IdentifiedNode,
+        session: Session,
+    ) -> Query:
+        """
+        Builds the query that finds a saved resource of the given class whose
+        adminMetadata records a bf:derivedFrom assertion for the supplied URI.
+        """
+        # The query has to filter on both type and the derivedFrom @id to use
+        # index_resource_base_on_type_derivedfrom_id, which leads with type.
+        # Querying a joined-table subclass doesn't add the type filter by
+        # itself, and without it Postgres reads the whole index on every
+        # lookup, so each save gets slower as the table grows.
+        #
+        # The path and '{}' are rendered as typed SQL literals rather than
+        # bound parameters: psycopg sends parameters server-side as varchar,
+        # which doesn't resolve to jsonpath / text[], and the expression has to
+        # match the functional index on derivedFrom for the planner to use it.
+        return session.query(sqla_class).where(
+            sqla_class.type == sqla_class.__mapper__.polymorphic_identity,
+            func.jsonb_path_query_first(
+                sqla_class.data,
+                literal_column("""'$.adminMetadata[*].derivedFrom."@id"'::jsonpath"""),
+            ).op("#>>")(literal_column("'{}'::text[]"))
+            == str(uri),
+        )
 
     def _mint_uri(self, class_: URIRef) -> URIRef:
         """

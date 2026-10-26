@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 from rdflib import RDFS, BNode, Graph, Literal, URIRef
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from bluecore_models import bluecore_graph
@@ -2156,3 +2157,35 @@ def test_work_save_keeps_its_instances_other_resource_links(pg_session):
         work = _fetch(session, work_uri)
         assert _linked_others(session, work) == [subject]
         assert inst.work_id == work.id
+
+
+@pytest.mark.parametrize(
+    "sqla_class, collection",
+    [(Hub, "hubs"), (Work, "works"), (Instance, "instances")],
+)
+def test_derived_from_lookup_uses_type_and_derived_from_index(
+    pg_session, sqla_class, collection
+):
+    """
+    The derivedFrom lookup in _mint_all_uris must filter on type as well as the
+    derivedFrom @id, so Postgres can go straight to the entry in
+    index_resource_base_on_type_derivedfrom_id. Without the type filter it
+    reads the whole index for every lookup.
+    """
+    with pg_session() as session:
+        query = BluecoreGraph._derived_from_query(
+            sqla_class, URIRef("http://id.loc.gov/resources/hubs/1234"), session
+        )
+        sql = query.statement.compile(
+            dialect=session.bind.dialect, compile_kwargs={"literal_binds": True}
+        )
+        session.execute(text("SET LOCAL enable_seqscan = off"))
+        plan = "\n".join(session.scalars(text(f"EXPLAIN {sql}")).all())
+
+    assert "index_resource_base_on_type_derivedfrom_id" in plan
+    index_cond = next(
+        line
+        for line in plan.splitlines()
+        if "Index Cond" in line and "jsonb_path_query_first" in line
+    )
+    assert f"(type)::text = '{collection}'::text" in index_cond
