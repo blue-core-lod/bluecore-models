@@ -470,3 +470,46 @@ def test_updating_a_child_does_not_change_who_nests_it(
 
         assert [p.id for p in child.parents] == [parent.id]
         assert edges(session, parent) == {child.id}
+
+
+def test_a_versioned_reference_records_an_edge(pg_session: sessionmaker[Session]):
+    with pg_session() as session:
+        title = add(session, "title")
+        work = add(session, "work", nests=(f"{uri('title')}/version/42",))
+
+        assert [child.uri for child in work.children] == [title.uri]
+        assert session.scalars(
+            select(Profile.is_nested).where(Profile.id == title.id)
+        ).one()
+
+
+def test_versioned_and_plain_references_to_one_child_are_one_edge(
+    pg_session: sessionmaker[Session],
+):
+    with pg_session() as session:
+        title = add(session, "title")
+        work = add(session, "work", nests=(uri("title"), f"{uri('title')}/version/42"))
+
+        edges = session.scalars(
+            select(ProfileRelation).where(ProfileRelation.parent_profile_id == work.id)
+        ).all()
+        assert [edge.child_profile_id for edge in edges] == [title.id]
+
+
+def test_a_malformed_version_segment_records_no_edge(
+    pg_session: sessionmaker[Session],
+):
+    with pg_session() as session:
+        add(session, "title")
+        work = add(session, "work", nests=(f"{uri('title')}/version/latest",))
+
+        assert work.children == []
+
+
+def test_a_versioned_reference_to_nothing_stored_records_no_edge(
+    pg_session: sessionmaker[Session],
+):
+    with pg_session() as session:
+        work = add(session, "work", nests=(f"{uri('missing')}/version/42",))
+
+        assert work.children == []

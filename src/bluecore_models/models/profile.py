@@ -1,4 +1,5 @@
 import logging
+import re
 from copy import deepcopy
 from typing import Any, ClassVar
 
@@ -16,7 +17,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import (
     Mapped,
-    Session,
     column_property,
     mapped_column,
     relationship,
@@ -35,6 +35,21 @@ SINOPIA = "http://sinopia.io/vocabulary/"
 # sinopia:hasResourceTemplateId. The predicate says "template" because that is
 # what Sinopia calls these; everything on our side of the line says profile.
 HAS_RESOURCE_TEMPLATE_ID = URIRef(f"{SINOPIA}hasResourceTemplateId")
+
+# A reference to one version of a profile: {profile uri}/version/{versions.id},
+# the URI GET /profiles/{uuid}/version/{version_id} serves.
+VERSION_URI = re.compile(r"(?P<profile_uri>.+)/version/(?P<version_id>[0-9]+)")
+
+
+def split_version_uri(value: str) -> tuple[str, int | None]:
+    """The profile URI a reference names, and the version id if it names one.
+
+    A reference without a version segment comes back unchanged, with None.
+    """
+    match = VERSION_URI.fullmatch(value)
+    if match is None:
+        return value, None
+    return match["profile_uri"], int(match["version_id"])
 
 
 def _names_a_remote_context(data: Any) -> bool:
@@ -138,7 +153,8 @@ class Profile(ResourceBase):
     in resource.py skips Profiles).
 
     A profile's data may name other profiles that it nests. Those references are
-    stored as profile URIs and lifted into ``profile_relations`` on save, so the
+    stored as profile URIs, or as URIs of one version of a profile (see
+    ``split_version_uri``), and lifted into ``profile_relations`` on save, so the
     nesting can be queried in either direction -- see ``children``, ``parents``
     and ``is_nested``.
     """
@@ -199,22 +215,18 @@ Profile.is_nested = column_property(
 )
 
 
-def resolve_ref(session: Session, value: str) -> Profile | None:
-    """The Profile a nesting reference names, or None if it names nothing stored.
-
-    References are profile URIs. A value naming a Work, an Instance or nothing
-    at all resolves to None -- the join table has no way to record it, and the
-    API turns that into a 422 rather than storing a dangling edge.
-    """
-    return session.scalars(select(Profile).where(Profile.uri == value)).first()
-
-
 def _resolve_child_ids(connection, refs: set[str]) -> set[int]:
     """The profile ids the given references name, skipping any that name nothing.
 
-    Core SQL rather than resolve_ref() because this runs inside a flush, where
-    only a Connection is available.
+    A reference to one version of a profile names that profile: an edge is
+    between two profiles, whichever version of the child the parent uses. Whether
+    that version exists is for bluecore_api to check, where there is someone to
+    tell; here it would only turn a bad reference into a missing edge.
+
+    Core SQL because this runs inside a flush, where only a Connection is
+    available.
     """
+    refs = {split_version_uri(ref)[0] for ref in refs}
     if not refs:
         return set()
     profiles = Profile.__table__

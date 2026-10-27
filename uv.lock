@@ -117,7 +117,7 @@ wheels = [
 
 [[package]]
 name = "bluecore-models"
-version = "0.38.1"
+version = "0.38.2"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
