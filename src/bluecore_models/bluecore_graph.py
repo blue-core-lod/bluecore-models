@@ -217,6 +217,9 @@ class BluecoreGraph:
         # The one root a save() with a primary_class is creating, once save()
         # has found it; every other blank node stays inline. See _find_root.
         self._root: BNode | None = None
+        # The URI save() minted for that root, so a caller creating a resource
+        # knows which one it created. None when the save created nothing.
+        self.created_uri: URIRef | None = None
         self._infer()
 
     def _name_new_resource(self) -> BNode | None:
@@ -927,6 +930,8 @@ class BluecoreGraph:
         """
         self._bump_revision()  # replace_uri + _generate_admin_metadata mutate self.graph
         self._minted_from[str(bluecore_uri)] = str(derived_from)
+        if self._root is not None and derived_from == self._root:
+            self.created_uri = bluecore_uri
         replace_uri(self.graph, derived_from, bluecore_uri)
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):

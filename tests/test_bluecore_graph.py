@@ -1968,6 +1968,44 @@ def test_empty_id_names_the_work_being_created(pg_session):
         ]
 
 
+def test_created_uri_is_the_resource_being_created(pg_session):
+    """
+    created_uri names the resource a save created, even when the graph holds
+    other resources of the same kind that get URIs of their own.
+    """
+    graph = load_jsonld(
+        {
+            "@context": CONTEXT_URL,
+            "@type": "Work",
+            "accompaniedBy": {
+                "@id": f"http://id.loc.gov/resources/works/{uuid.uuid4()}",
+                "@type": "Work",
+            },
+        }
+    )
+    bluecore_graph_ = BluecoreGraph(graph)
+    bluecore_graph_.save(pg_session, primary_class=BF.Work)
+
+    assert bluecore_graph_.created_uri is not None
+    assert bluecore_graph_.created_uri == next(
+        bluecore_graph_.graph.subjects(BF.accompaniedBy)
+    )
+
+
+def test_created_uri_is_none_on_update(pg_session):
+    graph = load_jsonld(
+        {
+            "@context": CONTEXT_URL,
+            "@id": f"https://bcld.info/works/{uuid.uuid4()}",
+            "@type": "Work",
+        }
+    )
+    bluecore_graph_ = BluecoreGraph(graph)
+    bluecore_graph_.save(pg_session, primary_class=BF.Work)
+
+    assert bluecore_graph_.created_uri is None
+
+
 def test_save_strips_duplicate_blank_node_values(pg_session, caplog):
     """
     A payload asserting an identical blank node value twice under one property is
