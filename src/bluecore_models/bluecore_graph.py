@@ -65,6 +65,29 @@ STUB_STATUS = URIRef("http://id.loc.gov/vocabulary/mstatus/incmp")
 # something this record is describing. See _find_relation_stubs.
 RELATION_PREDICATES = (BF.associatedResource, BFLC.associatedResource)
 
+# Predicates whose object is a Work, Instance, Hub or Item record rather than an
+# Other Resource. A uri cited through one of these, and not described in the
+# payload, is never linked as an Other Resource on the strength of a held row:
+# that row may be a record we once stored without its bf type. See _link.
+RECORD_PREDICATES = (
+    BF.instanceOf,
+    BF.hasInstance,
+    BF.expressionOf,
+    BF.hasExpression,
+    BF.relatedTo,
+    BF.hasItem,
+    BF.itemOf,
+    *RELATION_PREDICATES,
+)
+
+# LC's namespace for Works, Instances, Hubs and Items, which are never Other
+# Resources however they are cited.
+LC_RESOURCES = "http://id.loc.gov/resources/"
+
+# How many uris go into one IN clause when looking up held Other Resources, well
+# under psycopg's 65535 bind-parameter limit.
+HELD_LOOKUP_CHUNK = 5000
+
 
 class BluecoreGraphError(Exception):
     """Raised for BluecoreGraph errors that aren't a type mismatch."""
@@ -505,8 +528,8 @@ class BluecoreGraph:
 
         for g in self.works() + self.instances() + self.hubs():
             # only a uri the payload says something about has a description to store
-            for o in sorted(self._cited_uris(g)):
-                if o in self.graph.subjects() and o not in other_uris:
+            for o in self._cited_uris(g):
+                if (o, None, None) in self.graph and o not in other_uris:
                     others.append(generate_entity_graph(self.graph, o))
                     other_uris.add(o)
 
@@ -524,6 +547,39 @@ class BluecoreGraph:
             if isinstance(o, URIRef)
             and not self._exclude_uri_from_other_resources(o)
             and not self._is_bibframe_resource(o, self.graph)
+        }
+
+    def _linkable_uris(
+        self, g: Graph, cited: set[URIRef], described: set[IdentifiedNode]
+    ) -> set[URIRef]:
+        """
+        The cited uris a Work or Instance may be linked to as Other Resources,
+        if we hold a row for them. Never linked are the objects of
+        RECORD_PREDICATES and uris in LC_RESOURCES, which are Works, Instances,
+        Hubs or Items even when a row we hold says otherwise.
+
+        A uri cited only under bf:adminMetadata is linked only when this payload
+        describes it. _generate_admin_metadata puts the same few vocabulary terms
+        (and the derivedFrom source) on every resource it mints, so linking them
+        by uri alone would tie every record in the catalog to them.
+        """
+        admin_nodes: set[Node] = set()
+        queue = list(g.objects(predicate=BF.adminMetadata))
+        while queue:
+            node = queue.pop()
+            if node in admin_nodes:
+                continue
+            admin_nodes.add(node)
+            queue.extend(o for o in g.objects(node) if isinstance(o, BNode))
+
+        return {
+            o
+            for s, p, o in g
+            if isinstance(o, URIRef)
+            and o in cited
+            and p not in RECORD_PREDICATES
+            and not str(o).startswith(LC_RESOURCES)
+            and (o in described or (p != BF.adminMetadata and s not in admin_nodes))
         }
 
     def _generate_admin_metadata(
@@ -1106,40 +1162,44 @@ class BluecoreGraph:
             if not self._keeps_own_links(BF.Instance, g)
         ]
 
-        # Link each one to every Other Resource it cites that we hold a row for,
-        # whether or not this payload happened to describe it: the links follow
-        # from the resource's own data, so a save citing a term by uri alone
-        # doesn't lose them. A uri we hold nothing about stays a bare reference.
-        cited = [
-            (sqla_class, self._subject(g, class_), self._cited_uris(g))
-            for sqla_class, class_, graphs in (
-                (Work, BF.Work, work_graphs),
-                (Instance, BF.Instance, instance_graphs),
-            )
-            for g in graphs
-        ]
+        # Link each one to every Other Resource it cites that this payload
+        # describes, and to every one it cites by uri alone that we hold a row
+        # for: the links follow from the resource's own data, so a save citing a
+        # term by uri alone doesn't lose them. A uri we hold nothing about stays
+        # a bare reference. See _linkable_uris for what is never linked.
+        described = {self._subject(g) for g in self.others()}
+        cited = []
+        for sqla_class, class_, graphs in (
+            (Work, BF.Work, work_graphs),
+            (Instance, BF.Instance, instance_graphs),
+        ):
+            for g in graphs:
+                linkable = self._linkable_uris(g, self._cited_uris(g), described)
+                cited.append((sqla_class, self._subject(g, class_), linkable))
 
-        # resolve every cited uri in one query rather than one per uri
+        # resolve the cited uris a chunk at a time rather than one query per uri,
+        # fetching only the ids a link row needs
         all_cited = sorted({str(uri) for _, _, uris in cited for uri in uris})
-        held = {
-            other.uri: other
-            for other in session.query(OtherResource).where(
-                OtherResource.uri.in_(all_cited)
+        held: dict[str, int] = {}
+        for start in range(0, len(all_cited), HELD_LOOKUP_CHUNK):
+            chunk = all_cited[start : start + HELD_LOOKUP_CHUNK]
+            held.update(
+                (uri, id_)
+                for id_, uri in session.query(
+                    OtherResource.id, OtherResource.uri
+                ).where(OtherResource.uri.in_(chunk))
             )
-        }
-        for uri in all_cited:
-            cache[(OtherResource, uri)] = held.get(uri)
 
         for sqla_class, resource_uri, uris in cited:
             for other_uri in sorted(uris):
-                other_model = self._resolve(session, OtherResource, other_uri, cache)
-                if other_model is None:
+                other_id = held.get(str(other_uri))
+                if other_id is None:
                     continue
                 logger.info(f"linking {resource_uri} to {other_uri}")
                 resource_model = self._resolve(session, sqla_class, resource_uri, cache)
                 session.add(
                     BibframeOtherResources(
-                        bibframe_resource=resource_model, other_resource=other_model
+                        bibframe_resource=resource_model, other_resource_id=other_id
                     )
                 )
 
