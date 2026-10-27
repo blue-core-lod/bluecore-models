@@ -61,11 +61,6 @@ DEFAULT_DESC_LEVEL = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/")
 # searching the graph for the term -- see _marked_stub and _clear_stub_marker.
 STUB_STATUS = URIRef("http://id.loc.gov/vocabulary/mstatus/incmp")
 
-# Predicates that hang the other end of a relationship off a bf:Relation node.
-# What they point at is a mention of a resource described elsewhere, not
-# something this record is describing. See _find_relation_stubs.
-RELATION_PREDICATES = (BF.associatedResource, BFLC.associatedResource)
-
 # The kinds of resource that get a record of their own. A blank node of one of
 # these only gets one if it is the resource being created. See _find_roots.
 RECORD_CLASSES = (BF.Work, BF.Instance, BF.Hub)
@@ -215,7 +210,6 @@ class BluecoreGraph:
         # The blank node a payload named with an empty @id, if any. See
         # _name_new_resource.
         self._new_resource = self._name_new_resource()
-        self._relation_stubs = self._find_relation_stubs()
         # The blank node Works, Instances and Hubs no other one describes, which
         # are the only ones that can be the resource being created; and the
         # blank nodes nothing with a URI reaches. See _find_roots.
@@ -224,35 +218,6 @@ class BluecoreGraph:
         # has found it; every other blank node stays inline. See _find_root.
         self._root: BNode | None = None
         self._infer()
-
-    def _find_relation_stubs(self) -> set[Node]:
-        """
-        Find the blank nodes that only exist to say what the other end of a
-        bf:relation is, along with anything hanging off them.
-
-        LC writes the print version of a serial this way: a nameless Work with a
-        nameless Instance inside it. It is a mention, not a record, and it has no
-        uri we could recognize it by next time, so turning it into a Work and an
-        Instance of our own just makes a new pair on every load.
-        """
-        relations = set(self.graph.objects(predicate=BF.relation)) | set(
-            self.graph.subjects(RDF.type, BF.Relation)
-        )
-        queue = [
-            o
-            for relation in relations
-            for predicate in RELATION_PREDICATES
-            for o in self.graph.objects(relation, predicate)
-            if isinstance(o, BNode)
-        ]
-        found: set[Node] = set()
-        while queue:
-            node = queue.pop()
-            if node in found:
-                continue
-            found.add(node)
-            queue.extend(o for o in self.graph.objects(node) if isinstance(o, BNode))
-        return found
 
     def _name_new_resource(self) -> BNode | None:
         """
@@ -306,8 +271,9 @@ class BluecoreGraph:
 
         A blank node has no identity of its own, so one described inside another
         resource -- such as the Work the editor's Monograph Work template puts
-        under bf:accompaniedBy, or an Instance under a new Work's bf:hasInstance --
-        stays inline in that resource's record until something gives it a URI.
+        under bf:accompaniedBy, an Instance under a new Work's bf:hasInstance, or
+        the nameless Work LC describes at the other end of a bf:relation -- stays
+        inline in that resource's record until something gives it a URI.
         So a root is a blank node no other Work, Instance or Hub reaches. A payload
         can also say which one is being created with an empty @id, which settles
         it when the shape doesn't: a new Work whose part points back at it with
@@ -453,7 +419,6 @@ class BluecoreGraph:
                 generate_entity_graph(self.graph, s)
                 for s in self.graph.subjects(RDF.type, BF.Work)
                 if (s, RDF.type, BF.Hub) not in self.graph
-                and s not in self._relation_stubs
                 and not self._anonymous_description(s)
             ],
         )
@@ -638,25 +603,20 @@ class BluecoreGraph:
             (BF.hasInstance, BF.Instance),
             (BF.instanceOf, BF.Work),
         ]
-        # Not for the other end of a relationship: giving that a type is what
-        # turns a passing mention into a record. Anything else untyped and
-        # nested is a new resource being written, so it still gets one.
         for predicate, object_type in type_rules:
             for o in self.graph.objects(predicate=predicate):
-                if o not in self._relation_stubs:
-                    self.graph.add((o, RDF.type, object_type))
+                self.graph.add((o, RDF.type, object_type))
 
     def _extract_subgraphs(self, bibframe_class: URIRef) -> list[Graph]:
         """
         Returns a list of subgraphs for subjects of a given type, leaving out the
-        ones that are only a mention of the other end of a relationship, and the
-        anonymous descriptions a bulk-loaded record carries (see
+        anonymous descriptions kept inline in another resource (see
         _anonymous_description).
         """
         return [
             generate_entity_graph(self.graph, s)
             for s in self.graph.subjects(RDF.type, bibframe_class)
-            if s not in self._relation_stubs and not self._anonymous_description(s)
+            if not self._anonymous_description(s)
         ]
 
     def _extract_others(self) -> list[Graph]:
@@ -1214,10 +1174,7 @@ class BluecoreGraph:
             self.graph.subject_objects(BF.instanceOf),
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
-            # a mention has no record of its own to link
-            if s in self._relation_stubs or o in self._relation_stubs:
-                continue
-            # nor does an anonymous description in a bulk-loaded record
+            # an anonymous description has no record of its own to link
             if self._anonymous_description(s) or self._anonymous_description(o):
                 continue
             logger.info(f"linking {s} to {o}")
@@ -1233,10 +1190,7 @@ class BluecoreGraph:
             self.graph.subject_objects(BF.expressionOf),
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
-            # a mention has no record of its own to link
-            if s in self._relation_stubs or o in self._relation_stubs:
-                continue
-            # nor does an anonymous description in a bulk-loaded record
+            # an anonymous description has no record of its own to link
             if self._anonymous_description(s) or self._anonymous_description(o):
                 continue
             # Only link a Hub this document actually describes: an expressionOf
