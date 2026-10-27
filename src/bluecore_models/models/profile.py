@@ -17,6 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import (
     Mapped,
+    Session,
     column_property,
     mapped_column,
     relationship,
@@ -24,6 +25,7 @@ from sqlalchemy.orm import (
 
 from bluecore_models.models.base import Base
 from bluecore_models.models.resource import ResourceBase
+from bluecore_models.models.version import Version
 from bluecore_models.utils.db import add_version
 from bluecore_models.utils.graph import load_jsonld
 
@@ -278,6 +280,127 @@ def sync_profile_relations(connection, profile: Profile) -> None:
             )
             .on_conflict_do_nothing()
         )
+
+
+def latest_version_uri(session: Session, profile: Profile) -> str | None:
+    """The URI of a profile's newest version, or None if it has none yet.
+
+    Ordered by id as well as created_at because a version takes its created_at
+    from the profile's updated_at, which is the transaction's start time: two
+    versions written in one transaction, as cascade_nested_versions writes them,
+    share it.
+    """
+    version_id = session.scalars(
+        select(Version.id)
+        .where(Version.resource_id == profile.id)
+        .order_by(Version.created_at.desc(), Version.id.desc())
+        .limit(1)
+    ).first()
+    if version_id is None:
+        return None
+    return f"{profile.uri}/version/{version_id}"
+
+
+def _pin_nested(data: Any, pins: dict[str, str]) -> Any | None:
+    """A copy of a profile's data with its nesting references pinned, or None.
+
+    pins maps a profile URI to the version URI that references to it should
+    name, whether they name a version now or not. None means no reference
+    changed, so there is no new version to make.
+
+    Walked as JSON and edited on a copy, rather than parsed as RDF and written
+    out again: a profile is stored in the shape the client sent, and Sinopia
+    Editor reads it back in that shape.
+    """
+    pinned = deepcopy(data)
+    changed = False
+    stack = [pinned]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                # expanded or prefixed, as in profile_refs
+                if key.rsplit("/", 1)[-1].rsplit(":", 1)[-1] != "hasResourceTemplateId":
+                    stack.append(value)
+                    continue
+                for obj in value if isinstance(value, list) else [value]:
+                    ref = obj.get("@id") if isinstance(obj, dict) else None
+                    if not isinstance(ref, str):
+                        continue
+                    version_uri = pins.get(split_version_uri(ref)[0])
+                    if version_uri is not None and ref != version_uri:
+                        obj["@id"] = version_uri
+                        changed = True
+        elif isinstance(node, list):
+            stack.extend(node)
+    return pinned if changed else None
+
+
+def cascade_nested_versions(session: Session, profile: Profile) -> list[Profile]:
+    """Give every profile that nests this one a new version pinning its newest.
+
+    Call it after changing a profile, in the same transaction, so the change
+    and every version it causes commit together. It goes all the way up: a
+    parent that gets a new version is nested by others, which then need one too.
+    The new versions are saved through the ORM, so the usual hooks record them
+    and their relations, and they carry the same author as the change that
+    caused them.
+
+    Each profile is saved once, after everything it nests that changed, so it
+    pins their new versions: a profile reached through two parents gets one new
+    version, not two. A nesting cycle has no such order. Its profiles are saved
+    once each, in id order, and the cascade stops.
+
+    Returns the profiles given a new version, in the order they were saved.
+    """
+    session.flush()
+    relations = ProfileRelation.__table__
+
+    # every profile above this one, and the (child, parent) edges among them
+    edges: set[tuple[int, int]] = set()
+    ancestors: set[int] = set()
+    frontier = {profile.id}
+    while frontier:
+        rows = session.execute(
+            select(relations.c.child_profile_id, relations.c.parent_profile_id).where(
+                relations.c.child_profile_id.in_(frontier)
+            )
+        ).all()
+        edges.update((child, parent) for child, parent in rows)
+        frontier = {parent for _, parent in rows} - ancestors - {profile.id}
+        ancestors |= frontier
+    if not ancestors:
+        return []
+
+    version_uri = latest_version_uri(session, profile)
+    if version_uri is None:
+        return []
+    pins = {profile.uri: version_uri}
+    profiles = {
+        p.id: p
+        for p in session.scalars(select(Profile).where(Profile.id.in_(ancestors)))
+    }
+    # the profiles above this one that each is still waiting on
+    waiting = {
+        parent: {child for child, p in edges if p == parent and child in ancestors}
+        for parent in ancestors
+    }
+
+    updated = []
+    while waiting:
+        ready = [parent for parent, children in waiting.items() if not children]
+        parent = profiles[min(ready or waiting)]
+        pinned = _pin_nested(parent.data, pins)
+        if pinned is not None:
+            parent.data = pinned
+            session.flush()
+            updated.append(parent)
+        if (parent_version := latest_version_uri(session, parent)) is not None:
+            pins[parent.uri] = parent_version
+        del waiting[parent.id]
+        for children in waiting.values():
+            children.discard(parent.id)
+    return updated
 
 
 @event.listens_for(Profile, "after_insert")
