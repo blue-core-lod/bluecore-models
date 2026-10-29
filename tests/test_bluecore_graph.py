@@ -2452,3 +2452,185 @@ def test_derived_from_lookup_uses_type_and_derived_from_index(
         if "Index Cond" in line and "jsonb_path_query_first" in line
     )
     assert f"(type)::text = '{collection}'::text" in index_cond
+
+
+# ---------------------------------------------------------------------------
+# Other Resource links follow the stored data, not the payload's shape (#169)
+# ---------------------------------------------------------------------------
+
+
+def _heading() -> str:
+    """A heading uri no other test uses, since pg_session keeps rows between tests."""
+    return f"http://id.loc.gov/authorities/subjects/sh{uuid.uuid4().hex}"
+
+
+def _citing(uri: str, class_: URIRef, heading: str, describes: bool) -> Graph:
+    """A resource citing a heading, either describing it inline or by uri alone."""
+    g = Graph()
+    g.add((URIRef(uri), RDF.type, class_))
+    g.add((URIRef(uri), BF.subject, URIRef(heading)))
+    if describes:
+        g.add((URIRef(heading), RDF.type, MADS.Topic))
+        g.add((URIRef(heading), RDFS.label, Literal("Physicians")))
+    return g
+
+
+def test_other_resource_link_does_not_depend_on_payload_shape(pg_session):
+    """
+    A Work's Other Resource links should follow from the data we store for it,
+    not from whether the payload happened to describe the authority inline.
+
+    The same Work cites the same heading in both saves, and its stored data is
+    identical either way -- only the payload differs. The first save describes
+    the heading inline; the second cites it by uri alone, which is what a
+    payload rebuilt from stored data looks like.
+    """
+    heading = _heading()
+    work_uri = _new_uri("works")
+
+    save_graph(
+        pg_session, _citing(work_uri, BF.Work, heading, True), primary_class=BF.Work
+    )
+    with pg_session() as session:
+        work = _fetch(session, work_uri)
+        cites = work.data["subject"]
+        assert _linked_others(session, work) == [heading]
+
+    save_graph(
+        pg_session, _citing(work_uri, BF.Work, heading, False), primary_class=BF.Work
+    )
+    with pg_session() as session:
+        row = session.query(OtherResource).where(OtherResource.uri == heading).one()
+        assert row.data["rdfs:label"] == ["Physicians"]
+        work = _fetch(session, work_uri)
+        assert work.data["subject"] == cites
+        # the Work still cites a heading we hold, so it keeps its link
+        assert _linked_others(session, work) == [heading]
+
+
+def test_citation_by_uri_links_to_heading_another_work_described(pg_session):
+    """A uri-only citation links to the row an earlier, unrelated save created."""
+    heading = _heading()
+    first = _new_uri("works")
+    save_graph(
+        pg_session, _citing(first, BF.Work, heading, True), primary_class=BF.Work
+    )
+
+    second = _new_uri("works")
+    save_graph(
+        pg_session, _citing(second, BF.Work, heading, False), primary_class=BF.Work
+    )
+
+    with pg_session() as session:
+        assert _linked_others(session, _fetch(session, second)) == [heading]
+        assert _linked_others(session, _fetch(session, first)) == [heading]
+
+
+def test_citation_of_unknown_uri_stays_a_bare_reference(pg_session):
+    """Citing a uri we hold nothing about creates neither a row nor a link."""
+    unknown = f"http://id.loc.gov/authorities/subjects/sh{uuid.uuid4().hex}"
+    work_uri = _new_uri("works")
+    save_graph(
+        pg_session, _citing(work_uri, BF.Work, unknown, False), primary_class=BF.Work
+    )
+
+    with pg_session() as session:
+        assert (
+            session.query(OtherResource).where(OtherResource.uri == unknown).first()
+            is None
+        )
+        assert _linked_others(session, _fetch(session, work_uri)) == []
+
+
+def test_citation_nested_under_blank_node_links_by_uri(pg_session):
+    """An agent cited by uri inside a contribution still gets its link."""
+    agent = f"http://id.loc.gov/rwo/agents/n{uuid.uuid4().hex}"
+    seed = Graph()
+    seed_uri = _new_uri("works")
+    seed.add((URIRef(seed_uri), RDF.type, BF.Work))
+    seed.add((URIRef(seed_uri), BF.subject, URIRef(agent)))
+    seed.add((URIRef(agent), RDFS.label, Literal("Twain, Mark, 1835-1910")))
+    save_graph(pg_session, seed, primary_class=BF.Work)
+
+    work_uri = _new_uri("works")
+    g = Graph()
+    contribution = BNode()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.contribution, contribution))
+    g.add((contribution, RDF.type, BF.Contribution))
+    g.add((contribution, BF.agent, URIRef(agent)))
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    with pg_session() as session:
+        assert _linked_others(session, _fetch(session, work_uri)) == [agent]
+
+
+def test_instance_citation_by_uri_keeps_its_link(pg_session):
+    """Instances follow the same rule as Works."""
+    heading = _heading()
+    inst_uri = _new_uri("instances")
+    save_graph(
+        pg_session,
+        _citing(inst_uri, BF.Instance, heading, True),
+        primary_class=BF.Instance,
+    )
+    save_graph(
+        pg_session,
+        _citing(inst_uri, BF.Instance, heading, False),
+        primary_class=BF.Instance,
+    )
+
+    with pg_session() as session:
+        inst = session.query(Instance).where(Instance.uri == inst_uri).one()
+        assert _linked_others(session, inst) == [heading]
+
+
+def test_admin_metadata_terms_are_not_linked_by_uri_alone(pg_session):
+    """
+    The vocabulary terms we put on every resource's adminMetadata aren't linked
+    just because we hold a row for them, or every record would link to them.
+    """
+    status = f"http://id.loc.gov/vocabulary/mstatus/{uuid.uuid4().hex}"
+    seed_uri = _new_uri("works")
+    seed = Graph()
+    seed.add((URIRef(seed_uri), RDF.type, BF.Work))
+    seed.add((URIRef(seed_uri), BF.genreForm, URIRef(status)))
+    seed.add((URIRef(status), RDFS.label, Literal("held term")))
+    save_graph(pg_session, seed, primary_class=BF.Work)
+
+    work_uri = _new_uri("works")
+    g = Graph()
+    admin_metadata = BNode()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.status, URIRef(status)))
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    with pg_session() as session:
+        assert _linked_others(session, _fetch(session, seed_uri)) == [status]
+        assert _linked_others(session, _fetch(session, work_uri)) == []
+
+
+def test_record_uri_held_as_other_resource_is_not_linked_by_uri_alone(pg_session):
+    """
+    A Hub stored as an Other Resource because it once arrived without a type
+    isn't linked to a Work citing it through bf:expressionOf or bf:relatedTo.
+    """
+    hub = f"http://example.org/hubs/{uuid.uuid4().hex}"
+    seed_uri = _new_uri("works")
+    seed = Graph()
+    seed.add((URIRef(seed_uri), RDF.type, BF.Work))
+    seed.add((URIRef(seed_uri), BF.subject, URIRef(hub)))
+    seed.add((URIRef(hub), RDFS.label, Literal("Untyped hub")))
+    save_graph(pg_session, seed, primary_class=BF.Work)
+
+    work_uri = _new_uri("works")
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.expressionOf, URIRef(hub)))
+    g.add((URIRef(work_uri), BF.relatedTo, URIRef(hub)))
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    with pg_session() as session:
+        assert _linked_others(session, _fetch(session, work_uri)) == []
