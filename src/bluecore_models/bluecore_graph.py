@@ -323,28 +323,45 @@ class BluecoreGraph:
         Find the blank node a save() writing primary_class is creating, or None if
         it isn't creating one (an update, where the resource has a URI).
 
-        Raises a BluecoreGraphError when the payload's shape doesn't say which
-        one it is: two blank node Works that each describe the other, or two that
-        nothing connects.
+        A resource named with an empty @id is the one, wherever it sits. Otherwise
+        a lone blank node of the class is the one, even if another resource points
+        at it (a new Instance's bf:instanceOf, say). Only when there are several
+        does it matter which is a root.
+
+        Raises a BluecoreGraphError when the payload doesn't say which one it is
+        (two blank node Works that each describe the other, or two that nothing
+        connects), or when the only blank node of the class is inside a resource
+        with a URI. That resource is only referred to, so isn't rewritten, and the
+        new one would be lost.
         """
         if primary_class not in RECORD_CLASSES:
             return None
         name = str(primary_class).removeprefix(str(BF))
-        if self._new_resource is not None and (
-            (self._new_resource, RDF.type, primary_class) not in self.graph
-        ):
-            raise BluecoreGraphError(f"The resource with an empty @id is not a {name}")
-        candidates = {
+        if self._new_resource is not None:
+            if (self._new_resource, RDF.type, primary_class) not in self.graph:
+                raise BluecoreGraphError(
+                    f"The resource with an empty @id is not a {name}"
+                )
+            return self._new_resource
+
+        nodes = {
             node
-            for node in self._unattached
-            if (node, RDF.type, primary_class) in self.graph
+            for node in self.graph.subjects(RDF.type, primary_class)
             # LC types Hubs as both bf:Hub and bf:Work; works() leaves them out
-            and not (
-                primary_class == BF.Work and (node, RDF.type, BF.Hub) in self.graph
-            )
+            if not (primary_class == BF.Work and (node, RDF.type, BF.Hub) in self.graph)
         }
+        blank = {node for node in nodes if isinstance(node, BNode)}
+        candidates = blank & self._unattached
         if not candidates:
+            if blank and nodes == blank:
+                raise BluecoreGraphError(
+                    f"Nothing to create: the blank node {name} is described inside "
+                    "a resource with a URI, which isn't rewritten. Give the "
+                    f"{name} being created an empty @id."
+                )
             return None
+        if len(candidates) == 1:
+            return candidates.pop()
         roots = candidates & self._roots
         if len(roots) == 1:
             return roots.pop()

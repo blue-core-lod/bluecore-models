@@ -35,7 +35,7 @@ A blank node has nothing to recognise it by the next time it arrives. If it got 
 
 ## Which blank node is being created
 
-On a create, the resource being created is the blank node of the `primary_class` that no other Work, Instance or Hub points to. In the example above, that's the outer Work.
+On a create, the resource being created is the blank node of the `primary_class`. If there are several, it's the one no other Work, Instance or Hub points to. In the example above, that's the outer Work.
 
 The shape alone can't settle this when a nested resource points back at its parent:
 
@@ -56,6 +56,17 @@ A payload can name the resource being created with an empty IRI, `"@id": ""` in 
 ```
 
 For this to work, the code doing the create parses the payload with `load_jsonld(data, base=NEW_RESOURCE)`. The part then stays inline, and its `bf:partOf` points at the new Work's URI. Any other relative `@id`, such as `"#part"`, is refused, because it would resolve to a URI that looks like a real identity.
+
+An empty `@id` settles it even inside a resource with a URI, so one payload can add a new Instance to an existing Work:
+
+```turtle
+<https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03> a bf:Work ;
+    bf:hasInstance <> .
+
+<> a bf:Instance .
+```
+
+Without the empty `@id`, that Instance would be a blank node inside a resource that is only referred to, and so not rewritten. A create like that has nothing to create, and is refused.
 
 ## Background
 

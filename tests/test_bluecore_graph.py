@@ -1968,6 +1968,67 @@ def test_empty_id_names_the_work_being_created(pg_session):
         ]
 
 
+EXISTING_WORK = "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03"
+
+
+def test_empty_id_is_the_root_even_when_a_uri_resource_points_at_it():
+    """A new Instance added to an existing Work in one payload."""
+    graph = BluecoreGraph(
+        load_jsonld(
+            {
+                "@context": CONTEXT_URL,
+                "@id": EXISTING_WORK,
+                "@type": "Work",
+                "hasInstance": {"@id": "", "@type": "Instance"},
+            },
+            base=NEW_RESOURCE,
+        )
+    )
+
+    assert graph._find_root(BF.Instance) == graph._new_resource
+
+
+def test_a_create_with_nothing_to_create_is_refused():
+    """
+    The only blank node Instance is inside a Work that has a URI. The Work is
+    only referred to, so isn't rewritten, and the Instance would be lost.
+    """
+    graph = BluecoreGraph(
+        load_jsonld(
+            {
+                "@context": CONTEXT_URL,
+                "@id": EXISTING_WORK,
+                "@type": "Work",
+                "hasInstance": {"@id": "_:new", "@type": "Instance"},
+            }
+        )
+    )
+
+    with pytest.raises(BluecoreGraphError, match="Nothing to create"):
+        graph._find_root(BF.Instance)
+
+
+def test_a_lone_blank_node_is_the_root_even_when_pointed_at():
+    """A new Work whose Instance points back at it with bf:instanceOf."""
+    graph = BluecoreGraph(
+        load_jsonld(
+            [
+                {"@context": CONTEXT_URL, "@id": "_:w", "@type": "Work"},
+                {
+                    "@context": CONTEXT_URL,
+                    "@id": "_:i",
+                    "@type": "Instance",
+                    "instanceOf": {"@id": "_:w"},
+                },
+            ]
+        )
+    )
+
+    root = graph._find_root(BF.Work)
+    assert root is not None
+    assert (root, RDF.type, BF.Work) in graph.graph
+
+
 def test_created_uri_is_the_resource_being_created(pg_session):
     """
     created_uri names the resource a save created, even when the graph holds
