@@ -20,6 +20,7 @@ from bluecore_models.models import (
     BibframeOtherResources,
     Hub,
     Instance,
+    InstanceExport,  # noqa
     OtherResource,
     ResourceBibframeClass,  # noqa
     Version,  # noqa
