@@ -21,6 +21,7 @@ from bluecore_models.models import (
 from bluecore_models.models.version import CURRENT_USER_ID
 from bluecore_models.namespaces import BF, BFLC, MADS, RDF, RDFS
 from bluecore_models.utils.graph import (
+    NEW_RESOURCE,
     generate_entity_graph,
     remove_bnode,
     replace_uri,
@@ -60,10 +61,9 @@ DEFAULT_DESC_LEVEL = URIRef("http://id.loc.gov/ontologies/bibframe-2-6-0/")
 # searching the graph for the term -- see _marked_stub and _clear_stub_marker.
 STUB_STATUS = URIRef("http://id.loc.gov/vocabulary/mstatus/incmp")
 
-# Predicates that hang the other end of a relationship off a bf:Relation node.
-# What they point at is a mention of a resource described elsewhere, not
-# something this record is describing. See _find_relation_stubs.
-RELATION_PREDICATES = (BF.associatedResource, BFLC.associatedResource)
+# The kinds of resource that get a record of their own. A blank node of one of
+# these only gets one if it is the resource being created. See _find_roots.
+RECORD_CLASSES = (BF.Work, BF.Instance, BF.Hub)
 
 
 class BluecoreGraphError(Exception):
@@ -183,7 +183,8 @@ class BluecoreGraph:
         # expensive and get called repeatedly across the save. We cache them keyed
         # on _revision, which is bumped every time the graph is mutated so the
         # cache can't go stale. Every mutation of self.graph funnels through
-        # _infer (once, here) and _switch_uris (during minting) -- keep it that
+        # _name_new_resource and _infer (once each, here) and _switch_uris
+        # (during minting) -- keep it that
         # way, or bump _revision at any new mutation site (see _bump_revision).
         self._revision = 0
         self._subgraph_cache: dict[str, tuple[int, list[Graph]]] = {}
@@ -203,39 +204,177 @@ class BluecoreGraph:
         # other Work or Instance in the graph is only a reference to it, so it
         # keeps the links it already has. None on the bulk path. See save().
         self._primary_class = None
-        # Work this out before _infer, which adds the very links that would
-        # make a legitimately new resource look like a nested mention.
-        self._relation_stubs = self._find_relation_stubs()
+        # Work these out before _infer, which adds links back up (bf:instanceOf
+        # for a bf:hasInstance) that would make a new resource look nested.
+        #
+        # The blank node a payload named with an empty @id, if any. See
+        # _name_new_resource.
+        self._new_resource = self._name_new_resource()
+        # The blank node Works, Instances and Hubs no other one describes, which
+        # are the only ones that can be the resource being created; and the
+        # blank nodes nothing with a URI reaches. See _find_roots.
+        self._roots, self._unattached = self._find_roots()
+        # The one root a save() with a primary_class is creating, once save()
+        # has found it; every other blank node stays inline. See _find_root.
+        self._root: BNode | None = None
+        # The URI save() minted for that root, so a caller creating a resource
+        # knows which one it created. None when the save created nothing.
+        self.created_uri: URIRef | None = None
         self._infer()
 
-    def _find_relation_stubs(self) -> set[Node]:
+    def _name_new_resource(self) -> BNode | None:
         """
-        Find the blank nodes that only exist to say what the other end of a
-        bf:relation is, along with anything hanging off them.
+        Turn the resource a payload names with an empty @id (see NEW_RESOURCE) into
+        a blank node, like any other resource being created, and return it.
 
-        LC writes the print version of a serial this way: a nameless Work with a
-        nameless Instance inside it. It is a mention, not a record, and it has no
-        uri we could recognize it by next time, so turning it into a Work and an
-        Instance of our own just makes a new pair on every load.
+        Linked Data Platform only gives the empty @id this meaning as a subject
+        (https://www.w3.org/TR/ldp/#ldpc-post-rdfnullrel). It is taken as an
+        object too, so that a part can point back at the Work being created.
+
+        Any other relative @id is refused. It resolves against NEW_RESOURCE to a
+        URI of its own, which would otherwise be taken for a real identity and
+        get a record.
         """
-        relations = set(self.graph.objects(predicate=BF.relation)) | set(
-            self.graph.subjects(RDF.type, BF.Relation)
+        new_resource = URIRef(NEW_RESOURCE)
+        # without the slash, which "../x" resolves without
+        prefix = NEW_RESOURCE.rstrip("/")
+        for triple in self.graph:
+            for node in (triple[0], triple[2]):
+                if (
+                    isinstance(node, URIRef)
+                    and node.startswith(prefix)
+                    and node != new_resource
+                ):
+                    relative = str(node).removeprefix(NEW_RESOURCE)
+                    raise BluecoreGraphError(
+                        f'Unsupported relative @id "{relative}": use "" for the '
+                        "resource being created, or a blank node"
+                    )
+        triples = list(self.graph.triples((new_resource, None, None))) + list(
+            self.graph.triples((None, None, new_resource))
         )
-        queue = [
-            o
-            for relation in relations
-            for predicate in RELATION_PREDICATES
-            for o in self.graph.objects(relation, predicate)
-            if isinstance(o, BNode)
-        ]
-        found: set[Node] = set()
-        while queue:
-            node = queue.pop()
-            if node in found:
-                continue
-            found.add(node)
-            queue.extend(o for o in self.graph.objects(node) if isinstance(o, BNode))
-        return found
+        if not triples:
+            return None
+        bnode = BNode()
+        for s, p, o in triples:
+            self.graph.remove((s, p, o))
+            self.graph.add(
+                (
+                    bnode if s == new_resource else s,
+                    p,
+                    bnode if o == new_resource else o,
+                )
+            )
+        return bnode
+
+    def _find_roots(self) -> tuple[set[BNode], set[BNode]]:
+        """
+        Find the blank node Works, Instances and Hubs that are resources in their
+        own right, rather than described inline in another resource.
+
+        A blank node has no identity of its own, so one described inside another
+        resource -- such as the Work the editor's Monograph Work template puts
+        under bf:accompaniedBy, an Instance under a new Work's bf:hasInstance, or
+        the nameless Work LC describes at the other end of a bf:relation -- stays
+        inline in that resource's record until something gives it a URI.
+        So a root is a blank node no other Work, Instance or Hub reaches. A payload
+        can also say which one is being created with an empty @id, which settles
+        it when the shape doesn't: a new Work whose part points back at it with
+        bf:partOf is reached from that part.
+
+        Also returns the blank nodes nothing with a URI reaches, the ones save()
+        has to find a single root among (see _find_root).
+
+        This runs before _infer, which adds the links back up (bf:instanceOf for a
+        bf:hasInstance) that would make a root look nested.
+        """
+
+        def reached_from(start: Node) -> set[Node]:
+            reached: set[Node] = set()
+            queue = [start]
+            while queue:
+                for o in self.graph.objects(queue.pop()):
+                    if isinstance(o, BNode) and o not in reached:
+                        reached.add(o)
+                        queue.append(o)
+            return reached
+
+        records = {
+            s
+            for class_ in RECORD_CLASSES
+            for s in self.graph.subjects(RDF.type, class_)
+        }
+        reached = {record: reached_from(record) for record in records}
+        blank = {record for record in records if isinstance(record, BNode)}
+        unattached = blank.difference(
+            *(r for record, r in reached.items() if isinstance(record, URIRef))
+        )
+        if self._new_resource is not None:
+            return {self._new_resource}, unattached
+        roots = {
+            node
+            for node in blank
+            if not any(node in r for record, r in reached.items() if record != node)
+        }
+        return roots, unattached
+
+    def _find_root(self, primary_class) -> BNode | None:
+        """
+        Find the blank node a save() writing primary_class is creating, or None if
+        it isn't creating one (an update, where the resource has a URI).
+
+        A resource named with an empty @id is the one, wherever it sits. Otherwise
+        a lone blank node of the class is the one, even if another resource points
+        at it (a new Instance's bf:instanceOf, say). Only when there are several
+        does it matter which is a root.
+
+        Raises a BluecoreGraphError when the payload doesn't say which one it is
+        (two blank node Works that each describe the other, or two that nothing
+        connects), or when the only blank node of the class is inside a resource
+        with a URI. That resource is only referred to, so isn't rewritten, and the
+        new one would be lost.
+        """
+        if primary_class not in RECORD_CLASSES:
+            return None
+        name = str(primary_class).removeprefix(str(BF))
+        if self._new_resource is not None:
+            if (self._new_resource, RDF.type, primary_class) not in self.graph:
+                raise BluecoreGraphError(
+                    f"The resource with an empty @id is not a {name}"
+                )
+            return self._new_resource
+
+        nodes = {
+            node
+            for node in self.graph.subjects(RDF.type, primary_class)
+            # LC types Hubs as both bf:Hub and bf:Work; works() leaves them out
+            if not (primary_class == BF.Work and (node, RDF.type, BF.Hub) in self.graph)
+        }
+        blank = {node for node in nodes if isinstance(node, BNode)}
+        candidates = blank & self._unattached
+        if not candidates:
+            if blank and nodes == blank:
+                raise BluecoreGraphError(
+                    f"Nothing to create: the blank node {name} is described inside "
+                    "a resource with a URI, which isn't rewritten. Give the "
+                    f"{name} being created an empty @id."
+                )
+            return None
+        if len(candidates) == 1:
+            return candidates.pop()
+        roots = candidates & self._roots
+        if len(roots) == 1:
+            return roots.pop()
+        if roots:
+            problem = f"{len(roots)} blank node {name}s, none described inside another"
+        else:
+            problem = (
+                f"{len(candidates)} blank node {name}s, each described inside another"
+            )
+        raise BluecoreGraphError(
+            f"Unable to tell which resource is being created: found {problem}. "
+            "Give the one being created an empty @id."
+        )
 
     def _bump_revision(self) -> None:
         """
@@ -250,8 +389,11 @@ class BluecoreGraph:
 
         A resource newly created in an editor arrives without a URI, and minting one
         for it is the whole point. The API says which kind it is authoritatively
-        writing (primary_class), so a blank node on that path is a resource being
-        created, and this returns False for it.
+        writing (primary_class), and the one blank node of that kind no other
+        resource describes is the resource being created, so this returns False for
+        it. Every other blank node stays inline: it has no identity of its own until
+        something gives it a URI (see _find_roots). Before save() knows the
+        primary_class, every root counts.
 
         A bulk-loaded record is different. Its blank nodes are inline descriptions of
         resources it merely refers to: LC catalog data routinely states
@@ -261,7 +403,13 @@ class BluecoreGraph:
         and -- for Hubs -- they compete with the identified Hub for the single
         Work.hub_id, where sort order decides which one wins.
         """
-        return self._ingest and not isinstance(subject, URIRef)
+        if isinstance(subject, URIRef):
+            return False
+        if self._ingest:
+            return True
+        if self._primary_class is not None:
+            return subject != self._root
+        return subject not in self._roots
 
     def _subgraphs(self, key: str, compute) -> list[Graph]:
         """
@@ -291,7 +439,6 @@ class BluecoreGraph:
                 generate_entity_graph(self.graph, s)
                 for s in self.graph.subjects(RDF.type, BF.Work)
                 if (s, RDF.type, BF.Hub) not in self.graph
-                and s not in self._relation_stubs
                 and not self._anonymous_description(s)
             ],
         )
@@ -368,6 +515,9 @@ class BluecoreGraph:
         self._spot_stubs = primary_class is None and bool(self._described)
         self._ingest = primary_class is None
         self._primary_class = primary_class
+        self._root = self._find_root(primary_class)
+        # which resources are anonymous descriptions may have changed with them
+        self._bump_revision()
         # Strip blank node values the payload itself duplicated, before anything
         # here has had a chance to alter the graph. A caller is answerable for what
         # it sent us, not for what our own normalisation went on to do with it -- if
@@ -473,25 +623,20 @@ class BluecoreGraph:
             (BF.hasInstance, BF.Instance),
             (BF.instanceOf, BF.Work),
         ]
-        # Not for the other end of a relationship: giving that a type is what
-        # turns a passing mention into a record. Anything else untyped and
-        # nested is a new resource being written, so it still gets one.
         for predicate, object_type in type_rules:
             for o in self.graph.objects(predicate=predicate):
-                if o not in self._relation_stubs:
-                    self.graph.add((o, RDF.type, object_type))
+                self.graph.add((o, RDF.type, object_type))
 
     def _extract_subgraphs(self, bibframe_class: URIRef) -> list[Graph]:
         """
         Returns a list of subgraphs for subjects of a given type, leaving out the
-        ones that are only a mention of the other end of a relationship, and the
-        anonymous descriptions a bulk-loaded record carries (see
+        anonymous descriptions kept inline in another resource (see
         _anonymous_description).
         """
         return [
             generate_entity_graph(self.graph, s)
             for s in self.graph.subjects(RDF.type, bibframe_class)
-            if s not in self._relation_stubs and not self._anonymous_description(s)
+            if not self._anonymous_description(s)
         ]
 
     def _extract_others(self) -> list[Graph]:
@@ -646,13 +791,22 @@ class BluecoreGraph:
         else:
             raise BluecoreGraphError("Unexpected class_ type, must be URIRef or None")
 
+        # a blank node described inline in another resource isn't the subject of
+        # a subgraph, even though it is in the subgraph of the resource holding it
+        uris = [s for s in uris if not self._anonymous_description(s)]
+
         # there should only be one subject
         if len(uris) == 0:
             raise BluecoreGraphError(f"Unable to find subject URI for {class_}")
         elif len(uris) != 1:
             # try removing any bnodes when more than one subject was found
+            bnodes = len([s for s in uris if not isinstance(s, URIRef)])
             uris = list(filter(lambda s: isinstance(s, URIRef), uris))
-            if len(uris) != 1:
+            if len(uris) == 0:
+                raise BluecoreGraphError(
+                    f"Found {bnodes} blank node subjects for {class_} and no URI"
+                )
+            elif len(uris) != 1:
                 raise BluecoreGraphError(
                     f"Found more than one subject URI for {class_}: {uris}"
                 )
@@ -793,6 +947,8 @@ class BluecoreGraph:
         """
         self._bump_revision()  # replace_uri + _generate_admin_metadata mutate self.graph
         self._minted_from[str(bluecore_uri)] = str(derived_from)
+        if self._root is not None and derived_from == self._root:
+            self.created_uri = bluecore_uri
         replace_uri(self.graph, derived_from, bluecore_uri)
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):
@@ -1040,10 +1196,7 @@ class BluecoreGraph:
             self.graph.subject_objects(BF.instanceOf),
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
-            # a mention has no record of its own to link
-            if s in self._relation_stubs or o in self._relation_stubs:
-                continue
-            # nor does an anonymous description in a bulk-loaded record
+            # an anonymous description has no record of its own to link
             if self._anonymous_description(s) or self._anonymous_description(o):
                 continue
             logger.info(f"linking {s} to {o}")
@@ -1059,10 +1212,7 @@ class BluecoreGraph:
             self.graph.subject_objects(BF.expressionOf),
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
-            # a mention has no record of its own to link
-            if s in self._relation_stubs or o in self._relation_stubs:
-                continue
-            # nor does an anonymous description in a bulk-loaded record
+            # an anonymous description has no record of its own to link
             if self._anonymous_description(s) or self._anonymous_description(o):
                 continue
             # Only link a Hub this document actually describes: an expressionOf
