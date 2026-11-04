@@ -1,8 +1,8 @@
 """add instance_exports table
 
-Revision ID: 20261005
-Revises: 20261004
-Create Date: 2026-10-05
+Revision ID: 20261104
+Revises: 20261023
+Create Date: 2026-11-04
 
 Records who exported an Instance (e.g. to FOLIO or Alma), on behalf of which
 Keycloak group, when, and the identifier it received there. Both foreign keys
@@ -15,8 +15,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "20261005"
-down_revision: str | None = "20261004"
+revision: str = "20261104"
+down_revision: str | None = "20261023"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

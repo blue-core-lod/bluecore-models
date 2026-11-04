@@ -16,6 +16,7 @@ from bluecore_models.models import (
     InstanceExport,
     ResourceBibframeClass,
     Version,
+    Work,
 )
 from bluecore_models.models.version import (
     CURRENT_GROUP,
@@ -102,6 +103,67 @@ def test_keyword_arguments_override_context(pg_session):
         assert export.keycloak_group == "/cornell"
 
 
+def test_explicit_user_id_does_not_borrow_context_identity(pg_session):
+    with pg_session() as session:
+        instance = get_instance(session)
+        with token_context("a1b2-c3d4", "cataloger", "/stanford"):
+            with pytest.raises(ValueError, match="group"):
+                add_instance_export(
+                    session, instance, keycloak_user_id="service-account"
+                )
+            export = add_instance_export(
+                session,
+                instance,
+                keycloak_user_id="service-account",
+                keycloak_group="/cornell",
+            )
+        session.commit()
+
+        assert export.keycloak_user_id == "service-account"
+        assert export.keycloak_username is None
+        assert export.keycloak_group == "/cornell"
+
+
+def test_version_of_another_resource_raises(pg_session):
+    with pg_session() as session:
+        instance = get_instance(session)
+        work_version = session.scalars(select(Work)).first().versions[-1]
+        with (
+            token_context("a1b2-c3d4", group="/stanford"),
+            pytest.raises(ValueError, match="does not belong"),
+        ):
+            add_instance_export(session, instance, version=work_version)
+
+
+def test_unmodified_instance_does_not_flush(pg_session):
+    with pg_session() as session:
+        instance = get_instance(session)
+        latest = instance.versions[-1]
+        work = session.scalars(select(Work)).first()
+        work.uri = f"{work.uri}-renamed"
+
+        with token_context("a1b2-c3d4", group="/stanford"):
+            export = add_instance_export(session, instance)
+
+        assert export.version == latest
+        assert work in session.dirty
+        session.rollback()
+
+
+def test_modified_instance_exports_its_new_version(pg_session):
+    with pg_session() as session:
+        instance = get_instance(session)
+        before = instance.versions[-1]
+        instance.data = {**instance.data, "_test_bump": "changed"}
+
+        with token_context("a1b2-c3d4", group="/stanford"):
+            export = add_instance_export(session, instance)
+        session.commit()
+
+        assert export.version_id > before.id
+        assert export.version.resource_id == instance.id
+
+
 @pytest.mark.parametrize(
     "uid, group, missing",
     [(None, "/stanford", "user id"), ("a1b2-c3d4", None, "group")],
@@ -121,6 +183,7 @@ def test_exports_are_ordered(pg_session):
         with token_context("a1b2-c3d4", group="/stanford"):
             first = add_instance_export(session, instance, target_identifier="1")
             second = add_instance_export(session, instance, target_identifier="2")
+        session.flush()
         # Inserted second, exported first
         second.exported_at = first.exported_at - timedelta(days=1)
         session.commit()
@@ -162,7 +225,7 @@ def test_migration(migration_engine):
     )
     config = Config("alembic.ini")
 
-    command.upgrade(config, "20261005")
+    command.upgrade(config, "20261104")
     inspector = inspect(migration_engine)
     assert {
         fk["referred_table"]: fk["options"]
@@ -179,5 +242,5 @@ def test_migration(migration_engine):
         "index_instance_exports_on_target_identifier",
     }
 
-    command.downgrade(config, "20261004")
+    command.downgrade(config, "20261023")
     assert not inspect(migration_engine).has_table("instance_exports")
