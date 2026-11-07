@@ -1,5 +1,6 @@
 import json
 import logging
+import types
 import uuid
 
 import pytest
@@ -22,6 +23,8 @@ from bluecore_models.models import (
 )
 from bluecore_models.namespaces import BF, MADS, RDF
 from bluecore_models.utils.graph import CONTEXT_URL, NEW_RESOURCE, load_jsonld
+
+STUB_STATUS_ID = str(bluecore_graph.STUB_STATUS)
 
 
 def _derived_from_ids(data: dict) -> list[str]:
@@ -329,6 +332,26 @@ def test_namespace(pg_session, monkeypatch, mocker):
             .first()
         )
         assert work is not None
+
+
+def test_namespace_without_a_trailing_slash_gets_one():
+    bg = BluecoreGraph(Graph(), namespace="https://example.edu")
+
+    assert str(bg.namespace) == "https://example.edu/"
+
+
+def test_dangling_admin_metadata_is_not_taken_for_a_resource():
+    """
+    An AdminMetadata node that records a derivedFrom but hangs off no resource
+    by bf:adminMetadata names no resource, so there is nothing to find.
+    """
+    source = URIRef("https://example.com/1234")
+    g = Graph()
+    admin_metadata = BNode()
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.derivedFrom, source))
+
+    assert BluecoreGraph(g)._derived_from_subject(source) is None
 
 
 def test_invalid_namespace(pg_session):
@@ -983,6 +1006,40 @@ def test_instance_linking(pg_session):
         )
 
 
+def test_oclc_number_given_as_a_uri_is_not_stripped():
+    """
+    Only blank node identifiers are stripped by type, so an OclcNumber given as a
+    URI stays in place.
+    """
+    g = Graph()
+    g.parse(
+        data="""
+        @prefix bf: <http://id.loc.gov/ontologies/bibframe/> .
+
+        <https://dev.bcld.info/instances/0ca0f64e-d086-4309-a3e7-22ed061ad7e8>
+            a bf:Instance ;
+            bf:identifiedBy <http://example.org/oclc/1> .
+        <http://example.org/oclc/1> a bf:OclcNumber .
+        """,
+        format="turtle",
+    )
+    bg = BluecoreGraph(g)
+    instances = bg.instances()
+    assert len(instances) == 1
+    instance_graph = instances[0]
+
+    bg._remove_triples_by_type(instance_graph, BF.identifiedBy, BF.OclcNumber)
+
+    instance = URIRef(
+        "https://dev.bcld.info/instances/0ca0f64e-d086-4309-a3e7-22ed061ad7e8"
+    )
+    assert (
+        instance,
+        BF.identifiedBy,
+        URIRef("http://example.org/oclc/1"),
+    ) in instance_graph
+
+
 def test_hub_not_in_works():
     """
     A resource typed as both bf:Hub and bf:Work should appear in hubs() but not
@@ -1192,6 +1249,34 @@ def test_admin_metadata(pg_session):
         # each Instance records exactly one derivedFrom, pointing at its original URI
         assert len(derived_from) == 1
         assert derived_from <= original_instance_uris
+
+
+def test_admin_metadata_given_as_a_uri_is_left_in_place():
+    """
+    Removing a resource's AdminMetadata strips the blank node ones and leaves an
+    AdminMetadata given as a URI alone, since it is only referred to.
+    """
+    g = Graph()
+    g.parse(
+        data=f"""
+        @prefix bf: <http://id.loc.gov/ontologies/bibframe/> .
+
+        <{EXISTING_WORK}>
+            a bf:Work ;
+            bf:adminMetadata <http://example.org/am/1> ;
+            bf:adminMetadata [ a bf:AdminMetadata ] .
+        """,
+        format="turtle",
+    )
+    bg = BluecoreGraph(g)
+
+    bg._remove_admin_metadata(bg.graph, URIRef(EXISTING_WORK))
+
+    work = URIRef(EXISTING_WORK)
+    assert (work, BF.adminMetadata, URIRef("http://example.org/am/1")) in bg.graph
+    assert not any(
+        isinstance(o, BNode) for o in bg.graph.objects(work, BF.adminMetadata)
+    )
 
 
 def _remove_fixtures(pg_session):
@@ -1643,6 +1728,31 @@ def test_stub_keeps_the_links_its_description_gave_it(pg_session):
         assert agent in _linked_others(session, _fetch(session, uri))
 
 
+def test_saving_the_same_bluecore_graph_twice_gives_the_same_rows(pg_session):
+    """
+    Saving the same BluecoreGraph a second time must leave the rows it wrote
+    the first time unchanged, and the stub must stay marked incomplete.
+    """
+    described, stub = _ext_uri("works"), _ext_uri("works")
+    bg = BluecoreGraph(_record(described, "Saved Twice", stub=stub))
+    bg.save(pg_session)
+    uris = [_minted(bg.graph, described), _minted(bg.graph, stub)]
+
+    with pg_session() as session:
+        first = {
+            uri: json.dumps(_fetch(session, uri).data, sort_keys=True) for uri in uris
+        }
+
+    bg.save(pg_session)
+
+    with pg_session() as session:
+        second = {
+            uri: json.dumps(_fetch(session, uri).data, sort_keys=True) for uri in uris
+        }
+        assert second == first
+        assert STUB_STATUS_ID in _statuses(_fetch(session, uris[1]).data)
+
+
 def test_reingesting_a_record_does_not_overwrite_edits(pg_session):
     """
     Once we hold a full description, re-ingesting the very same record must not
@@ -1723,6 +1833,28 @@ def test_clearing_the_stub_marker_leaves_a_contents_note_alone(pg_session):
 # ---------------------------------------------------------------------------
 # relation stubs: nested mentions must not become records
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "data, expected",
+    [
+        ({"adminMetadata": {"status": {"@id": STUB_STATUS_ID}}}, True),
+        (
+            {"adminMetadata": ["text", {"status": [{"@id": STUB_STATUS_ID}]}]},
+            True,
+        ),
+        ({"adminMetadata": ["text"]}, False),
+    ],
+    ids=["single block", "list with a non-dict entry", "no block with a status"],
+)
+def test_stored_is_stub_reads_every_admin_metadata_shape(data, expected):
+    """
+    The stored JSON-LD may hold adminMetadata as one block or a list, with the
+    status as one value or a list, and some entries aren't blocks at all.
+    """
+    obj = types.SimpleNamespace(data=data)
+
+    assert BluecoreGraph(Graph())._stored_is_stub(obj) is expected
 
 
 def _relation_work(uri: str) -> Graph:
@@ -2029,6 +2161,45 @@ def test_a_lone_blank_node_is_the_root_even_when_pointed_at():
     assert (root, RDF.type, BF.Work) in graph.graph
 
 
+def test_empty_id_on_a_different_kind_is_refused():
+    """
+    An empty @id names a resource of the kind being created, so asking for a Work
+    when the empty @id is an Instance is refused.
+    """
+    graph = BluecoreGraph(
+        load_jsonld(
+            {"@context": CONTEXT_URL, "@id": "", "@type": "Instance"},
+            base=NEW_RESOURCE,
+        )
+    )
+
+    with pytest.raises(
+        BluecoreGraphError, match="The resource with an empty @id is not a Work"
+    ):
+        graph._find_root(BF.Work)
+
+
+def test_unconnected_new_works_are_refused():
+    """
+    Two blank node Works that no triple connects don't say which one is being
+    created, so the save is refused rather than guessed at.
+    """
+    graph = BluecoreGraph(
+        load_jsonld(
+            [
+                {"@context": CONTEXT_URL, "@id": "_:a", "@type": "Work"},
+                {"@context": CONTEXT_URL, "@id": "_:b", "@type": "Work"},
+            ]
+        )
+    )
+
+    with pytest.raises(
+        BluecoreGraphError,
+        match="2 blank node Works, none described inside another",
+    ):
+        graph._find_root(BF.Work)
+
+
 def test_created_uri_is_the_resource_being_created(pg_session):
     """
     created_uri names the resource a save created, even when the graph holds
@@ -2219,6 +2390,31 @@ def test_work_hub_link_is_saved_from_hasExpression(pg_session):
         assert work.hub is not None, "bf:hasExpression did not produce a link"
         assert work.hub.uri == hub.uri
         assert work in hub.works
+
+
+def test_hub_expressing_another_hub_is_not_linked_as_a_work(pg_session):
+    """
+    LC types a Hub as both bf:Hub and bf:Work. A Hub that expresses another Hub
+    is saved as a Hub, and isn't linked to the other as if it were a Work.
+    """
+    hub_a, hub_b = _ext_uri("hubs"), _ext_uri("hubs")
+    g = Graph()
+    for hub, title in ((hub_a, "Hub A"), (hub_b, "Hub B")):
+        g.add((URIRef(hub), RDF.type, BF.Hub))
+        title_node = BNode()
+        g.add((URIRef(hub), BF.title, title_node))
+        g.add((title_node, RDF.type, BF.Title))
+        g.add((title_node, BF.mainTitle, Literal(title)))
+    g.add((URIRef(hub_a), RDF.type, BF.Work))
+    g.add((URIRef(hub_a), BF.expressionOf, URIRef(hub_b)))
+
+    out = save_graph(pg_session, g)
+
+    with pg_session() as session:
+        for hub in (hub_a, hub_b):
+            uri = _minted(out, hub)
+            assert session.query(Hub).where(Hub.uri == uri).count() == 1
+            assert session.query(Work).where(Work.uri == uri).count() == 0
 
 
 def test_bulk_load_ignores_anonymous_resources(pg_session):
@@ -2634,3 +2830,30 @@ def test_record_uri_held_as_other_resource_is_not_linked_by_uri_alone(pg_session
 
     with pg_session() as session:
         assert _linked_others(session, _fetch(session, work_uri)) == []
+
+
+def test_admin_metadata_sharing_a_nested_node_is_walked_once():
+    """
+    Two AdminMetadata nodes that share a nested node are walked once, so the
+    vocabulary terms under it aren't linkable, while a subject elsewhere is.
+    """
+    g = Graph()
+    g.parse(
+        data="""
+        @prefix bf: <http://id.loc.gov/ontologies/bibframe/> .
+
+        <https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03>
+            a bf:Work ;
+            bf:subject <http://example.org/topic/y> ;
+            bf:adminMetadata _:am1, _:am2 .
+        _:am1 a bf:AdminMetadata ; bf:source _:src .
+        _:am2 a bf:AdminMetadata ; bf:source _:src .
+        _:src bf:code <http://example.org/org/x> .
+        """,
+        format="turtle",
+    )
+    bg = BluecoreGraph(g)
+    org = URIRef("http://example.org/org/x")
+    topic = URIRef("http://example.org/topic/y")
+
+    assert bg._linkable_uris(bg.graph, {org, topic}, set()) == {topic}

@@ -10,3 +10,7 @@ wheels/
 .venv
 *.log
 .idea/
+
+# Harness inputs and outputs, too large to commit
+/uploads/
+/harness-out/

@@ -1,11 +1,13 @@
 import random
 import threading
 
+import pytest
 from psycopg import errors as pg_errors
 from rdflib import Graph
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import BluecoreGraph, save_graph
 from bluecore_models.models import BibframeOtherResources, Instance, OtherResource, Work
 from bluecore_models.namespaces import BF
@@ -112,6 +114,25 @@ def test_save_retries_on_deadlock(pg_session):
 
     with pg_session() as session:
         assert session.query(Work).count() == 2, "Works persisted after retry"
+
+
+def test_save_gives_up_after_max_attempts(pg_session, caplog):
+    """
+    When every attempt hits a deadlock, save() stops after SAVE_MAX_ATTEMPTS,
+    logs that it gave up, and raises the last error.
+    """
+    _remove_fixtures(pg_session)
+
+    flaky = _FlakySessionMaker(pg_session, fail_times=bluecore_graph.SAVE_MAX_ATTEMPTS)
+
+    g = Graph()
+    g.parse("tests/data/23807141.ttl")
+
+    with pytest.raises(OperationalError):
+        BluecoreGraph(g).save(flaky)
+
+    assert flaky.calls == bluecore_graph.SAVE_MAX_ATTEMPTS
+    assert f"Exceeded {bluecore_graph.SAVE_MAX_ATTEMPTS} attempts" in caplog.text
 
 
 # ---------------------------------------------------------------------------

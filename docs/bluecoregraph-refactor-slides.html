@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BluecoreGraph Refactor</title>
+<style>
+  :root {
+    --bg: #eef1f5;
+    --slide: #ffffff;
+    --ink: #1d2430;
+    --muted: #5b6574;
+    --rule: #d9dee6;
+    --accent: #1f5fbf;
+    --accent-soft: #e6eefb;
+    --warn: #a4501a;
+    --warn-soft: #fbefe6;
+    --good: #23774a;
+    --good-soft: #e5f4ec;
+    --code-bg: #f4f6f9;
+    --code-ink: #1d2430;
+    --code-comment: #6b7686;
+    --code-key: #1f5fbf;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #11151b;
+      --slide: #1a2029;
+      --ink: #e7ebf1;
+      --muted: #9aa5b4;
+      --rule: #2e3744;
+      --accent: #7fb0ff;
+      --accent-soft: #1f2c40;
+      --warn: #f0a56e;
+      --warn-soft: #3a2a1f;
+      --good: #7fd3a3;
+      --good-soft: #1d3328;
+      --code-bg: #131820;
+      --code-ink: #e7ebf1;
+      --code-comment: #8693a5;
+      --code-key: #7fb0ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #11151b;
+    --slide: #1a2029;
+    --ink: #e7ebf1;
+    --muted: #9aa5b4;
+    --rule: #2e3744;
+    --accent: #7fb0ff;
+    --accent-soft: #1f2c40;
+    --warn: #f0a56e;
+    --warn-soft: #3a2a1f;
+    --good: #7fd3a3;
+    --good-soft: #1d3328;
+    --code-bg: #131820;
+    --code-ink: #e7ebf1;
+    --code-comment: #8693a5;
+    --code-key: #7fb0ff;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    overflow: hidden;
+  }
+
+  /* Each slide is laid out at 1280x720 and scaled to fit the window. */
+  #viewport { position: fixed; inset: 0; display: grid; place-items: center; }
+  #stage { width: 1280px; height: 720px; position: relative; transform-origin: center center; }
+  .slide {
+    position: absolute; inset: 0;
+    background: var(--slide);
+    border-radius: 14px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.12);
+    padding: 56px 72px 64px;
+    display: none;
+    flex-direction: column;
+  }
+  .slide.active { display: flex; }
+
+  h1 { font-size: 52px; line-height: 1.1; margin: 0 0 18px; letter-spacing: -0.02em; }
+  h2 { font-size: 36px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .kicker { color: var(--accent); font-weight: 600; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 10px; }
+  .sub { color: var(--muted); font-size: 20px; margin: 0 0 28px; }
+  p, li { font-size: 21px; line-height: 1.45; }
+  ul { margin: 0; padding-left: 1.1em; }
+  li + li { margin-top: 6px; }
+  .small { font-size: 16px; color: var(--muted); }
+  .mono, code { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { font-size: .88em; background: var(--code-bg); padding: 1px 6px; border-radius: 5px; }
+
+  pre {
+    margin: 0;
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 18px 22px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 17px;
+    line-height: 1.5;
+    white-space: pre;
+    overflow: hidden;
+  }
+  pre .c { color: var(--code-comment); }
+  pre .k { color: var(--code-key); font-weight: 600; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
+  .grid2.wide-left { grid-template-columns: 1.25fr 1fr; }
+  .col h3 { font-size: 18px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .col h3 code { text-transform: none; letter-spacing: 0; }
+
+  .tag {
+    display: inline-block; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px; vertical-align: middle;
+  }
+  .tag.proposed { background: var(--warn-soft); color: var(--warn); }
+  .tag.today { background: var(--accent-soft); color: var(--accent); }
+
+  .callout {
+    border-left: 4px solid var(--accent); background: var(--accent-soft);
+    padding: 12px 16px; border-radius: 0 8px 8px 0; font-size: 18px; line-height: 1.4;
+  }
+  .callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .callout.good { border-color: var(--good); background: var(--good-soft); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 17px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; line-height: 1.35; }
+  th { color: var(--muted); font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: .05em; }
+  td code { font-size: 14px; }
+
+  /* the predicate x state matrix */
+  .matrix td, .matrix th { text-align: center; padding: 7px 8px; font-size: 15px; }
+  .matrix td:first-child, .matrix th:first-child { text-align: left; }
+  .matrix .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); }
+  .matrix .db { background: var(--warn); }
+  .matrix th.rot { font-family: "SF Mono", Menlo, Consolas, monospace; text-transform: none; letter-spacing: 0; font-size: 13px; }
+
+  /* four-layer diagram */
+  .layers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 8px; }
+  .layer { border: 1px solid var(--rule); border-radius: 12px; padding: 16px; background: var(--code-bg); }
+  .layer h4 { margin: 0 0 4px; font-size: 19px; }
+  .layer .when { font-size: 14px; color: var(--muted); margin-bottom: 10px; }
+  .layer ul { padding-left: 1em; }
+  .layer li { font-size: 15.5px; line-height: 1.35; }
+  .layer.pure { border-color: var(--good); }
+  .layer.pure h4 { color: var(--good); }
+  .layer.db h4 { color: var(--warn); }
+  .arrow-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; font-size: 14px; color: var(--muted); text-align: center; margin-top: 6px; }
+
+  .roadmap { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 10px; }
+  .phase { border: 1px solid var(--rule); border-radius: 12px; padding: 14px; }
+  .phase .n { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: .06em; text-transform: uppercase; }
+  .phase h4 { margin: 4px 0 8px; font-size: 18px; }
+  .phase p { font-size: 15px; line-height: 1.35; margin: 0; color: var(--muted); }
+
+  .footer {
+    position: absolute; left: 72px; right: 72px; bottom: 22px;
+    display: flex; justify-content: space-between; font-size: 13px; color: var(--muted);
+  }
+  .spacer { flex: 1; }
+
+  #nav {
+    position: fixed; bottom: 14px; right: 18px; display: flex; gap: 8px; align-items: center;
+    font-size: 13px; color: var(--muted);
+  }
+  #nav button {
+    font: inherit; color: var(--ink); background: var(--slide); border: 1px solid var(--rule);
+    border-radius: 8px; padding: 5px 11px; cursor: pointer;
+  }
+
+  @media print {
+    @page { size: 1280px 720px; margin: 0; }
+    body { overflow: visible; background: none; }
+    #viewport { position: static; display: block; }
+    #stage { transform: none !important; width: auto; height: auto; }
+    .slide { display: flex !important; position: relative; width: 1280px; height: 720px; page-break-after: always; box-shadow: none; border-radius: 0; }
+    #nav { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="viewport">
+<div id="stage">
+
+<!-- 1 -->
+<section class="slide">
+  <div class="spacer"></div>
+  <div class="kicker">bluecore-models · issue #213</div>
+  <h1>BluecoreGraph:<br>what we have, and where we're going</h1>
+  <p class="sub">How saving a graph feels today, how it would feel with a <code>SavePlan</code>, and how the refactor untangles the state that's mixed into one class.</p>
+  <div class="spacer"></div>
+  <p class="small">Baseline: <code>main</code> at <code>7f0064c</code> (after #201). Everything marked <span class="tag proposed">proposed</span> is a sketch from #213; names aren't settled.</p>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <div class="kicker">Today</div>
+  <h2>One class, four jobs</h2>
+  <p class="sub">Every write to Blue Core goes through it: the API routes, the loader, bulk update and FOLIO.</p>
+  <div class="grid2">
+    <div class="col">
+      <ol style="margin:0;padding-left:1.2em">
+        <li><strong>Partition</strong>: split the payload into Hub, Work, Instance and Other Resource subgraphs; keep anonymous descriptions inline.</li>
+        <li><strong>Reconcile identity</strong>: reuse a Bluecore URI via <code>bf:derivedFrom</code>, or mint one.</li>
+        <li><strong>Write authority</strong>: per resource, upsert, create if absent, or leave alone.</li>
+        <li><strong>Link</strong>: <code>instanceOf</code>, <code>expressionOf</code>, and the Other Resource join table.</li>
+      </ol>
+    </div>
+    <div class="col">
+      <table>
+        <tr><th>Size</th><td>1,407 lines, 45 commits</td></tr>
+        <tr><th>Tests</th><td>82 passing, 93% branch coverage</td></tr>
+        <tr><th>Speed</th><td>~105 ms per LC record</td></tr>
+      </table>
+      <div class="callout" style="margin-top:22px">The comments are full of real domain reasoning, and <code>save()</code> is solid operationally. The problem is that its central ideas only exist in docstrings, not in types.</div>
+    </div>
+  </div>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <div class="kicker"><span class="tag today">today</span></div>
+  <h2>How it feels to call it now</h2>
+  <div class="grid2 wide-left" style="margin-top:14px">
+    <pre><span class="c"># the constructor already changes your graph:
+# names the empty @id, adds inferred triples</span>
+bg = BluecoreGraph(graph, namespace)
+
+<span class="c"># the mode is implied: primary_class=None means
+# "bulk ingest"; it also accepts the OtherResource
+# model class instead of a BIBFRAME URI</span>
+bg.save(session_maker, primary_class=BF.Work)
+
+bg.created_uri     <span class="c"># which resource did I make?</span>
+bg.works()         <span class="c"># different answer than before save()</span></pre>
+    <div class="col">
+      <h3>What you can't easily do</h3>
+      <ul>
+        <li>Ask <em>what will this save do?</em> without writing to the database.</li>
+        <li>See <em>why</em> a resource was kept, overwritten or skipped, except by reading the logs and seven predicates.</li>
+        <li>Pass a graph in and get it back unchanged.</li>
+        <li>Test the write policy without a Postgres fixture.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <div class="kicker"><span class="tag proposed">proposed</span></div>
+  <h2>How it would feel with a Plan</h2>
+  <div class="grid2 wide-left" style="margin-top:14px">
+    <pre><span class="c"># copies the graph, normalises it, classifies
+# every resource; no database yet</span>
+plan = <span class="k">SavePlan.from_graph</span>(
+    graph, namespace, mode=<span class="k">Write</span>(Kind.WORK))
+
+<span class="c"># identities and actions; reads, writes nothing</span>
+resolved = plan.<span class="k">resolve</span>(session)
+print(resolved.<span class="k">render</span>())  <span class="c"># a dry run of the save</span>
+
+<span class="c"># resolves again, then persists + links, with retries</span>
+plan.<span class="k">apply</span>(session_maker)</pre>
+    <div class="col">
+      <h3><code>render()</code>, illustrative</h3>
+      <pre style="font-size:13.5px;padding:14px 16px">WORK      PRIMARY    _:b0          mint     INSERT
+INSTANCE  REFERENCE  bcld:inst/9f… keep     KEEP
+OTHER     REFERENCE  lcsh:sh8506…  held     KEEP
+WORK      INLINE     _:b3          (accompaniedBy)
+OTHER     REFERENCE  mstatus/c     held     KEEP</pre>
+      <div class="callout good" style="margin-top:16px"><code>save_graph(...)</code> and <code>BluecoreGraph(g).save(...)</code> keep their signatures and become a thin wrapper over this. <strong>No caller has to change.</strong></div>
+    </div>
+  </div>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <div class="kicker">The difference, day to day</div>
+  <h2>Questions you'll be able to answer</h2>
+  <table style="margin-top:18px">
+    <tr><th style="width:34%">Question</th><th style="width:33%"><span class="tag today">today</span></th><th><span class="tag proposed">proposed</span></th></tr>
+    <tr><td>What will this save do?</td><td>Run it, then read rows and logs</td><td><code>resolve()</code> then <code>render()</code>: a dry run that writes nothing</td></tr>
+    <tr><td>Why was this resource left alone?</td><td>Trace <code>_keep_existing</code>, <code>_is_stub</code>, <code>_keeps_own_links</code>…</td><td><code>entry.role</code> and <code>entry.action</code></td></tr>
+    <tr><td>Is this a load or an API write?</td><td><code>primary_class is None</code></td><td><code>Ingest(...)</code> or <code>Write(kind)</code>, explicit</td></tr>
+    <tr><td>Did save() change my graph?</td><td>Yes</td><td>No: the plan works on a copy</td></tr>
+    <tr><td>Is this cited URI an Other Resource?</td><td>Five separate checks</td><td>One function, one row in the policy table</td></tr>
+    <tr><td>Does the policy still hold?</td><td>Tests need Postgres</td><td>Pure tests: one case per table row</td></tr>
+  </table>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <div class="kicker"><span class="tag today">today</span></div>
+  <h2>Where the state lives now</h2>
+  <p class="sub" style="margin-bottom:14px">Seven predicates decide what happens to a resource. Each reads a different mix of mutable fields, and some read the stored row.</p>
+  <table class="matrix">
+    <tr>
+      <th></th>
+      <th class="rot">_ingest</th><th class="rot">_primary_class</th><th class="rot">_root(s)</th>
+      <th class="rot">_spot_stubs</th><th class="rot">_described</th><th class="rot">_minted_from</th><th class="rot">_created</th>
+      <th class="rot">graph</th><th class="rot">stored row</th>
+    </tr>
+    <tr><td><code>_anonymous_description</code></td><td><span class="dot"></span></td><td><span class="dot"></span></td><td><span class="dot"></span></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td><code>_arrived_as_stub</code> / <code>_is_stub</code></td><td></td><td></td><td></td><td><span class="dot"></span></td><td><span class="dot"></span></td><td><span class="dot"></span></td><td></td><td></td><td></td></tr>
+    <tr><td><code>_marked_stub</code></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><span class="dot"></span></td><td></td></tr>
+    <tr><td><code>_keep_existing</code></td><td><span class="dot"></span></td><td></td><td></td><td></td><td></td><td><span class="dot"></span></td><td></td><td></td><td><span class="dot db"></span></td></tr>
+    <tr><td><code>_stored_is_stub</code></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><span class="dot db"></span></td></tr>
+    <tr><td><code>_keeps_own_links</code></td><td></td><td><span class="dot"></span></td><td></td><td><span class="dot"></span></td><td><span class="dot"></span></td><td><span class="dot"></span></td><td><span class="dot"></span></td><td></td><td></td></tr>
+  </table>
+  <div class="grid2" style="margin-top:18px;flex:0">
+    <div class="callout warn">The fields are set at different times (constructor, <code>save()</code>, minting), and a subgraph cache keyed on a hand-bumped <code>_revision</code> has to stay in step with all of them.</div>
+    <div class="callout warn">Subgraphs are bare <code>Graph</code>s, so <code>_subject</code> re-guesses which node each one is about, many times per save.</div>
+  </div>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <div class="kicker"><span class="tag proposed">proposed</span></div>
+  <h2>Disentangled: four layers, each with one job</h2>
+  <div class="layers">
+    <div class="layer pure">
+      <h4>Input</h4>
+      <div class="when">once, in <code>from_graph</code></div>
+      <ul>
+        <li>copy of the caller's graph</li>
+        <li>normalised (empty <code>@id</code>, inference, stripping)</li>
+        <li>then frozen</li>
+      </ul>
+    </div>
+    <div class="layer pure">
+      <h4>Policy</h4>
+      <div class="when">pure, no database</div>
+      <ul>
+        <li><code>Mode</code>: <code>Ingest</code> / <code>Write(kind)</code></li>
+        <li><code>Kind</code> and <code>Role</code> per resource</li>
+        <li>one "what is this cited URI?" rule</li>
+      </ul>
+    </div>
+    <div class="layer db">
+      <h4>Database</h4>
+      <div class="when"><code>resolve()</code> reads; <code>apply()</code> writes</div>
+      <ul>
+        <li>identity: <code>derivedFrom</code> lookup, minting</li>
+        <li><code>Action</code> from role + stored row</li>
+        <li>persist and link, in the retry loop</li>
+      </ul>
+    </div>
+    <div class="layer">
+      <h4>Outcome</h4>
+      <div class="when">after resolve or apply</div>
+      <ul>
+        <li><code>created_uri</code></li>
+        <li><code>render()</code>: dry run, or logs</li>
+        <li>entries with their actions</li>
+      </ul>
+    </div>
+  </div>
+  <table style="margin-top:20px">
+    <tr><th style="width:40%">Today</th><th>Becomes</th></tr>
+    <tr><td><code>_ingest</code>, <code>_primary_class</code></td><td><code>Mode</code></td></tr>
+    <tr><td><code>_root</code>, <code>_roots</code>, <code>_spot_stubs</code>, <code>_described</code></td><td>inputs to <code>Role</code>, computed once from the graph as it arrived</td></tr>
+    <tr><td><code>_minted_from</code>, <code>_subject</code> guessing</td><td><code>Entry.original</code>, <code>Entry.subject</code></td></tr>
+    <tr><td><code>_created</code></td><td>"the action was <code>INSERT</code>"</td></tr>
+    <tr><td><code>_revision</code> and the subgraph cache</td><td>gone, because the graph stops changing after minting</td></tr>
+  </table>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <div class="kicker"><span class="tag proposed">proposed</span></div>
+  <h2>A legible policy: one rule, in one place</h2>
+  <p class="sub" style="margin-bottom:16px">"What happens to this resource?" is answered today by a flag, three predicates and the stored row's JSON. Afterwards it's a small pure function and a list of cases.</p>
+  <div class="grid2">
+    <div class="col">
+      <h3><span class="tag today">today</span> &nbsp;<code>_persist_resources</code></h3>
+      <pre style="font-size:14px;padding:14px 18px">if obj is not None and (
+    not is_primary
+    <span class="c"># ← primary_class, update_other_resources</span>
+    or self._is_stub(class_, uri)
+    <span class="c"># ← _spot_stubs, _described, _minted_from</span>
+    or self._keep_existing(class_, uri, obj)
+    <span class="c"># ← _ingest, _minted_from, obj.data</span>
+):
+    continue  <span class="c"># keep it</span>
+<span class="c"># links: _keeps_own_links in _link, which reads
+# _primary_class and _created as well</span></pre>
+    </div>
+    <div class="col">
+      <h3><span class="tag proposed">proposed</span> &nbsp;<code>action()</code>, illustrative</h3>
+      <pre style="font-size:14px;padding:14px 18px"><span class="k">def</span> action(entry, stored, mode) -> Action:
+    if stored is None:
+        return Action.INSERT
+    match entry.role:
+        case Role.REFERENCE | Role.STUB:
+            return Action.KEEP
+        case Role.PRIMARY if (mode.ingest
+                and entry.original
+                and not stored.is_stub):
+            return Action.KEEP  <span class="c"># LC overlay: inherited</span>
+    return Action.UPDATE</pre>
+    </div>
+  </div>
+  <div class="grid2" style="margin-top:18px;grid-template-columns:1.35fr 1fr;gap:24px">
+    <pre style="font-size:13px;padding:12px 16px">Case(<span class="c">"An Instance save names its Work"</span>,
+     mode=Write(Kind.INSTANCE), kind=Kind.WORK, stored=<span class="c">"full"</span>,
+     expect=(Role.REFERENCE, Action.KEEP),
+     says=<span class="c">"Saving an Instance never overwrites its Work."</span>)</pre>
+    <div class="callout good" style="font-size:16px">One list of cases feeds <strong>pytest</strong> (no Postgres needed for role and action), the <strong>developer table</strong> and the <strong>cataloger page</strong>. Changing the policy means changing a row, and the diff shows it.</div>
+  </div>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <div class="kicker">The main outcome</div>
+  <h2>Today's behaviour, stated as a policy</h2>
+  <p class="sub" style="margin-bottom:14px">Phase 0 writes each row as a test against today's code, and no phase changes one. Each row is a test case and a sentence, rendered as a developer table and a cataloger table.</p>
+  <table>
+    <tr><th style="width:22%">Situation</th><th style="width:20%">Role → Action</th><th>For catalogers</th></tr>
+    <tr><td>API save of a new Work</td><td>PRIMARY → INSERT</td><td>Your new Work gets a Blue Core URI.</td></tr>
+    <tr><td>An Instance save names its Work</td><td>REFERENCE → KEEP</td><td>Saving an Instance never overwrites its Work.</td></tr>
+    <tr><td>LC record cites a resource it doesn't describe</td><td>STUB → INSERT or KEEP</td><td>We hold a placeholder, marked incomplete, until a real description arrives.</td></tr>
+    <tr><td>An LC record is loaded again after you edited it</td><td>PRIMARY → KEEP <span class="tag proposed">inherited</span></td><td>Your edits are kept, but its links to subjects and agents are replaced with LC's.</td></tr>
+  </table>
+  <div class="callout" style="margin-top:18px">Each row is marked <em>chosen</em> or <em>inherited</em>. Inherited rows are today's behaviour that nobody chose on purpose: the LC overlay rule, re-ingest links, Items, Hub labels. After the refactor, each decision is its own PR that changes one row.</div>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <div class="kicker">How we get there</div>
+  <h2>Five small PRs, behaviour preserved</h2>
+  <div class="roadmap">
+    <div class="phase"><div class="n">Phase 0</div><h4>Safety net</h4><p>Policy statement as tests against today's code; diff harness over <code>uploads/</code>; coverage; benchmark.</p></div>
+    <div class="phase"><div class="n">Phase 1</div><h4>Name the mode</h4><p><code>Ingest</code> / <code>Write(kind)</code> and <code>Kind</code> replace the flags.</p></div>
+    <div class="phase"><div class="n">Phase 2</div><h4>Subject with subgraph</h4><p><code>Entry</code>; mint in one pass; drop <code>_subject</code> and the cache.</p></div>
+    <div class="phase"><div class="n">Phase 3</div><h4>Classify once</h4><p><code>Role</code>, <code>Action</code>, one cited-URI rule; the same policy cases, without Postgres.</p></div>
+    <div class="phase"><div class="n">Phase 4</div><h4>Plan / apply</h4><p><code>SavePlan</code>, read-only <code>resolve()</code>, <code>render()</code>, wrapper facade, input copied.</p></div>
+  </div>
+  <div class="grid2" style="margin-top:24px;flex:0">
+    <div class="callout good"><strong>Each phase:</strong> no change in what's written (checked by the diff harness), no slower than ~105 ms per record, and the public API unchanged.</div>
+    <div class="callout"><strong>After:</strong> reload dev and stage from scratch, checking each record against <code>render()</code> and the policy tables, instead of repairing old data piece by piece.</div>
+  </div>
+  <div class="spacer"></div>
+  <p class="small">Full plan and decisions: <span class="mono">github.com/blue-core-lod/bluecore-models/issues/213</span></p>
+  <div class="footer"><span>BluecoreGraph refactor</span><span class="num"></span></div>
+</section>
+
+</div>
+</div>
+
+<div id="nav">
+  <button id="prev" aria-label="Previous slide">←</button>
+  <button id="next" aria-label="Next slide">→</button>
+  <button id="theme" aria-label="Toggle light and dark">◐</button>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const stage = document.getElementById('stage');
+  let current = 0;
+
+  slides.forEach((s, i) => {
+    const n = s.querySelector('.num');
+    if (n) n.textContent = `${i + 1} / ${slides.length}`;
+  });
+
+  function show(i) {
+    current = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === current));
+    history.replaceState(null, '', `#${current + 1}`);
+  }
+
+  function fit() {
+    const scale = Math.min(window.innerWidth / 1320, window.innerHeight / 760);
+    stage.style.transform = `scale(${scale})`;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); show(current + 1); }
+    if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); show(current - 1); }
+    if (e.key === 'Home') show(0);
+    if (e.key === 'End') show(slides.length - 1);
+  });
+  document.getElementById('prev').onclick = () => show(current - 1);
+  document.getElementById('next').onclick = () => show(current + 1);
+  document.getElementById('theme').onclick = () => {
+    const root = document.documentElement;
+    const dark = root.dataset.theme
+      ? root.dataset.theme === 'dark'
+      : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+  };
+  window.addEventListener('resize', fit);
+
+  fit();
+  show((parseInt(location.hash.slice(1), 10) || 1) - 1);
+</script>
+</body>
+</html>

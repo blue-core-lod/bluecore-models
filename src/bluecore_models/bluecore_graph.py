@@ -179,6 +179,22 @@ class BluecoreGraph:
     6. Save relationships between the Hubs, Works, Instances and Other Resources,
        being careful to remove existing many-to-many relations with Other Resources
        prior to adding new ones.
+
+    Stubs: when the save has no primary_class (ingest mode) and the record
+    describes something with adminMetadata of its own, a Hub, Work or Instance
+    without adminMetadata is a stub: a placeholder for something described
+    elsewhere. It is marked mstatus/incmp when its Bluecore URI is minted.
+
+    References: when the save names a primary_class, resources of the other kinds
+    are created if they are absent and never overwritten.
+
+    Inline blank nodes: anonymous Works, Instances and Hubs stay inside their
+    parent's record rather than getting a record of their own, except the one
+    resource an API save is creating.
+
+    The link rule: Other Resource links follow each Work's and Instance's own
+    data, leaving out the predicates in RECORD_PREDICATES and the URIs under
+    LC_RESOURCES, which are records rather than Other Resources.
     """
 
     def __init__(
@@ -774,11 +790,7 @@ class BluecoreGraph:
         self.graph.add((bluecore_uri, BF.adminMetadata, second_admin_metadata))
         self.graph.add((second_admin_metadata, RDF.type, BF.AdminMetadata))
 
-        try:
-            cataloger_id = CURRENT_USER_ID.get()
-        finally:
-            if not cataloger_id:
-                cataloger_id = "Unknown"
+        cataloger_id = CURRENT_USER_ID.get() or "Unknown"
         self.graph.add((second_admin_metadata, BFLC.catalogerId, Literal(cataloger_id)))
         self.graph.add((second_admin_metadata, BF.descriptionAuthentication, desc_auth))
         self.graph.add(
@@ -879,9 +891,10 @@ class BluecoreGraph:
 
     def _mint_all_uris(self, class_: URIRef, session: Session) -> None:
         """
-        Examine Bibframe Works and Instances in the graph, and mint Bluecore URIs for
-        them as needed. This method takes into account that a resource with a non-Bluecore
-        URI may already be in the database under in its derivedFrom URI.
+        Examine the Bibframe Hubs, Works or Instances (class_) in the graph, and
+        mint Bluecore URIs for them as needed. This method takes into account that
+        a resource with a non-Bluecore URI may already be in the database under in
+        its derivedFrom URI.
         """
         match class_:
             case BF.Hub:
@@ -1021,7 +1034,7 @@ class BluecoreGraph:
         return uri in BF or uri in MADS or uri in RDF  # type: ignore
 
     def _is_bibframe_resource(self, uri: Node, graph: Graph) -> bool:
-        """Checks if uri is a BIBFRAME Work or Instance"""
+        """Checks if uri is a BIBFRAME Work, Instance or Hub"""
         for class_ in graph.objects(subject=uri, predicate=RDF.type):
             # In the future we may want to include Work, Instance and Hub subclasses
             # maybe through inference?
@@ -1170,9 +1183,11 @@ class BluecoreGraph:
                 resources = self.others()
                 sqla_class = OtherResource
 
-        # Write Works, Instances, and shared Other Resources in a deterministic,
-        # sorted-by-URI order. Concurrent transactions then acquire locks on
-        # these hot rows in the same order and serialize instead of deadlocking.
+        # Only Other Resources are written in URI order. They keep their external
+        # URIs, so two transactions can insert the same one; taking the locks in
+        # the same order makes them serialize instead of deadlocking. Hubs, Works
+        # and Instances don't need it: SQLAlchemy already issues UPDATEs in
+        # primary-key order, and a freshly minted UUID can't collide on INSERT.
         if class_ is None:
             resources = sorted(resources, key=lambda g: str(self._subject(g, class_)))
 
