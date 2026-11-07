@@ -15,8 +15,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import pytest
 from rdflib import BNode, Graph, URIRef
 from rdflib import Literal as RdfLiteral
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from bluecore_models.bluecore_graph import (
@@ -27,11 +29,12 @@ from bluecore_models.bluecore_graph import (
 )
 from bluecore_models.models import (
     BibframeOtherResources,
+    Hub,
     Instance,
     OtherResource,
     Work,
 )
-from bluecore_models.namespaces import BF, RDF, RDFS
+from bluecore_models.namespaces import BF, BFLC, RDF, RDFS
 from bluecore_models.utils.graph import CONTEXT_URL, load_jsonld
 
 Decision = Literal["chosen", "inherited", "undecided"]
@@ -78,7 +81,14 @@ ROWS: dict[str, str] = {
 CASES: list[PolicyCase] = []
 
 # Places where #213's text misreads the code, found while writing cases.
-TABLE_CORRECTIONS: list[str] = []
+TABLE_CORRECTIONS: list[str] = [
+    (
+        "X1: #213 says `expressionOf` to an undescribed Hub leaves `hub_id` unset. "
+        "In fact, when that Hub is already stored, the save fails with an "
+        "IntegrityError: the untyped Hub URI is taken for an Other Resource and "
+        "inserted at the URI the Hub row already holds."
+    ),
+]
 
 
 def ext_uri(kind: str) -> str:
@@ -846,6 +856,411 @@ CASES.extend(
         ),
     ]
 )
+
+
+# --- which cited URIs become links (L1-L8, X1, X2) ----------------------------
+
+
+def _heading() -> str:
+    return f"http://id.loc.gov/authorities/subjects/sh{uuid.uuid4().hex}"
+
+
+def _citing(uri: str, class_: URIRef, heading: str, describes: bool) -> Graph:
+    """A resource citing a heading, either describing it or by URI alone."""
+    g = Graph()
+    g.add((URIRef(uri), RDF.type, class_))
+    g.add((URIRef(uri), BF.subject, URIRef(heading)))
+    if describes:
+        _describe(g, heading, BF.Topic, "Physicians")
+    return g
+
+
+def _seed_held(session_maker: sessionmaker, uri: str) -> None:
+    """Hold a URI as an Other Resource, the way an earlier save would have."""
+    seed = bc_uri("works")
+    g = Graph()
+    g.add((URIRef(seed), RDF.type, BF.Work))
+    g.add((URIRef(seed), BF.subject, URIRef(uri)))
+    g.add((URIRef(uri), RDFS.label, RdfLiteral("held")))
+    save_graph(session_maker, g, primary_class=BF.Work)
+    with session_maker() as session:
+        assert row(session, OtherResource, uri) is not None
+
+
+def _link_described_in_payload(session_maker: sessionmaker) -> None:
+    heading, work = _heading(), bc_uri("works")
+    save_graph(
+        session_maker, _citing(work, BF.Work, heading, True), primary_class=BF.Work
+    )
+
+    with session_maker() as session:
+        assert row(session, OtherResource, heading) is not None
+        assert linked(session, row(session, Work, work)) == [heading]
+
+
+def _link_held_by_uri(session_maker: sessionmaker) -> None:
+    heading, first, second = _heading(), bc_uri("works"), bc_uri("works")
+    save_graph(
+        session_maker, _citing(first, BF.Work, heading, True), primary_class=BF.Work
+    )
+    with session_maker() as session:
+        assert row(session, OtherResource, heading) is not None
+
+    save_graph(
+        session_maker, _citing(second, BF.Work, heading, False), primary_class=BF.Work
+    )
+
+    with session_maker() as session:
+        assert linked(session, row(session, Work, second)) == [heading]
+
+
+def _link_unknown_uri_bare_reference(session_maker: sessionmaker) -> None:
+    unknown, work = _heading(), bc_uri("works")
+    save_graph(
+        session_maker, _citing(work, BF.Work, unknown, False), primary_class=BF.Work
+    )
+
+    with session_maker() as session:
+        assert row(session, OtherResource, unknown) is None
+        assert row(session, Work, work) is not None
+        assert linked(session, row(session, Work, work)) == []
+
+
+def _link_vocabulary_term(session_maker: sessionmaker) -> None:
+    term = str(BF.Text)
+    with session_maker() as session:
+        if row(session, OtherResource, term) is None:
+            session.add(OtherResource(uri=term, data={"@id": term}))
+            session.commit()
+        assert row(session, OtherResource, term) is not None
+
+    work = bc_uri("works")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.content, BF.Text))
+    save_graph(session_maker, g, primary_class=BF.Work)
+
+    with session_maker() as session:
+        assert row(session, Work, work) is not None
+        assert linked(session, row(session, Work, work)) == []
+
+
+def _link_record_typed_in_payload(session_maker: sessionmaker) -> None:
+    cited = f"http://example.org/works/{uuid.uuid4().hex}"
+    _seed_held(session_maker, cited)
+
+    work = bc_uri("works")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.subject, URIRef(cited)))
+    g.add((URIRef(cited), RDF.type, BF.Work))
+    save_graph(session_maker, g, primary_class=BF.Work)
+
+    with session_maker() as session:
+        assert row(session, Work, work) is not None
+        assert linked(session, row(session, Work, work)) == []
+
+
+def _excluded_predicate(predicate: URIRef, subject_class: URIRef) -> Any:
+    """A case: a held untyped URI cited through the predicate is not linked."""
+
+    def run(session_maker: sessionmaker) -> None:
+        held = f"http://example.org/records/{uuid.uuid4().hex}"
+        _seed_held(session_maker, held)
+
+        subject = bc_uri("works" if subject_class == BF.Work else "instances")
+        g = Graph()
+        g.add((URIRef(subject), RDF.type, subject_class))
+        g.add((URIRef(subject), predicate, URIRef(held)))
+        save_graph(session_maker, g, primary_class=subject_class)
+
+        with session_maker() as session:
+            model = Work if subject_class == BF.Work else Instance
+            assert row(session, model, subject) is not None
+            assert linked(session, row(session, model, subject)) == []
+
+    return run
+
+
+def _link_lc_resources_prefix(session_maker: sessionmaker) -> None:
+    held = ext_uri("hubs")
+    _seed_held(session_maker, held)
+
+    work = bc_uri("works")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.subject, URIRef(held)))
+    save_graph(session_maker, g, primary_class=BF.Work)
+
+    with session_maker() as session:
+        assert row(session, Work, work) is not None
+        assert linked(session, row(session, Work, work)) == []
+
+
+def _admin_metadata_work(status: str, describe: bool) -> tuple[Graph, str]:
+    work = bc_uri("works")
+    g = Graph()
+    admin_metadata = BNode()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.status, URIRef(status)))
+    if describe:
+        g.add((URIRef(status), RDFS.label, RdfLiteral("described term")))
+    return g, work
+
+
+def _link_admin_metadata_only_held(session_maker: sessionmaker) -> None:
+    status = f"http://id.loc.gov/vocabulary/mstatus/{uuid.uuid4().hex}"
+    _seed_held(session_maker, status)
+
+    g, work = _admin_metadata_work(status, describe=False)
+    save_graph(session_maker, g, primary_class=BF.Work)
+
+    with session_maker() as session:
+        assert row(session, Work, work) is not None
+        assert linked(session, row(session, Work, work)) == []
+
+
+def _link_admin_metadata_described(session_maker: sessionmaker) -> None:
+    status = f"http://id.loc.gov/vocabulary/mstatus/{uuid.uuid4().hex}"
+    _seed_held(session_maker, status)
+
+    g, work = _admin_metadata_work(status, describe=True)
+    save_graph(session_maker, g, primary_class=BF.Work)
+
+    with session_maker() as session:
+        assert linked(session, row(session, Work, work)) == [status]
+
+
+def _link_lc_item(session_maker: sessionmaker) -> None:
+    item = ext_uri("items")
+    instance = bc_uri("instances")
+    g = Graph()
+    g.add((URIRef(instance), RDF.type, BF.Instance))
+    g.add((URIRef(instance), BF.hasItem, URIRef(item)))
+    _describe(g, item, BF.Item, "An LC Item")
+    save_graph(session_maker, g, primary_class=BF.Instance)
+
+    with session_maker() as session:
+        assert "An LC Item" in _stored_other(session, item)
+        assert linked(session, row(session, Instance, instance)) == []
+
+
+def _hub_link_described(session_maker: sessionmaker) -> None:
+    work, hub = bc_uri("works"), bc_uri("hubs")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.expressionOf, URIRef(hub)))
+    g.add((URIRef(hub), RDF.type, BF.Hub))
+    save_graph(session_maker, g)
+
+    with session_maker() as session:
+        stored_hub = row(session, Hub, hub)
+        assert stored_hub is not None
+        assert row(session, Work, work).hub_id == stored_hub.id
+
+
+def _hub_link_not_described(session_maker: sessionmaker) -> None:
+    hub = bc_uri("hubs")
+    held = Graph()
+    held.add((URIRef(hub), RDF.type, BF.Hub))
+    save_graph(session_maker, held, primary_class=BF.Hub)
+    with session_maker() as session:
+        assert row(session, Hub, hub) is not None
+
+    work = bc_uri("works")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.expressionOf, URIRef(hub)))
+    # The Hub is cited but not typed, so the save takes it for an Other Resource
+    # and tries to insert one at the Hub's URI, which the Hub row already holds.
+    with pytest.raises(IntegrityError):
+        save_graph(session_maker, g)
+
+    with session_maker() as session:
+        assert row(session, Work, work) is None
+        assert row(session, OtherResource, hub) is None
+        assert row(session, Hub, hub) is not None
+
+
+def _lc_work(source: str, subject: str) -> Graph:
+    """An LC record the way an ingest sees one: a Work citing a described subject."""
+    g = _record(source, "Cited An LC Subject")
+    g.add((URIRef(source), BF.subject, URIRef(subject)))
+    _describe(g, subject, BF.Topic, "LC Subject")
+    return g
+
+
+def _reingest_links_follow_incoming(session_maker: sessionmaker) -> None:
+    source = ext_uri("works")
+    first, second = _heading(), _heading()
+    # the cataloger's subject is one we already hold
+    _seed_held(session_maker, second)
+
+    out = save_graph(session_maker, _lc_work(source, first))
+    uri = minted(out, source)
+    with session_maker() as session:
+        assert linked(session, row(session, Work, uri)) == [first]
+        edited = dict(row(session, Work, uri).data)
+
+    edited["subject"] = [{"@id": second}]
+    save_graph(session_maker, load_jsonld(edited), primary_class=BF.Work)
+    with session_maker() as session:
+        assert second in _work_data(session, uri)
+        assert first not in _work_data(session, uri)
+        assert linked(session, row(session, Work, uri)) == [second]
+
+    save_graph(session_maker, _lc_work(source, first))
+
+    with session_maker() as session:
+        data = _work_data(session, uri)
+        assert second in data
+        assert first not in data
+        assert linked(session, row(session, Work, uri)) == [first]
+
+
+CASES.extend(
+    [
+        _case(
+            "link-described-in-payload",
+            "L1",
+            "A Work cites an authority or agent and the payload describes it",
+            "The Work is linked to that Other Resource",
+            "A subject or agent you pick in the editor is linked to the record.",
+            _link_described_in_payload,
+        ),
+        _case(
+            "link-held-by-uri",
+            "L1",
+            "A Work cites an authority by URI alone, and we hold it from an earlier save",
+            "The Work is linked to the held Other Resource",
+            "Citing a subject or agent we already hold links it, even when "
+            "the editor sends only its identifier.",
+            _link_held_by_uri,
+        ),
+        _case(
+            "link-unknown-uri-bare-reference",
+            "L2",
+            "A Work cites a URI by identifier alone, and we hold nothing about it",
+            "No Other Resource is made and no link is saved; the URI stays in the Work's data",
+            "A subject or agent we know nothing about is kept as a plain "
+            "reference, with no label and no link.",
+            _link_unknown_uri_bare_reference,
+            decision="inherited",
+            follow_up="#169 stub rows (#213 follow-ups)",
+        ),
+        _case(
+            "link-vocabulary-term",
+            "L3",
+            "A Work cites a BIBFRAME vocabulary term, which is also held as an Other Resource",
+            "No link is saved",
+            "Terms from the BIBFRAME vocabulary, such as a content type, "
+            "are never linked as Other Resources.",
+            _link_vocabulary_term,
+        ),
+        _case(
+            "link-record-typed-in-payload",
+            "L4",
+            "A Work cites a URI the payload describes as a Work, and we hold it as an Other Resource",
+            "No link is saved",
+            "A resource that the record says is a Work is a record of its "
+            "own, never an agent or subject link.",
+            _link_record_typed_in_payload,
+        ),
+        _case(
+            "link-lc-resources-prefix",
+            "L6",
+            "A Work cites, as a subject, a held Other Resource under id.loc.gov/resources/",
+            "No link is saved",
+            "LC's Works, Instances, Hubs and Items are never linked as "
+            "agents or subjects, however they are cited.",
+            _link_lc_resources_prefix,
+        ),
+        _case(
+            "link-admin-metadata-only-held",
+            "L7",
+            "A Work cites a held vocabulary term only inside its adminMetadata",
+            "No link is saved",
+            "The status and other terms in a record's administrative "
+            "information are not linked, or every record would link to them.",
+            _link_admin_metadata_only_held,
+        ),
+        _case(
+            "link-admin-metadata-described",
+            "L7",
+            "A Work cites a vocabulary term inside its adminMetadata, and the payload describes the term",
+            "The Work is linked to the term",
+            "An administrative term is linked only when the record "
+            "describes it itself.",
+            _link_admin_metadata_described,
+        ),
+        _case(
+            "link-lc-item",
+            "L8",
+            "An Instance cites an LC Item that the payload describes",
+            "The Item is stored as an Other Resource but the Instance is not linked to it",
+            "An LC Item is kept, but is not linked to its Instance.",
+            _link_lc_item,
+            decision="inherited",
+            follow_up="Items, decided in Phase 3 (#213 follow-ups)",
+        ),
+        _case(
+            "hub-link-described",
+            "X1",
+            "A Work is an expressionOf a Hub that the payload describes",
+            "The Work is linked to the Hub",
+            "A Work is attached to its Hub when the record describes that Hub.",
+            _hub_link_described,
+        ),
+        _case(
+            "hub-link-not-described",
+            "X1",
+            "A Work is saved as an expressionOf a Hub we hold, but the payload does not describe or type it",
+            "The save fails with a duplicate-URI error and nothing is written; the Work is not linked to the Hub",
+            "Pointing a Work at a Hub we already have does not save: the "
+            "record must describe the Hub, or the save fails.",
+            _hub_link_not_described,
+            decision="inherited",
+            follow_up="Hub labels and links (#213 follow-ups)",
+        ),
+        _case(
+            "reingest-links-follow-incoming",
+            "X2",
+            "A bulk load brings again an LC record a cataloger has edited, and its subject differs",
+            "The edited description is kept, and its Other Resource links are rebuilt from the incoming record",
+            "LC sends a record again after you've changed its subject: your "
+            "description keeps your subject, but the subject link goes back "
+            "to LC's.",
+            _reingest_links_follow_incoming,
+            decision="inherited",
+            follow_up="LC overlay policy (#213 follow-ups)",
+        ),
+    ]
+)
+
+for _predicate, _name, _class in (
+    (BF.instanceOf, "instanceOf", BF.Instance),
+    (BF.hasInstance, "hasInstance", BF.Work),
+    (BF.expressionOf, "expressionOf", BF.Work),
+    (BF.hasExpression, "hasExpression", BF.Work),
+    (BF.relatedTo, "relatedTo", BF.Work),
+    (BF.hasItem, "hasItem", BF.Instance),
+    (BF.itemOf, "itemOf", BF.Instance),
+    (BF.associatedResource, "bf-associatedResource", BF.Work),
+    (BFLC.associatedResource, "bflc-associatedResource", BF.Work),
+):
+    CASES.append(
+        _case(
+            f"link-excluded-{_name}",
+            "L5",
+            f"A resource cites a held, untyped URI through {_name}",
+            "No link is saved",
+            "A resource cited as a related Work, Instance, Hub or Item is "
+            "never linked as an agent or subject, even if we hold it that way.",
+            _excluded_predicate(_predicate, _class),
+        )
+    )
 
 
 def _cell(text: str) -> str:

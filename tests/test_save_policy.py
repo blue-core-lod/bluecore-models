@@ -59,7 +59,6 @@ def test_case_ids_are_unique():
     assert len(ids) == len(set(ids))
 
 
-@pytest.mark.xfail(strict=True, reason="cases are added in Tasks 2-3")
 def test_every_table_row_has_a_case():
     assert {case.row for case in CASES} == set(ROWS)
 
