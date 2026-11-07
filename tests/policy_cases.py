@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import psycopg.errors
 import pytest
 from rdflib import BNode, Graph, URIRef
 from rdflib import Literal as RdfLiteral
@@ -84,9 +85,16 @@ CASES: list[PolicyCase] = []
 TABLE_CORRECTIONS: list[str] = [
     (
         "X1: #213 says `expressionOf` to an undescribed Hub leaves `hub_id` unset. "
-        "In fact, when that Hub is already stored, the save fails with an "
-        "IntegrityError: the untyped Hub URI is taken for an Other Resource and "
-        "inserted at the URI the Hub row already holds."
+        "In fact the untyped Hub URI is taken for an Other Resource. When the "
+        "Hub is not stored, an Other Resource row is created at its URI; when "
+        "it is stored, the save fails with a unique-key collision "
+        "(resource_base_uri_key) on the URI the Hub row already holds."
+    ),
+    (
+        "L5: #213 lists `instanceOf` and `hasInstance` among the predicates "
+        "whose objects are never linked. That exclusion can never apply today: "
+        "inference types their objects as records (Work, Instance), which are "
+        "then minted, so the cited URI is replaced before linking."
     ),
 ]
 
@@ -982,6 +990,40 @@ def _excluded_predicate(predicate: URIRef, subject_class: URIRef) -> Any:
     return run
 
 
+def _inferred_record_predicate(
+    predicate: URIRef, subject_class: URIRef, inferred_class: URIRef
+) -> Any:
+    """
+    A case for the two predicates whose object the save types as a record: the
+    held URI is replaced by a newly minted record of that kind, and the held
+    Other Resource is neither linked nor changed.
+    """
+
+    def run(session_maker: sessionmaker) -> None:
+        held = f"http://example.org/records/{uuid.uuid4().hex}"
+        _seed_held(session_maker, held)
+        with session_maker() as session:
+            before = _stored_other(session, held)
+
+        subject = bc_uri("works" if subject_class == BF.Work else "instances")
+        g = Graph()
+        g.add((URIRef(subject), RDF.type, subject_class))
+        g.add((URIRef(subject), predicate, URIRef(held)))
+        out = save_graph(session_maker, g, primary_class=subject_class)
+        record = minted(out, held)
+
+        with session_maker() as session:
+            model = Work if subject_class == BF.Work else Instance
+            resource = row(session, model, subject)
+            assert held not in json.dumps(resource.data)
+            assert record in json.dumps(resource.data)
+            assert row(session, Work if inferred_class == BF.Work else Instance, record)
+            assert linked(session, resource) == []
+            assert _stored_other(session, held) == before
+
+    return run
+
+
 def _link_lc_resources_prefix(session_maker: sessionmaker) -> None:
     held = ext_uri("hubs")
     _seed_held(session_maker, held)
@@ -1075,13 +1117,32 @@ def _hub_link_not_described(session_maker: sessionmaker) -> None:
     g.add((URIRef(work), BF.expressionOf, URIRef(hub)))
     # The Hub is cited but not typed, so the save takes it for an Other Resource
     # and tries to insert one at the Hub's URI, which the Hub row already holds.
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError) as excinfo:
         save_graph(session_maker, g)
+    assert isinstance(excinfo.value.orig, psycopg.errors.UniqueViolation)
+    assert excinfo.value.orig.diag.constraint_name == "resource_base_uri_key"
 
     with session_maker() as session:
         assert row(session, Work, work) is None
         assert row(session, OtherResource, hub) is None
         assert row(session, Hub, hub) is not None
+
+
+def _hub_link_hub_not_stored(session_maker: sessionmaker) -> None:
+    hub, work = bc_uri("hubs"), bc_uri("works")
+    with session_maker() as session:
+        assert row(session, Hub, hub) is None
+        assert row(session, OtherResource, hub) is None
+
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.expressionOf, URIRef(hub)))
+    save_graph(session_maker, g, primary_class=BF.Work)
+
+    with session_maker() as session:
+        assert row(session, Work, work).hub_id is None
+        assert row(session, Hub, hub) is None
+        assert row(session, OtherResource, hub) is not None
 
 
 def _lc_work(source: str, subject: str) -> Graph:
@@ -1225,6 +1286,18 @@ CASES.extend(
             follow_up="Hub labels and links (#213 follow-ups)",
         ),
         _case(
+            "hub-link-hub-not-stored",
+            "X1",
+            "A Work is saved as an expressionOf a Hub we don't hold, and the payload does not describe or type it",
+            "The Work is not linked to a Hub; an Other Resource is created at the Hub's URI",
+            "Pointing a Work at a Hub the record doesn't describe stores the "
+            "Hub's address as a plain heading, and a later save that does "
+            "describe that Hub fails.",
+            _hub_link_hub_not_stored,
+            decision="inherited",
+            follow_up="Hub labels and links (#213 follow-ups)",
+        ),
+        _case(
             "reingest-links-follow-incoming",
             "X2",
             "A bulk load brings again an LC record a cataloger has edited, and its subject differs",
@@ -1239,6 +1312,8 @@ CASES.extend(
     ]
 )
 
+INFERRED = {"instanceOf": BF.Work, "hasInstance": BF.Instance}
+
 for _predicate, _name, _class in (
     (BF.instanceOf, "instanceOf", BF.Instance),
     (BF.hasInstance, "hasInstance", BF.Work),
@@ -1250,15 +1325,29 @@ for _predicate, _name, _class in (
     (BF.associatedResource, "bf-associatedResource", BF.Work),
     (BFLC.associatedResource, "bflc-associatedResource", BF.Work),
 ):
+    if _name in INFERRED:
+        _situation = (
+            f"A resource cites a held, untyped URI through {_name}, which the "
+            "save takes to be a record"
+        )
+        _outcome = (
+            "The URI is replaced by a newly minted record of the inferred kind; "
+            "the held Other Resource is not linked and is unchanged"
+        )
+        run = _inferred_record_predicate(_predicate, _class, INFERRED[_name])
+    else:
+        _situation = f"A resource cites a held, untyped URI through {_name}"
+        _outcome = "No link is saved"
+        run = _excluded_predicate(_predicate, _class)
     CASES.append(
         _case(
             f"link-excluded-{_name}",
             "L5",
-            f"A resource cites a held, untyped URI through {_name}",
-            "No link is saved",
+            _situation,
+            _outcome,
             "A resource cited as a related Work, Instance, Hub or Item is "
             "never linked as an agent or subject, even if we hold it that way.",
-            _excluded_predicate(_predicate, _class),
+            run,
         )
     )
 
