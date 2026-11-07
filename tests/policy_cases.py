@@ -8,17 +8,31 @@ and asserts what the code does today. `render_markdown` turns the cases into the
 table catalogers read. Run this file to print that table.
 """
 
+import json
 import sys
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from rdflib import Graph, URIRef
+from rdflib import BNode, Graph, URIRef
+from rdflib import Literal as RdfLiteral
 from sqlalchemy.orm import Session, sessionmaker
 
-from bluecore_models.models import BibframeOtherResources
-from bluecore_models.namespaces import BF
+from bluecore_models.bluecore_graph import (
+    DEFAULT_STATUS,
+    STUB_STATUS,
+    BluecoreGraph,
+    save_graph,
+)
+from bluecore_models.models import (
+    BibframeOtherResources,
+    Instance,
+    OtherResource,
+    Work,
+)
+from bluecore_models.namespaces import BF, RDF, RDFS
+from bluecore_models.utils.graph import CONTEXT_URL, load_jsonld
 
 Decision = Literal["chosen", "inherited", "undecided"]
 
@@ -115,6 +129,723 @@ def linked(session: Session, resource: Any) -> list[str]:
 def row(session: Session, model: Any, uri: str) -> Any:
     """The stored row of the given model with this URI, or None."""
     return session.query(model).where(model.uri == uri).first()
+
+
+# --- what happens to each resource (R1-R11) -----------------------------------
+
+
+def _work_data(session: Session, uri: str) -> str:
+    """A stored Work's data as stable JSON text, for comparing and searching."""
+    stored = row(session, Work, uri)
+    assert stored is not None, f"no Work row at {uri}"
+    return json.dumps(stored.data, sort_keys=True)
+
+
+def _record(described: str, title: str, stub: str | None = None) -> Graph:
+    """
+    A record the way an ingest sees one: a Work it describes (with AdminMetadata
+    of its own) and, optionally, a Work it only points at (the stub).
+    """
+    g = Graph()
+    work = URIRef(described)
+    g.add((work, RDF.type, BF.Work))
+    title_node = BNode()
+    g.add((work, BF.title, title_node))
+    g.add((title_node, RDF.type, BF.Title))
+    g.add((title_node, BF.mainTitle, RdfLiteral(title)))
+    admin_metadata = BNode()
+    g.add((work, BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.status, URIRef("http://id.loc.gov/vocabulary/mstatus/n")))
+    if stub is not None:
+        stub_work = URIRef(stub)
+        g.add((work, BF.relatedTo, stub_work))
+        g.add((stub_work, RDF.type, BF.Work))
+        g.add((stub_work, RDFS.label, RdfLiteral("stub label")))
+    return g
+
+
+def _describe(g: Graph, uri: str, class_: URIRef, label: str) -> URIRef:
+    """Describe an Other Resource the way the editor's expanded payload does."""
+    g.add((URIRef(uri), RDF.type, class_))
+    g.add((URIRef(uri), RDFS.label, RdfLiteral(label)))
+    return URIRef(uri)
+
+
+def _work_citing_agent(agent: str, label: str | None) -> tuple[Graph, str]:
+    """A new Work citing an Agent, which is described only when a label is given."""
+    g = Graph()
+    work = bc_uri("works")
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.contribution, URIRef(agent)))
+    if label is not None:
+        _describe(g, agent, BF.Agent, label)
+    return g, work
+
+
+def _stored_other(session: Session, uri: str) -> str:
+    stored = row(session, OtherResource, uri)
+    assert stored is not None, f"no Other Resource row at {uri}"
+    return json.dumps(stored.data, sort_keys=True)
+
+
+def _ingest_blank_record_stays_inline(session_maker: sessionmaker) -> None:
+    instance_uri = bc_uri("instances")
+    with session_maker() as session:
+        works_before = session.query(Work).count()
+
+    save_graph(
+        session_maker,
+        load_jsonld(
+            {
+                "@context": CONTEXT_URL,
+                "@id": instance_uri,
+                "@type": "Instance",
+                "title": {"@type": "Title", "mainTitle": "Gravity's rainbow"},
+                "instanceOf": {
+                    "@type": "Work",
+                    "title": {"@type": "Title", "mainTitle": "Blank Work Title"},
+                },
+            }
+        ),
+    )
+
+    with session_maker() as session:
+        instance = row(session, Instance, instance_uri)
+        assert instance is not None
+        assert session.query(Work).count() == works_before
+        assert instance.work is None
+        assert "Blank Work Title" in json.dumps(instance.data)
+
+
+def _ingest_described_new_inserted(session_maker: sessionmaker) -> None:
+    source = ext_uri("works")
+    out = save_graph(session_maker, _record(source, "Brand New"))
+    uri = minted(out, source)
+
+    with session_maker() as session:
+        assert session.query(Work).where(Work.uri == uri).count() == 1
+        work = row(session, Work, uri)
+        assert str(DEFAULT_STATUS) in statuses(work.data)
+        derived = work.data["adminMetadata"][0]["derivedFrom"]
+        assert [d["@id"] for d in derived] == [source]
+
+
+def _ingest_described_ours_updated(session_maker: sessionmaker) -> None:
+    source = ext_uri("works")
+    out = save_graph(
+        session_maker,
+        load_jsonld(
+            {
+                "@context": CONTEXT_URL,
+                "@id": source,
+                "@type": BF.Work,
+                "title": ["Superman"],
+            }
+        ),
+    )
+    uri = minted(out, source)
+    with session_maker() as session:
+        described = dict(row(session, Work, uri).data)
+    assert described["title"] == ["Superman"]
+
+    described["title"] = ["Superman 2"]
+    save_graph(session_maker, load_jsonld(described))
+
+    with session_maker() as session:
+        assert row(session, Work, uri).data["title"] == ["Superman 2"]
+
+
+def _ingest_described_stub_replaced(session_maker: sessionmaker) -> None:
+    described, stub = ext_uri("works"), ext_uri("works")
+    first = save_graph(session_maker, _record(described, "Described", stub=stub))
+    stub_uri = minted(first, stub)
+    with session_maker() as session:
+        assert str(STUB_STATUS) in statuses(row(session, Work, stub_uri).data)
+
+    second = save_graph(session_maker, _record(stub, "Now Fully Described"))
+    assert minted(second, stub) == stub_uri
+
+    with session_maker() as session:
+        data = _work_data(session, stub_uri)
+        assert "Now Fully Described" in data
+        assert str(STUB_STATUS) not in statuses(row(session, Work, stub_uri).data)
+
+
+def _ingest_described_reingest_kept(session_maker: sessionmaker) -> None:
+    source = ext_uri("works")
+    out = save_graph(session_maker, _record(source, "REINGESTED 1"))
+    uri = minted(out, source)
+
+    with session_maker() as session:
+        edited = dict(row(session, Work, uri).data)
+    edited["title"] = {"@type": "Title", "mainTitle": "Cataloger Edit"}
+    save_graph(session_maker, load_jsonld(edited), primary_class=BF.Work)
+    with session_maker() as session:
+        assert "Cataloger Edit" in _work_data(session, uri)
+
+    save_graph(session_maker, _record(source, "REINGESTED 1"))
+
+    with session_maker() as session:
+        data = _work_data(session, uri)
+        assert "Cataloger Edit" in data
+        assert "REINGESTED 1" not in data
+
+
+def _ingest_stub_new_inserted_incomplete(session_maker: sessionmaker) -> None:
+    described, stub = ext_uri("works"), ext_uri("works")
+    out = save_graph(session_maker, _record(described, "Described", stub=stub))
+
+    with session_maker() as session:
+        stubbed = row(session, Work, minted(out, stub))
+        assert str(STUB_STATUS) in statuses(stubbed.data)
+        assert str(DEFAULT_STATUS) not in statuses(stubbed.data)
+
+
+def _ingest_stub_held_kept(session_maker: sessionmaker) -> None:
+    source = ext_uri("works")
+    out = save_graph(session_maker, _record(source, "Full Description"))
+    uri = minted(out, source)
+    with session_maker() as session:
+        before = _work_data(session, uri)
+
+    save_graph(session_maker, _record(ext_uri("works"), "Other", stub=source))
+
+    with session_maker() as session:
+        assert _work_data(session, uri) == before
+
+
+def _ingest_stub_held_keeps_links(session_maker: sessionmaker) -> None:
+    source = ext_uri("works")
+    agent = f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}"
+    g = _record(source, "Described With Agent")
+    g.add((URIRef(source), BF.contributor, URIRef(agent)))
+    _describe(g, agent, BF.Agent, "Some Agent")
+    out = save_graph(session_maker, g)
+    uri = minted(out, source)
+    with session_maker() as session:
+        assert agent in linked(session, row(session, Work, uri))
+
+    save_graph(session_maker, _record(ext_uri("works"), "Other", stub=source))
+
+    with session_maker() as session:
+        assert agent in linked(session, row(session, Work, uri))
+
+
+def _ingest_stub_new_gets_links(session_maker: sessionmaker) -> None:
+    agent = f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}"
+    holder_work = ext_uri("works")
+    holder = _record(holder_work, "Holds The Agent")
+    holder.add((URIRef(holder_work), BF.contributor, URIRef(agent)))
+    _describe(holder, agent, BF.Agent, "Held Agent")
+    save_graph(session_maker, holder)
+    with session_maker() as session:
+        assert row(session, OtherResource, agent) is not None
+
+    described, stub = ext_uri("works"), ext_uri("works")
+    g = _record(described, "Cites Through A Stub", stub=stub)
+    # the stub cites the held Agent by URI, without describing it
+    g.add((URIRef(stub), BF.contributor, URIRef(agent)))
+    out = save_graph(session_maker, g)
+
+    with session_maker() as session:
+        stubbed = row(session, Work, minted(out, stub))
+        assert str(STUB_STATUS) in statuses(stubbed.data)
+        assert agent in linked(session, stubbed)
+
+
+def _ingest_no_admin_metadata_all_primary(session_maker: sessionmaker) -> None:
+    first, second = ext_uri("works"), ext_uri("works")
+    g = Graph()
+    for uri, title in ((first, "First Work"), (second, "Second Work")):
+        title_node = BNode()
+        g.add((URIRef(uri), RDF.type, BF.Work))
+        g.add((URIRef(uri), BF.title, title_node))
+        g.add((title_node, RDF.type, BF.Title))
+        g.add((title_node, BF.mainTitle, RdfLiteral(title)))
+    out = save_graph(session_maker, g)
+
+    with session_maker() as session:
+        for source in (first, second):
+            work = row(session, Work, minted(out, source))
+            assert work is not None
+            assert str(DEFAULT_STATUS) in statuses(work.data)
+            assert str(STUB_STATUS) not in statuses(work.data)
+
+
+def _ingest_other_new_inserted(session_maker: sessionmaker) -> None:
+    agent = f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}"
+    g, _ = _work_citing_agent(agent, "Fresh Agent")
+    save_graph(session_maker, g, update_other_resources=False)
+
+    with session_maker() as session:
+        assert "Fresh Agent" in _stored_other(session, agent)
+
+
+def _ingest_other_held_updated(session_maker: sessionmaker) -> None:
+    agent = f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}"
+    save_graph(session_maker, _work_citing_agent(agent, "Original")[0])
+    with session_maker() as session:
+        assert "Original" in _stored_other(session, agent)
+
+    save_graph(
+        session_maker,
+        _work_citing_agent(agent, "Updated")[0],
+        update_other_resources=True,
+    )
+
+    with session_maker() as session:
+        assert "Updated" in _stored_other(session, agent)
+
+
+def _ingest_other_held_kept(session_maker: sessionmaker) -> None:
+    agent = f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}"
+    save_graph(session_maker, _work_citing_agent(agent, "Original")[0])
+    with session_maker() as session:
+        before = _stored_other(session, agent)
+
+    g, _ = _work_citing_agent(agent, "Changed")
+    save_graph(session_maker, g, update_other_resources=False)
+
+    with session_maker() as session:
+        after = _stored_other(session, agent)
+        assert after == before
+        assert "Original" in after
+        assert "Changed" not in after
+
+
+def _write_root_blank_inserted(session_maker: sessionmaker) -> None:
+    graph = load_jsonld(
+        {
+            "@context": CONTEXT_URL,
+            "@type": "Work",
+            "accompaniedBy": {
+                "@id": ext_uri("works"),
+                "@type": "Work",
+            },
+        }
+    )
+    bg = BluecoreGraph(graph)
+    bg.save(session_maker, primary_class=BF.Work)
+
+    assert bg.created_uri is not None
+    assert bg.created_uri == next(bg.graph.subjects(BF.accompaniedBy))
+    with session_maker() as session:
+        assert row(session, Work, str(bg.created_uri)) is not None
+
+
+def _write_uri_new_inserted(session_maker: sessionmaker) -> None:
+    uri = bc_uri("works")
+    g = Graph()
+    g.add((URIRef(uri), RDF.type, BF.Work))
+    save_graph(session_maker, g, primary_class=BF.Work)
+
+    with session_maker() as session:
+        assert session.query(Work).where(Work.uri == uri).count() == 1
+
+
+def _write_uri_held_updated(session_maker: sessionmaker) -> None:
+    uri = bc_uri("works")
+    document: dict[str, Any] = {
+        "@context": CONTEXT_URL,
+        "@id": uri,
+        "@type": BF.Work,
+        "title": {"@type": "Title", "mainTitle": "Gravity's Rainbow"},
+    }
+    save_graph(session_maker, load_jsonld(document), primary_class=BF.Work)
+    document["title"] = {"@type": "Title", "mainTitle": "Vineland"}
+    save_graph(session_maker, load_jsonld(document), primary_class=BF.Work)
+
+    with session_maker() as session:
+        work = row(session, Work, uri)
+        assert work.data["title"][0]["mainTitle"] == ["Vineland"]
+
+
+def _write_other_blank_inline(session_maker: sessionmaker) -> None:
+    with session_maker() as session:
+        works_before = session.query(Work).count()
+
+    graph = save_graph(
+        session_maker,
+        load_jsonld(
+            {
+                "@context": CONTEXT_URL,
+                "@type": "Work",
+                "accompaniedBy": {
+                    "@type": "Work",
+                    "language": {"@id": "http://id.loc.gov/vocabulary/languages/lat"},
+                },
+            }
+        ),
+        primary_class=BF.Work,
+    )
+    parent = str(next(graph.subjects(BF.accompaniedBy)))
+
+    with session_maker() as session:
+        work = row(session, Work, parent)
+        assert work.data["accompaniedBy"] == [
+            {
+                "@type": ["Work"],
+                "language": [{"@id": "http://id.loc.gov/vocabulary/languages/lat"}],
+            }
+        ]
+        # the blank Work has no row of its own: the parent is the only new Work
+        assert session.query(Work).count() == works_before + 1
+
+
+def _write_reference_new_inserted(session_maker: sessionmaker) -> None:
+    work_uri, inst_uri = bc_uri("works"), bc_uri("instances")
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.hasInstance, URIRef(inst_uri)))
+    g.add((URIRef(inst_uri), RDFS.label, RdfLiteral("just a label")))
+    save_graph(session_maker, g, primary_class=BF.Work)
+
+    with session_maker() as session:
+        inst = row(session, Instance, inst_uri)
+        assert inst is not None
+        assert "just a label" in json.dumps(inst.data)
+        assert inst.work_id == row(session, Work, work_uri).id
+
+
+def _write_reference_held_kept(session_maker: sessionmaker) -> None:
+    work_uri = bc_uri("works")
+    save_graph(
+        session_maker,
+        load_jsonld(
+            {
+                "@id": work_uri,
+                "@type": BF.Work,
+                "title": {"mainTitle": "Full Work", "@type": "Title"},
+            }
+        ),
+    )
+    with session_maker() as session:
+        before = _work_data(session, work_uri)
+
+    inst_uri = bc_uri("instances")
+    g = Graph()
+    g.add((URIRef(inst_uri), RDF.type, BF.Instance))
+    g.add((URIRef(inst_uri), BF.instanceOf, URIRef(work_uri)))
+    g.add((URIRef(work_uri), RDFS.label, RdfLiteral("display label")))
+    save_graph(session_maker, g, primary_class=BF.Instance)
+
+    with session_maker() as session:
+        assert _work_data(session, work_uri) == before
+        assert "display label" not in before
+
+
+def _write_reference_keeps_links(session_maker: sessionmaker) -> None:
+    work_uri = bc_uri("works")
+    subject = f"http://id.loc.gov/authorities/subjects/{uuid.uuid4()}"
+    agent = f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}"
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), BF.subject, _describe(g, subject, BF.Topic, "S")))
+    g.add((URIRef(work_uri), BF.contributor, _describe(g, agent, BF.Agent, "A")))
+    save_graph(session_maker, g, primary_class=BF.Work)
+    with session_maker() as session:
+        before = sorted(linked(session, row(session, Work, work_uri)))
+    assert before == sorted([subject, agent])
+
+    inst_uri = bc_uri("instances")
+    g = Graph()
+    g.add((URIRef(inst_uri), RDF.type, BF.Instance))
+    g.add((URIRef(inst_uri), BF.instanceOf, URIRef(work_uri)))
+    g.add((URIRef(work_uri), RDFS.label, RdfLiteral("display label")))
+    save_graph(session_maker, g, primary_class=BF.Instance)
+
+    with session_maker() as session:
+        assert sorted(linked(session, row(session, Work, work_uri))) == before
+
+
+def _write_other_reference_kept(session_maker: sessionmaker) -> None:
+    agent = bc_uri("other_resources")
+    g1, _ = _work_citing_agent(agent, "Ursula K. Le Guin")
+    g1.add((URIRef(agent), BF.note, RdfLiteral("author")))
+    save_graph(session_maker, g1, primary_class=BF.Work)
+    with session_maker() as session:
+        before = _stored_other(session, agent)
+
+    g2, _ = _work_citing_agent(agent, "Le Guin")
+    save_graph(session_maker, g2, primary_class=BF.Work)
+
+    with session_maker() as session:
+        assert _stored_other(session, agent) == before
+
+
+def _write_other_primary_updated(session_maker: sessionmaker) -> None:
+    agent = bc_uri("other_resources")
+    g1, work = _work_citing_agent(agent, "Old Name")
+    save_graph(session_maker, g1, primary_class=BF.Work)
+
+    g2 = Graph()
+    g2.add((URIRef(work), RDF.type, BF.Work))
+    g2.add((URIRef(work), BF.contribution, URIRef(agent)))
+    _describe(g2, agent, BF.Agent, "New Name")
+    save_graph(session_maker, g2, primary_class=OtherResource)
+
+    with session_maker() as session:
+        stored = _stored_other(session, agent)
+        assert "New Name" in stored
+        assert "Old Name" not in stored
+
+
+def _write_clears_stub_marker(session_maker: sessionmaker) -> None:
+    described, stub = ext_uri("works"), ext_uri("works")
+    out = save_graph(session_maker, _record(described, "Described", stub=stub))
+    uri = minted(out, stub)
+    with session_maker() as session:
+        stubbed = row(session, Work, uri)
+        assert str(STUB_STATUS) in statuses(stubbed.data)
+        edited = dict(stubbed.data)
+
+    edited["title"] = {"@type": "Title", "mainTitle": "Now Described By Hand"}
+    save_graph(session_maker, load_jsonld(edited), primary_class=BF.Work)
+
+    with session_maker() as session:
+        work = row(session, Work, uri)
+        assert "Now Described By Hand" in json.dumps(work.data)
+        assert str(STUB_STATUS) not in statuses(work.data)
+
+
+def _case(
+    case_id: str,
+    row_id: str,
+    situation: str,
+    outcome: str,
+    sentence: str,
+    run: Callable[[sessionmaker], None],
+    decision: Decision = "undecided",
+    follow_up: str | None = None,
+) -> PolicyCase:
+    return PolicyCase(
+        id=case_id,
+        row=row_id,
+        situation=situation,
+        outcome=outcome,
+        sentence=sentence,
+        decision=decision,
+        follow_up=follow_up,
+        run=run,
+    )
+
+
+CASES.extend(
+    [
+        _case(
+            "ingest-blank-record-stays-inline",
+            "R1",
+            "A bulk load brings a Work, Instance or Hub with no URI",
+            "No record is made for it; its description stays inside its parent's data",
+            "A description with no identifier of its own, such as a Work "
+            "described inside an Instance, is not saved as a record. It is "
+            "kept as part of the record that mentions it.",
+            _ingest_blank_record_stays_inline,
+        ),
+        _case(
+            "ingest-described-new-inserted",
+            "R2",
+            "A bulk load brings a described resource we don't hold",
+            "It is inserted under a new Bluecore URI, with the normal status and a note of where it came from",
+            "A new record from LC is added to Blue Core under a Blue Core "
+            "identifier, and remembers the LC identifier it came from.",
+            _ingest_described_new_inserted,
+        ),
+        _case(
+            "ingest-described-ours-updated",
+            "R2",
+            "A bulk load brings a described resource that already has a Bluecore URI",
+            "The stored description is replaced by the incoming one",
+            "When a description that already carries its Blue Core "
+            "identifier is loaded, it replaces what we hold.",
+            _ingest_described_ours_updated,
+        ),
+        _case(
+            "ingest-described-stub-replaced",
+            "R2",
+            "A bulk load brings a full description of a resource we only hold as a stub",
+            "The stub's description is replaced and the incomplete marker is removed",
+            "A placeholder we kept because another record pointed at it is "
+            "replaced as soon as a record that really describes it arrives.",
+            _ingest_described_stub_replaced,
+        ),
+        _case(
+            "ingest-described-reingest-kept",
+            "R2",
+            "A bulk load brings a described resource we hold in full, and a cataloger has edited it",
+            "The stored description is kept; its Other Resource links are rebuilt from the incoming record",
+            "LC sends a record again after you've edited it: your "
+            "description is kept, but its subject and agent links are "
+            "replaced with LC's.",
+            _ingest_described_reingest_kept,
+            decision="inherited",
+            follow_up="LC overlay policy (#213 follow-ups)",
+        ),
+        _case(
+            "ingest-stub-new-inserted-incomplete",
+            "R3",
+            "A record points at a resource it doesn't describe, and we don't hold it",
+            "A stub is inserted, marked incomplete rather than with the normal status",
+            "A resource that a record only mentions is saved as a "
+            "placeholder and marked incomplete, so it can be told apart "
+            "from a real description.",
+            _ingest_stub_new_inserted_incomplete,
+        ),
+        _case(
+            "ingest-stub-held-kept",
+            "R3",
+            "A record points at a resource it doesn't describe, and we hold a full description",
+            "The stored description is left exactly as it was",
+            "A record that only mentions a resource never replaces a full "
+            "description we already hold.",
+            _ingest_stub_held_kept,
+        ),
+        _case(
+            "ingest-stub-held-keeps-links",
+            "R3",
+            "A record points at a resource it doesn't describe, and we hold it with links",
+            "The resource keeps the links its own description gave it",
+            "A record that only mentions a resource does not remove the "
+            "agents and subjects already linked to it.",
+            _ingest_stub_held_keeps_links,
+        ),
+        _case(
+            "ingest-stub-new-gets-links",
+            "R3",
+            "A record's stub cites an Other Resource we already hold, by URI",
+            "The new stub is linked to that Other Resource",
+            "A placeholder created from a mention is still linked to the "
+            "agents and subjects it cites, when we already hold them.",
+            _ingest_stub_new_gets_links,
+        ),
+        _case(
+            "ingest-no-admin-metadata-all-primary",
+            "R4",
+            "A bulk-loaded record has URI Works and no adminMetadata anywhere",
+            "Every Work is inserted as a full description, none marked incomplete",
+            "When a record gives no administrative information at all, we "
+            "can't tell which Works are placeholders, so all of them are "
+            "treated as real descriptions.",
+            _ingest_no_admin_metadata_all_primary,
+        ),
+        _case(
+            "ingest-other-new-inserted",
+            "R5",
+            "A bulk load cites a described Other Resource we don't hold",
+            "The Other Resource is inserted with the payload's description",
+            "A new agent, subject or other authority described in a loaded "
+            "record is added with the label the record gives it.",
+            _ingest_other_new_inserted,
+        ),
+        _case(
+            "ingest-other-held-updated",
+            "R5",
+            "A bulk load describes an Other Resource we hold, and updating Other Resources is on",
+            "The stored description is replaced by the new one",
+            "By default, a loaded record's description of an agent or "
+            "subject replaces the one we hold.",
+            _ingest_other_held_updated,
+        ),
+        _case(
+            "ingest-other-held-kept",
+            "R5",
+            "A bulk load describes an Other Resource we hold, and updating Other Resources is off",
+            "The stored description is unchanged",
+            "When the loader is told not to update agents and subjects, "
+            "the ones we hold keep their descriptions.",
+            _ingest_other_held_kept,
+        ),
+        _case(
+            "write-root-blank-inserted",
+            "R6",
+            "A save through the API has no URI on the resource being created",
+            "A new record is created for it and its URI is reported as created",
+            "When you create a new resource in the editor, it is given a "
+            "new identifier and saved.",
+            _write_root_blank_inserted,
+        ),
+        _case(
+            "write-uri-new-inserted",
+            "R7",
+            "A save through the API names a resource of the saved kind by a new Bluecore URI",
+            "A record is created at that URI",
+            "Saving a Work under a Blue Core identifier we don't hold yet "
+            "creates it under that identifier.",
+            _write_uri_new_inserted,
+        ),
+        _case(
+            "write-uri-held-updated",
+            "R7",
+            "A save through the API names a resource of the saved kind that we hold",
+            "The stored description is replaced by the saved one",
+            "Saving a resource from the editor replaces what we hold.",
+            _write_uri_held_updated,
+        ),
+        _case(
+            "write-other-blank-inline",
+            "R8",
+            "A save through the API has a nested Work with no URI",
+            "No record is made for it; it stays inside its parent's data",
+            "A description inside another one, with no identifier, stays "
+            "part of the resource that holds it.",
+            _write_other_blank_inline,
+        ),
+        _case(
+            "write-reference-new-inserted",
+            "R9",
+            "A save through the API refers to a resource of another kind that we don't hold",
+            "A record is created for it from what the payload says about it",
+            "If you link to a resource we don't have yet, it is created "
+            "with whatever the payload says about it.",
+            _write_reference_new_inserted,
+        ),
+        _case(
+            "write-reference-held-kept",
+            "R9",
+            "A save through the API refers to a resource of another kind that we hold",
+            "The stored description is unchanged",
+            "Linking to an existing resource from another one never "
+            "changes the linked resource's description.",
+            _write_reference_held_kept,
+        ),
+        _case(
+            "write-reference-keeps-links",
+            "R9",
+            "A save through the API refers to a held resource that has Other Resource links",
+            "The referenced resource's links are unchanged",
+            "Saving an Instance does not remove the agents and subjects "
+            "linked to its Work.",
+            _write_reference_keeps_links,
+        ),
+        _case(
+            "write-other-reference-kept",
+            "R10",
+            "A save through the API cites an Other Resource that we hold",
+            "The stored description is unchanged",
+            "Citing an agent or subject from a Work never shrinks the "
+            "fuller description we already hold.",
+            _write_other_reference_kept,
+        ),
+        _case(
+            "write-other-primary-updated",
+            "R10",
+            "A save through the API writes an Other Resource as the thing being saved",
+            "The stored description is replaced by the saved one",
+            "Saving an agent or subject on its own replaces what we hold for it.",
+            _write_other_primary_updated,
+        ),
+        _case(
+            "write-clears-stub-marker",
+            "R11",
+            "A save through the API writes a resource held as an incomplete stub",
+            "The incomplete marker is removed and the normal status is set",
+            "Once you save a placeholder from the editor, it counts as a "
+            "real description and is no longer marked incomplete.",
+            _write_clears_stub_marker,
+        ),
+    ]
+)
 
 
 def _cell(text: str) -> str:
