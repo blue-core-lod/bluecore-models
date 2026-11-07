@@ -18,29 +18,30 @@ prints the SHA-256 it wrote, which should match the line above) is:
     uv run python scripts/diff_save.py sample --uploads uploads \\
         --per-batch 200 --out tests/data/harness-sample.tar.gz
 
-Run each side against its own empty, throwaway Postgres database:
-
-    docker run -d --rm --name diff-a -p 55433:5432 -e POSTGRES_PASSWORD=diff postgres:16
-    docker run -d --rm --name diff-b -p 55434:5432 -e POSTGRES_PASSWORD=diff postgres:16
-    docker exec diff-a pg_isready   # wait for "accepting connections"
+Run each side with ``--docker``: it starts its own throwaway postgres:16
+container on a free port, waits for it, and removes it afterwards, even on
+failure or Ctrl-C. Docker must be running. Two runs can go in parallel. If you
+bring your own empty database, pass ``--database-url`` instead (the harness
+then never touches Docker).
 
 The baseline run puts the 7f0064c code first on PYTHONPATH, and the script
 prints which ``bluecore_models`` it imported, so check that line:
 
     git worktree add ../bluecore-models-7f0064c 7f0064c
+    mkdir harness-out
     PYTHONPATH=../bluecore-models-7f0064c/src uv run python scripts/diff_save.py run \\
-        --database-url postgresql+psycopg://postgres:diff@localhost:55433/postgres \\
-        --corpus tests/data/harness-sample.tar.gz --sequences --out harness-out/a.json
+        --docker --corpus tests/data/harness-sample.tar.gz --sequences \\
+        --out harness-out/a.json
 
-Then run the branch against the other database, with no PYTHONPATH, and compare:
+Then run the branch, with no PYTHONPATH, and compare:
 
     uv run python scripts/diff_save.py run \\
-        --database-url postgresql+psycopg://postgres:diff@localhost:55434/postgres \\
-        --corpus tests/data/harness-sample.tar.gz --sequences --out harness-out/branch.json
+        --docker --corpus tests/data/harness-sample.tar.gz --sequences \\
+        --out harness-out/branch.json
     uv run python scripts/diff_save.py compare harness-out/a.json harness-out/branch.json
 
-To check that the harness is deterministic, run the baseline twice, each time
-against a fresh database, and compare with ``compare harness-out/a.json harness-out/b.json --same-code``.
+To check that the harness is deterministic, run the baseline twice and compare
+with ``compare harness-out/a.json harness-out/b.json --same-code``.
 
 A full run loads 7,000 records twice and takes about 45-50 minutes per side,
 whether or not two run in parallel. While working, use the quick check, which
@@ -49,24 +50,19 @@ snapshot and a branch snapshot, and ``compare`` refuses snapshots whose
 selections differ, so give both the same ``--per-batch``:
 
     PYTHONPATH=../bluecore-models-7f0064c/src uv run python scripts/diff_save.py run \\
-        --per-batch 25 \\
-        --database-url postgresql+psycopg://postgres:diff@localhost:55433/postgres \\
-        --corpus tests/data/harness-sample.tar.gz --sequences \\
-        --out harness-out/quick-a.json
-    uv run python scripts/diff_save.py run --per-batch 25 \\
-        --database-url postgresql+psycopg://postgres:diff@localhost:55434/postgres \\
-        --corpus tests/data/harness-sample.tar.gz --sequences \\
-        --out harness-out/quick.json
+        --docker --per-batch 25 --corpus tests/data/harness-sample.tar.gz \\
+        --sequences --out harness-out/quick-a.json
+    uv run python scripts/diff_save.py run \\
+        --docker --per-batch 25 --corpus tests/data/harness-sample.tar.gz \\
+        --sequences --out harness-out/quick.json
     uv run python scripts/diff_save.py compare \\
         harness-out/quick-a.json harness-out/quick.json
 
-(Use a fresh database for each run.) The snapshots are large, about 60 MB each
-for a full run, and are never committed: harness-out/ is in .gitignore. Make it
-first with ``mkdir harness-out``.
+The snapshots are large, about 60 MB each for a full run, and are never
+committed: harness-out/ is in .gitignore.
 
 Clean up when you are done:
 
-    docker stop diff-a diff-b
     git worktree remove ../bluecore-models-7f0064c
 
 The script uses only the public API that exists at 7f0064c, so the same file
@@ -97,17 +93,23 @@ import io
 import json
 import logging
 import re
+import socket
+import subprocess
 import sys
 import tarfile
+import time
 import urllib.parse
+import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from rdflib import RDF, RDFS, BNode, Graph, Literal, URIRef
 from rdflib.compare import to_canonical_graph
 from sqlalchemy import create_engine, func, inspect, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 import bluecore_models
@@ -1071,6 +1073,86 @@ def _positive(value: str) -> int:
     return number
 
 
+class DockerError(Exception):
+    """Docker isn't usable, or the throwaway database didn't come up."""
+
+
+def _docker(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+    try:
+        done = subprocess.run(
+            ["docker", *args], capture_output=True, text=True, check=False
+        )
+    except FileNotFoundError:
+        raise DockerError("docker isn't installed (or isn't on PATH)") from None
+    if check and done.returncode != 0:
+        detail = (done.stderr or done.stdout or "").strip().splitlines()
+        raise DockerError(
+            f"docker {args[0]} failed: {detail[-1] if detail else done.returncode}"
+        )
+    return done
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _wait_ready(url: str, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    engine = create_engine(url)
+    last: OperationalError | None = None
+    try:
+        while time.monotonic() < deadline:
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                return
+            except OperationalError as exc:
+                last = exc
+                time.sleep(0.5)
+    finally:
+        engine.dispose()
+    raise DockerError(
+        f"postgres didn't accept connections within {timeout:.0f}s: {last}"
+    )
+
+
+@contextmanager
+def throwaway_postgres(timeout: float = 60.0) -> Iterator[str]:
+    """Run a throwaway postgres:16 container; yield its database URL.
+
+    The container is always removed afterwards, including on failure or Ctrl-C.
+    """
+    try:
+        _docker("info")
+    except DockerError as exc:
+        if "isn't installed" in str(exc):
+            raise
+        raise DockerError(f"the docker daemon isn't running ({exc})") from None
+    name = f"diff-save-{uuid.uuid4().hex[:8]}"
+    port = _free_port()
+    url = f"postgresql+psycopg://postgres:diff@localhost:{port}/postgres"
+    try:
+        _docker(
+            "run",
+            "-d",
+            "--rm",
+            "--name",
+            name,
+            "-p",
+            f"127.0.0.1:{port}:5432",
+            "-e",
+            "POSTGRES_PASSWORD=diff",
+            "postgres:16",
+        )
+        print(f"docker container {name} on port {port}", flush=True)
+        _wait_ready(url, timeout)
+        yield url
+    finally:
+        _docker("rm", "-f", name, check=False)
+
+
 def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     corpus = Path(args.corpus)
     if not corpus.exists():
@@ -1088,7 +1170,24 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     logging.basicConfig(filename=log, level=logging.WARNING)
     print(f"failed steps are logged to {log}", flush=True)
 
-    engine = create_engine(args.database_url)
+    if not args.docker:
+        return _snapshot_run(args, parser, args.database_url, corpus, code)
+    try:
+        with throwaway_postgres() as url:
+            return _snapshot_run(args, parser, url, corpus, code)
+    except DockerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _snapshot_run(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    database_url: str,
+    corpus: Path,
+    code: str,
+) -> int:
+    engine = create_engine(database_url)
     tables = inspect(engine).get_table_names()
     if tables:
         parser.error(f"the database isn't empty: it has tables {sorted(tables)}")
@@ -1152,7 +1251,13 @@ def main(argv: list[str] | None = None) -> int:
     sample.add_argument("--out", required=True)
 
     run = commands.add_parser("run", help="load a corpus and snapshot the database")
-    run.add_argument("--database-url", required=True)
+    database = run.add_mutually_exclusive_group(required=True)
+    database.add_argument("--database-url", help="an empty database of your own")
+    database.add_argument(
+        "--docker",
+        action="store_true",
+        help="run in a throwaway postgres:16 container, removed afterwards",
+    )
     run.add_argument("--corpus", required=True, help="the sample, or an uploads/ dir")
     selection = run.add_mutually_exclusive_group()
     selection.add_argument("--per-batch", type=_positive)

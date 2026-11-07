@@ -1,5 +1,7 @@
 import gzip
 import io
+import re
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -430,3 +432,156 @@ def test_a_refused_step_is_part_of_the_sequences(pg_session):
 
     refused = [o for o in outcomes if o["name"].startswith("refused/")]
     assert [o["status"] for o in refused] == ["BluecoreGraphError"]
+
+
+# --- run --docker ----------------------------------------------------------
+
+
+class _FakeDocker:
+    """Stands in for subprocess.run, recording each docker command."""
+
+    def __init__(self, missing: bool = False):
+        self.calls: list[list[str]] = []
+        self.missing = missing
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(list(cmd))
+        if self.missing:
+            raise FileNotFoundError("docker")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def verbs(self) -> list[str]:
+        return [call[1] for call in self.calls]
+
+
+@pytest.fixture
+def fake_docker(monkeypatch):
+    fake = _FakeDocker()
+    monkeypatch.setattr(diff_save.subprocess, "run", fake)
+    monkeypatch.setattr(diff_save, "_wait_ready", lambda url, timeout: None)
+    return fake
+
+
+def test_docker_starts_a_named_published_removable_container(fake_docker):
+    with diff_save.throwaway_postgres() as url:
+        started = next(c for c in fake_docker.calls if c[1] == "run")
+        assert "--rm" in started
+        name = started[started.index("--name") + 1]
+        assert re.fullmatch(r"diff-save-[0-9a-f]+", name)
+        published = started[started.index("-p") + 1]
+        port, container_port = published.split(":")[1:]
+        assert container_port == "5432" and int(port) > 0
+        assert "postgres:16" in started
+        assert url.endswith(f"localhost:{port}/postgres")
+
+
+def test_docker_containers_get_unique_names_and_ports(fake_docker):
+    names = []
+    for _ in range(2):
+        with diff_save.throwaway_postgres():
+            pass
+    for call in fake_docker.calls:
+        if call[1] == "run":
+            names.append(call[call.index("--name") + 1])
+    assert len(set(names)) == 2
+
+
+def test_docker_removes_the_container_after_success(fake_docker):
+    with diff_save.throwaway_postgres():
+        pass
+    started = next(c for c in fake_docker.calls if c[1] == "run")
+    name = started[started.index("--name") + 1]
+    assert fake_docker.calls[-1][1:] == ["rm", "-f", name]
+
+
+def test_docker_removes_the_container_when_the_run_raises(fake_docker):
+    with pytest.raises(RuntimeError, match="boom"), diff_save.throwaway_postgres():
+        raise RuntimeError("boom")
+    assert fake_docker.calls[-1][1:2] == ["rm"]
+
+
+def test_docker_removes_the_container_on_ctrl_c(fake_docker):
+    with pytest.raises(KeyboardInterrupt), diff_save.throwaway_postgres():
+        raise KeyboardInterrupt
+    assert fake_docker.calls[-1][1:2] == ["rm"]
+
+
+def test_docker_removes_the_container_when_it_never_becomes_ready(
+    fake_docker, monkeypatch
+):
+    def never(url, timeout):
+        raise diff_save.DockerError("postgres didn't accept connections")
+
+    monkeypatch.setattr(diff_save, "_wait_ready", never)
+    with pytest.raises(diff_save.DockerError), diff_save.throwaway_postgres():
+        pytest.fail("the body must not run")
+    assert fake_docker.calls[-1][1:2] == ["rm"]
+
+
+def test_a_missing_docker_gives_a_one_line_error(monkeypatch, capsys, tmp_path):
+    fake = _FakeDocker(missing=True)
+    monkeypatch.setattr(diff_save.subprocess, "run", fake)
+    sample = tmp_path / "s.tar.gz"
+    sample.write_bytes(b"x")
+    code = diff_save.main(
+        ["run", "--docker", "--corpus", str(sample), "--out", str(tmp_path / "o.json")]
+    )
+    err = capsys.readouterr().err.strip()
+    assert code == 2
+    assert len(err.splitlines()) == 1 and "docker" in err
+    assert fake.verbs() == ["info"]
+
+
+def test_docker_and_database_url_are_mutually_exclusive(tmp_path):
+    with pytest.raises(SystemExit):
+        diff_save.main(
+            ["run", "--docker", "--database-url", "x", "--corpus", "c", "--out", "o"]
+        )
+
+
+def test_run_needs_docker_or_a_database_url(tmp_path):
+    with pytest.raises(SystemExit):
+        diff_save.main(["run", "--corpus", "c", "--out", "o"])
+
+
+def test_database_url_never_touches_docker(monkeypatch, tmp_path):
+    fake = _FakeDocker()
+    monkeypatch.setattr(diff_save.subprocess, "run", fake)
+    monkeypatch.setattr(diff_save, "_snapshot_run", lambda *a, **k: 0)
+    sample = tmp_path / "s.tar.gz"
+    sample.write_bytes(b"x")
+    code = diff_save.main(
+        [
+            "run",
+            "--database-url",
+            "postgresql+psycopg://u@localhost/db",
+            "--corpus",
+            str(sample),
+            "--out",
+            str(tmp_path / "o.json"),
+        ]
+    )
+    assert code == 0 and fake.calls == []
+
+
+def test_docker_run_removes_the_container_when_the_load_fails(
+    fake_docker, monkeypatch, tmp_path
+):
+    def fail(*args, **kwargs):
+        raise RuntimeError("load failed")
+
+    monkeypatch.setattr(diff_save, "_snapshot_run", fail)
+    sample = tmp_path / "s.tar.gz"
+    sample.write_bytes(b"x")
+    with pytest.raises(RuntimeError, match="load failed"):
+        diff_save.main(
+            [
+                "run",
+                "--docker",
+                "--corpus",
+                str(sample),
+                "--out",
+                str(tmp_path / "o.json"),
+            ]
+        )
+    assert fake_docker.verbs() == ["info", "run", "rm"]
