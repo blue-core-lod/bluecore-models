@@ -1279,8 +1279,8 @@ CASES.extend(
             "X1",
             "A Work is saved as an expressionOf a Hub we hold, but the payload does not describe or type it",
             "The save fails with a duplicate-URI error and nothing is written; the Work is not linked to the Hub",
-            "Pointing a Work at a Hub we already have does not save: the "
-            "record must describe the Hub, or the save fails.",
+            "Pointing a Work at a Hub we already have fails to save unless "
+            "the record also says that it is a Hub.",
             _hub_link_not_described,
             decision="inherited",
             follow_up="Hub labels and links",
@@ -1320,18 +1320,20 @@ L5_SENTENCES = {
     "creates a new Instance record for it, rather than linking the one we hold.",
     "expressionOf": "A resource cited as the Hub a Work expresses is never linked "
     "as an agent or subject, even if we hold it that way.",
-    "hasExpression": "A resource cited as a Work a Hub has as an expression is "
-    "never linked as an agent or subject, even if we hold it that way.",
+    "hasExpression": "A Work that names a resource as one of its expressions "
+    "never links it as an agent or subject, even if we hold it that way.",
     "relatedTo": "A resource cited as a related Work is never linked as an agent "
     "or subject, even if we hold it that way.",
     "hasItem": "A resource cited as an Item an Instance holds is never linked as "
     "an agent or subject, even if we hold it that way.",
-    "itemOf": "A resource cited as the Instance an Item belongs to is never "
-    "linked as an agent or subject, even if we hold it that way.",
-    "bf-associatedResource": "A resource cited as an associated resource is never "
-    "linked as an agent or subject, even if we hold it that way.",
-    "bflc-associatedResource": "A resource cited as an associated resource is "
-    "never linked as an agent or subject, even if we hold it that way.",
+    "itemOf": "An Instance that names a resource as the Instance it is an item "
+    "of never links it as an agent or subject, even if we hold it that way.",
+    "bf-associatedResource": "A resource cited as an associated resource "
+    "(BIBFRAME's property) is never linked as an agent or subject, even if we "
+    "hold it that way.",
+    "bflc-associatedResource": "A resource cited as an associated resource "
+    "(the LC extension's property) is never linked as an agent or subject, "
+    "even if we hold it that way.",
 }
 
 INFERRED = {"instanceOf": BF.Work, "hasInstance": BF.Instance}
