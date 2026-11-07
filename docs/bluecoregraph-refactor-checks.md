@@ -45,8 +45,8 @@ Remove it when you are done (`git worktree remove ../bluecore-models-7f0064c`).
 ## While you work: the quick check
 
 It loads the first 25 records of each batch and takes a few minutes per side.
-It catches most mistakes, but it is not the full check. Both sides need the same `--per-batch`, because `compare`
-refuses snapshots with different selections.
+It is not the full check. Both sides need the same `--per-batch`, because
+`compare` refuses snapshots with different selections.
 
 ```
 PYTHONPATH=../bluecore-models-7f0064c/src UV_PYTHON=3.12 uv run python scripts/diff_save.py run \
@@ -85,15 +85,16 @@ UV_PYTHON=3.12 uv run python scripts/diff_save.py compare \
 ### The benchmark
 
 Run the baseline and the branch on the same machine, one after the other, with
-nothing else heavy running. Each run needs an empty Postgres; any throwaway one
-will do, for example:
+nothing else heavy running. Use one throwaway Postgres for all the runs; `--reset` empties it before each
+run. For example:
 
 ```
 docker run -d --rm --name bench -p 55440:5432 -e POSTGRES_PASSWORD=diff postgres:16
+until docker exec bench pg_isready -h 127.0.0.1 -q; do sleep 1; done
 ```
 
 Use the commands from the benchmark's docstring, with `<url>` set to
-`postgresql+psycopg://postgres:diff@localhost:55440/postgres`:
+`postgresql+psycopg://postgres:diff@127.0.0.1:55440/postgres`:
 
 ```
 PYTHONPATH=../bluecore-models-7f0064c/src UV_PYTHON=3.12 uv run python \
@@ -125,7 +126,7 @@ acceptable silently.
   deliberate: change the policy case that pins the old behaviour, mark that row
   *chosen*, and say so in the PR.
 
-The harness includes steps that are meant to be refused, so the comparison also
+The harness includes a step that is meant to be refused, so the comparison also
 covers error behaviour. A refactor that began accepting bad saves would show up
 there as a difference.
 

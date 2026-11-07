@@ -475,7 +475,7 @@ def test_docker_starts_a_named_published_removable_container(fake_docker):
         assert url.endswith(f"localhost:{port}/postgres")
 
 
-def test_docker_containers_get_unique_names_and_ports(fake_docker):
+def test_docker_containers_get_unique_names(fake_docker):
     names = []
     for _ in range(2):
         with diff_save.throwaway_postgres():
@@ -532,14 +532,14 @@ def test_a_missing_docker_gives_a_one_line_error(monkeypatch, capsys, tmp_path):
     assert fake.verbs() == ["info"]
 
 
-def test_docker_and_database_url_are_mutually_exclusive(tmp_path):
+def test_docker_and_database_url_are_mutually_exclusive():
     with pytest.raises(SystemExit):
         diff_save.main(
             ["run", "--docker", "--database-url", "x", "--corpus", "c", "--out", "o"]
         )
 
 
-def test_run_needs_docker_or_a_database_url(tmp_path):
+def test_run_needs_docker_or_a_database_url():
     with pytest.raises(SystemExit):
         diff_save.main(["run", "--corpus", "c", "--out", "o"])
 
