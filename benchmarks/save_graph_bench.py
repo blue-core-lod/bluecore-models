@@ -19,6 +19,32 @@ Requires a Postgres to write to. Point it at any database via ``--database-url``
 
 Use ``--reset`` to TRUNCATE the resource tables first (don't point that at a
 database you care about).
+
+``--tarball`` loads the first ``--limit`` ``.rdf`` members of a tarball (RDF/XML,
+read in place) instead of ``--input``. ``--no-warmup`` skips the warm-up pass, so
+the timed run is a first-time load of every record.
+
+Baseline for the BluecoreGraph refactor
+---------------------------------------
+Each refactor phase must be no slower than the recorded baseline. The baseline
+run puts the 7f0064c code on PYTHONPATH, against a throwaway Postgres. Create
+that worktree once with:
+
+    git worktree add ../bluecore-models-7f0064c 7f0064c
+
+then run:
+
+    PYTHONPATH=../bluecore-models-7f0064c/src uv run python \\
+        benchmarks/save_graph_bench.py --database-url <url> --reset \\
+        --no-warmup --no-update-other-resources \\
+        --tarball tests/data/harness-sample.tar.gz --limit 300 --count 300
+
+Recorded baseline: three runs of the command above gave 99.4, 98.3 and 98.7
+ms/record (median 98.7) over the first 300 records of
+tests/data/harness-sample.tar.gz, measured on 2026-11-06 on a developer laptop.
+
+That figure depends on the machine. Each phase measures the baseline and the
+branch on the same machine, and compares those two, not the figure above.
 """
 
 import argparse
@@ -27,9 +53,12 @@ import glob
 import io
 import os
 import pstats
+import tarfile
 import time
+from xml.sax import SAXParseException
 
 import rdflib
+from rdflib.exceptions import ParserError
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -90,6 +119,29 @@ def load_graphs(pattern: str) -> list[rdflib.Graph]:
     return graphs
 
 
+def load_tarball(path: str, limit: int) -> list[rdflib.Graph]:
+    """Parse the first ``limit`` ``.rdf`` members (sorted by name) as RDF/XML."""
+    graphs: list[rdflib.Graph] = []
+    with tarfile.open(path) as tar:
+        members = sorted(
+            (m for m in tar.getmembers() if m.isfile() and m.name.endswith(".rdf")),
+            key=lambda m: m.name,
+        )[:limit]
+        for member in members:
+            fileobj = tar.extractfile(member)
+            if fileobj is None:
+                continue
+            g = rdflib.Graph()
+            try:
+                g.parse(data=fileobj.read(), format="xml")
+            except (SAXParseException, ParserError) as exc:
+                print(f"  (skipped {os.path.basename(member.name)}: {exc})")
+                continue
+            if len(g):
+                graphs.append(g)
+    return graphs
+
+
 def run(graphs, session_maker, count, update_other_resources=True):
     saved = 0
     triples = 0
@@ -117,6 +169,16 @@ def main():
     ap.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     ap.add_argument("--count", type=int, default=25, help="number of save_graph calls")
     ap.add_argument("--input", default=DEFAULT_INPUT, help="glob of RDF files to load")
+    ap.add_argument("--tarball", help="tarball of .rdf members to load, not --input")
+    ap.add_argument(
+        "--limit", type=int, default=300, help="members to read from --tarball"
+    )
+    ap.add_argument(
+        "--no-warmup",
+        dest="warmup",
+        action="store_false",
+        help="skip the warm-up pass, so the run times first-time loads",
+    )
     ap.add_argument("--profile", action="store_true", help="print cProfile hot spots")
     ap.add_argument(
         "--reset", action="store_true", help="TRUNCATE resource tables first"
@@ -138,17 +200,25 @@ def main():
         reset(engine)
     session_maker = sessionmaker(bind=engine)
 
-    graphs = load_graphs(args.input)
+    source = args.tarball or args.input
+    if args.tarball:
+        graphs = load_tarball(args.tarball, args.limit)
+    else:
+        graphs = load_graphs(args.input)
     if not graphs:
-        ap.error(f"no graphs loaded from {args.input}")
+        ap.error(f"no graphs loaded from {source}")
     print(
         f"loaded {len(graphs)} sample graph(s); running {args.count} save_graph calls"
     )
 
     # warm up (schema caches, first-insert vs update path) — excluded from timing
-    run(
-        graphs, session_maker, min(len(graphs), args.count), args.update_other_resources
-    )
+    if args.warmup:
+        run(
+            graphs,
+            session_maker,
+            min(len(graphs), args.count),
+            args.update_other_resources,
+        )
 
     profiler = cProfile.Profile() if args.profile else None
     t0 = time.time()
@@ -161,7 +231,7 @@ def main():
 
     print(
         f"\n{saved} saves in {wall:.1f}s  =>  {saved / wall:.1f} graphs/s, "
-        f"{triples / wall:.0f} triples/s"
+        f"{triples / wall:.0f} triples/s, {1000 * wall / saved:.1f} ms/record"
     )
 
     if profiler:
