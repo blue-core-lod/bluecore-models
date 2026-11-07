@@ -63,6 +63,10 @@ def test_every_table_row_has_a_case():
     assert {case.row for case in CASES} == set(ROWS)
 
 
+def test_every_case_is_marked():
+    assert [case.id for case in CASES if case.decision == "undecided"] == []
+
+
 @pytest.mark.parametrize("case", CASES, ids=[c.id for c in CASES])
 def test_policy_case(case: PolicyCase, pg_session):
     case.run(pg_session)

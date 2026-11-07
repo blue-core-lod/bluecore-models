@@ -81,6 +81,10 @@ ROWS: dict[str, str] = {
 
 CASES: list[PolicyCase] = []
 
+# Every case is inherited until the team reviews the table before the dev
+# reload; cases with a follow-up of their own keep it.
+REVIEW_BEFORE_RELOAD = "review before the dev reload (#221)"
+
 # Places where #213's text misreads the code, found while writing cases.
 TABLE_CORRECTIONS: list[str] = [
     (
@@ -634,8 +638,8 @@ def _case(
     outcome: str,
     sentence: str,
     run: Callable[[sessionmaker], None],
-    decision: Decision = "undecided",
-    follow_up: str | None = None,
+    decision: Decision = "inherited",
+    follow_up: str | None = REVIEW_BEFORE_RELOAD,
 ) -> PolicyCase:
     return PolicyCase(
         id=case_id,
