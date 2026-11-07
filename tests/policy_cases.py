@@ -1291,8 +1291,8 @@ CASES.extend(
             "A Work is saved as an expressionOf a Hub we don't hold, and the payload does not describe or type it",
             "The Work is not linked to a Hub; an Other Resource is created at the Hub's URI",
             "Pointing a Work at a Hub we don't have, without describing it, "
-            "saves the Hub's identifier as if it were an agent or subject. A "
-            "later save that properly describes that Hub then fails.",
+            "saves the Hub's identifier as if it were an agent or subject, "
+            "and doesn't attach the Work to it.",
             _hub_link_hub_not_stored,
             decision="inherited",
             follow_up="Hub labels and links",
