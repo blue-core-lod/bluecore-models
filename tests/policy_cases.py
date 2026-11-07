@@ -698,7 +698,7 @@ CASES.extend(
             "replaced with LC's.",
             _ingest_described_reingest_kept,
             decision="inherited",
-            follow_up="LC overlay policy (#213 follow-ups)",
+            follow_up="LC overlay policy",
         ),
         _case(
             "ingest-stub-new-inserted-incomplete",
@@ -1209,7 +1209,7 @@ CASES.extend(
             "reference, with no label and no link.",
             _link_unknown_uri_bare_reference,
             decision="inherited",
-            follow_up="#169 stub rows (#213 follow-ups)",
+            follow_up="#169 stub rows",
         ),
         _case(
             "link-vocabulary-term",
@@ -1264,7 +1264,7 @@ CASES.extend(
             "An LC Item is kept, but is not linked to its Instance.",
             _link_lc_item,
             decision="inherited",
-            follow_up="Items, decided in Phase 3 (#213 follow-ups)",
+            follow_up="Items, decided in Phase 3",
         ),
         _case(
             "hub-link-described",
@@ -1283,19 +1283,19 @@ CASES.extend(
             "record must describe the Hub, or the save fails.",
             _hub_link_not_described,
             decision="inherited",
-            follow_up="Hub labels and links (#213 follow-ups)",
+            follow_up="Hub labels and links",
         ),
         _case(
             "hub-link-hub-not-stored",
             "X1",
             "A Work is saved as an expressionOf a Hub we don't hold, and the payload does not describe or type it",
             "The Work is not linked to a Hub; an Other Resource is created at the Hub's URI",
-            "Pointing a Work at a Hub the record doesn't describe stores the "
-            "Hub's address as a plain heading, and a later save that does "
-            "describe that Hub fails.",
+            "Pointing a Work at a Hub we don't have, without describing it, "
+            "saves the Hub's identifier as if it were an agent or subject. A "
+            "later save that properly describes that Hub then fails.",
             _hub_link_hub_not_stored,
             decision="inherited",
-            follow_up="Hub labels and links (#213 follow-ups)",
+            follow_up="Hub labels and links",
         ),
         _case(
             "reingest-links-follow-incoming",
@@ -1307,10 +1307,32 @@ CASES.extend(
             "to LC's.",
             _reingest_links_follow_incoming,
             decision="inherited",
-            follow_up="LC overlay policy (#213 follow-ups)",
+            follow_up="LC overlay policy",
         ),
     ]
 )
+
+L5_SENTENCES = {
+    "instanceOf": "Naming an existing agent or subject as the Work an Instance "
+    "belongs to creates a new Work record for it, rather than linking the one "
+    "we hold.",
+    "hasInstance": "Naming an existing agent or subject as an Instance of a Work "
+    "creates a new Instance record for it, rather than linking the one we hold.",
+    "expressionOf": "A resource cited as the Hub a Work expresses is never linked "
+    "as an agent or subject, even if we hold it that way.",
+    "hasExpression": "A resource cited as a Work a Hub has as an expression is "
+    "never linked as an agent or subject, even if we hold it that way.",
+    "relatedTo": "A resource cited as a related Work is never linked as an agent "
+    "or subject, even if we hold it that way.",
+    "hasItem": "A resource cited as an Item an Instance holds is never linked as "
+    "an agent or subject, even if we hold it that way.",
+    "itemOf": "A resource cited as the Instance an Item belongs to is never "
+    "linked as an agent or subject, even if we hold it that way.",
+    "bf-associatedResource": "A resource cited as an associated resource is never "
+    "linked as an agent or subject, even if we hold it that way.",
+    "bflc-associatedResource": "A resource cited as an associated resource is "
+    "never linked as an agent or subject, even if we hold it that way.",
+}
 
 INFERRED = {"instanceOf": BF.Work, "hasInstance": BF.Instance}
 
@@ -1345,8 +1367,7 @@ for _predicate, _name, _class in (
             "L5",
             _situation,
             _outcome,
-            "A resource cited as a related Work, Instance, Hub or Item is "
-            "never linked as an agent or subject, even if we hold it that way.",
+            L5_SENTENCES[_name],
             run,
         )
     )
@@ -1367,7 +1388,7 @@ def render_markdown(cases: list[PolicyCase]) -> str:
     for case in ordered:
         decision: str = case.decision
         if case.decision == "inherited" and case.follow_up:
-            decision = f"inherited ({case.follow_up})"
+            decision = f"inherited: {case.follow_up}"
         cells = [case.row, case.situation, case.outcome, case.sentence, decision]
         lines.append("| " + " | ".join(_cell(c) for c in cells) + " |")
     return "\n".join(lines)
