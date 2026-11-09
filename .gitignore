@@ -1,3 +1,8 @@
+# Superpowers plans, specs and agent workspaces are personal working files;
+# the issues and PRs are the shared record
+/docs/superpowers/
+/.superpowers/
+
 # Python-generated files
 __pycache__/
 *.py[oc]
