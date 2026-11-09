@@ -663,9 +663,9 @@ class BluecoreGraph:
                     self._mint_all_uris(BF.Work, session)
                     self._mint_all_uris(BF.Instance, session)
 
-                    # The mode's kind is authoritatively upserted; other kinds
-                    # are references (create-if-absent, never overwrite). See
-                    # _persist_resources.
+                    # Kinds the mode makes primary are authoritatively upserted;
+                    # the rest are references (create-if-absent, never
+                    # overwrite). See Ingest, Write and _persist_resources.
                     self._persist_resources(BF.Hub, session, mode.is_primary(Kind.HUB))
                     self._persist_resources(
                         BF.Work, session, mode.is_primary(Kind.WORK)
@@ -1237,8 +1237,7 @@ class BluecoreGraph:
         otherwise they are references, which we create if absent but never
         overwrite -- so a reference (even one carrying a display label) can't
         clobber an existing full description. (save() sets is_primary per kind
-        from its primary_class argument; None there means every kind is primary,
-        the original behavior.)
+        from its mode; see Ingest and Write.)
         """
         match class_:
             case BF.Hub:
