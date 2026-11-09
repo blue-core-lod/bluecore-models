@@ -1,6 +1,8 @@
 import datetime
 import json
 import logging
+from dataclasses import dataclass
+from enum import Enum
 from uuid import uuid4
 
 from psycopg import errors as psycopg_errors
@@ -100,6 +102,82 @@ class BluecoreGraphError(Exception):
 EXCLUDED_TRIPLE_TYPES = [
     (BF.identifiedBy, BF.OclcNumber),
 ]
+
+
+class Kind(Enum):
+    """The kinds of resource a save persists, each in a table of its own."""
+
+    HUB = "hub"
+    WORK = "work"
+    INSTANCE = "instance"
+    OTHER = "other"
+
+    @property
+    def bf_class(self) -> URIRef | None:
+        """The BIBFRAME class of the kind; Other Resources have none."""
+        return _BF_CLASSES[self]
+
+
+_BF_CLASSES: dict[Kind, URIRef | None] = {
+    Kind.HUB: BF.Hub,
+    Kind.WORK: BF.Work,
+    Kind.INSTANCE: BF.Instance,
+    Kind.OTHER: None,
+}
+
+
+@dataclass(frozen=True)
+class Ingest:
+    """
+    A save that names no kind, as the record loader's do: every resource is
+    authoritative, except that update_others=False makes Other Resources
+    references (created if absent, never overwritten).
+    """
+
+    update_others: bool
+
+    def is_primary(self, kind: Kind) -> bool:
+        return kind != Kind.OTHER or self.update_others
+
+
+@dataclass(frozen=True)
+class Write:
+    """
+    A save that names the kind of resource it is writing, as the API's do: only
+    that kind is authoritative, and every other resource is a reference. kind is
+    None when the caller's primary_class names no kind we store, so every
+    resource is a reference.
+    """
+
+    kind: Kind | None
+
+    def is_primary(self, kind: Kind) -> bool:
+        return kind == self.kind
+
+
+Mode = Ingest | Write
+
+
+def _mode(primary_class: object, update_other_resources: bool) -> Mode:
+    """
+    The mode of a save, from save()'s primary_class and update_other_resources.
+    This is the only place primary_class is interpreted. It is compared, never
+    converted: a str equal to a class URI is no kind, as a URIRef never equals a
+    str.
+    """
+    if primary_class is None:
+        return Ingest(update_others=update_other_resources)
+    if primary_class == OtherResource:
+        return Write(Kind.OTHER)
+    for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE):
+        if primary_class == kind.bf_class:
+            return Write(kind)
+    return Write(None)
+
+
+def _kind_of(class_: URIRef | None) -> Kind:
+    """The kind for a class_ as _persist_resources takes it: None is Other."""
+    return next(kind for kind in Kind if kind.bf_class == class_)
 
 
 def _is_retryable_pg_error(error: BaseException) -> bool:
@@ -236,14 +314,11 @@ class BluecoreGraph:
         self._minted_from: dict[str, str] = {}
         # Resources this save inserted, which have no existing links to protect.
         self._created: set[str] = set()
-        # True when whoever called save() didn't name the kind of resource it
-        # was writing: the API routes always do, the record loader never does.
-        # So this is how we know a save came from a load. See _keep_existing.
-        self._ingest = False
-        # The kind of resource an API save names as the one it is writing; any
-        # other Work or Instance in the graph is only a reference to it, so it
-        # keeps the links it already has. None on the bulk path. See save().
-        self._primary_class = None
+        # How save() is writing: an Ingest when the caller didn't name the kind
+        # of resource it was writing (the record loader never does), a Write of
+        # that kind when it did (the API routes always do). Set by save(); None
+        # until save() runs. See _mode.
+        self._mode: Mode | None = None
         # Work these out before _infer, which adds links back up (bf:instanceOf
         # for a bf:hasInstance) that would make a new resource look nested.
         #
@@ -358,10 +433,11 @@ class BluecoreGraph:
         }
         return roots, unattached
 
-    def _find_root(self, primary_class) -> BNode | None:
+    def _find_root(self, kind: Kind | None) -> BNode | None:
         """
-        Find the blank node a save() writing primary_class is creating, or None if
-        it isn't creating one (an update, where the resource has a URI).
+        Find the blank node a save() writing kind is creating, or None if it
+        isn't creating one (an update, where the resource has a URI, or a kind
+        that isn't a Hub, Work or Instance).
 
         A resource named with an empty @id is the one, wherever it sits. Otherwise
         a lone blank node of the class is the one, even if another resource points
@@ -374,8 +450,9 @@ class BluecoreGraph:
         with a URI. That resource is only referred to, so isn't rewritten, and the
         new one would be lost.
         """
-        if primary_class not in RECORD_CLASSES:
+        if kind is None or kind.bf_class is None:
             return None
+        primary_class = kind.bf_class
         name = str(primary_class).removeprefix(str(BF))
         if self._new_resource is not None:
             if (self._new_resource, RDF.type, primary_class) not in self.graph:
@@ -432,8 +509,8 @@ class BluecoreGraph:
         writing (primary_class), and the one blank node of that kind no other
         resource describes is the resource being created, so this returns False for
         it. Every other blank node stays inline: it has no identity of its own until
-        something gives it a URI (see _find_roots). Before save() knows the
-        primary_class, every root counts.
+        something gives it a URI (see _find_roots). Before save() sets the mode,
+        every root counts.
 
         A bulk-loaded record is different. Its blank nodes are inline descriptions of
         resources it merely refers to: LC catalog data routinely states
@@ -445,9 +522,9 @@ class BluecoreGraph:
         """
         if isinstance(subject, URIRef):
             return False
-        if self._ingest:
+        if isinstance(self._mode, Ingest):
             return True
-        if self._primary_class is not None:
+        if isinstance(self._mode, Write):
             return subject != self._root
         return subject not in self._roots
 
@@ -531,14 +608,6 @@ class BluecoreGraph:
                 f"(attempt {retry_state.attempt_number} of {max_attempts})"
             )
 
-        # save resources from the graph to the database. Only the
-        # primary_class is authoritatively upserted; other kinds are
-        # references (create-if-absent, never overwrite).
-        # See _persist_resources.
-        # primary_class is None means every kind is authoritative.
-        def is_primary(kind) -> bool:
-            return primary_class is None or primary_class == kind
-
         # A record describes a few resources and carries only a stub of the ones
         # it points at, giving the described ones adminMetadata and the stubs none. Note
         # them now: minting later generates adminMetadata of our own for every
@@ -552,10 +621,10 @@ class BluecoreGraph:
             for s in self.graph.subjects(BF.adminMetadata, None)
             if not self._marked_stub(s)
         }
-        self._spot_stubs = primary_class is None and bool(self._described)
-        self._ingest = primary_class is None
-        self._primary_class = primary_class
-        self._root = self._find_root(primary_class)
+        mode = _mode(primary_class, update_other_resources)
+        self._mode = mode
+        self._spot_stubs = isinstance(mode, Ingest) and bool(self._described)
+        self._root = self._find_root(mode.kind) if isinstance(mode, Write) else None
         # which resources are anonymous descriptions may have changed with them
         self._bump_revision()
         # Strip blank node values the payload itself duplicated, before anything
@@ -567,7 +636,7 @@ class BluecoreGraph:
 
         # An explicit write from the API is a real description, so it isn't a
         # stub any more.
-        if primary_class is not None:
+        if isinstance(mode, Write):
             self._clear_stub_marker()
 
         # Strip the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from the
@@ -594,19 +663,19 @@ class BluecoreGraph:
                     self._mint_all_uris(BF.Work, session)
                     self._mint_all_uris(BF.Instance, session)
 
-                    self._persist_resources(BF.Hub, session, is_primary(BF.Hub))
-                    self._persist_resources(BF.Work, session, is_primary(BF.Work))
+                    # The mode's kind is authoritatively upserted; other kinds
+                    # are references (create-if-absent, never overwrite). See
+                    # _persist_resources.
+                    self._persist_resources(BF.Hub, session, mode.is_primary(Kind.HUB))
                     self._persist_resources(
-                        BF.Instance, session, is_primary(BF.Instance)
+                        BF.Work, session, mode.is_primary(Kind.WORK)
                     )
-                    # Other Resources have no catchall URI (class_ is None) and
-                    # are the OtherResource kind for the primary check. On the
-                    # bulk path (primary_class None), update_other_resources can
-                    # opt out of re-describing already-present ones.
-                    other_is_primary = primary_class == OtherResource or (
-                        primary_class is None and update_other_resources
+                    self._persist_resources(
+                        BF.Instance, session, mode.is_primary(Kind.INSTANCE)
                     )
-                    self._persist_resources(None, session, other_is_primary)
+                    # Other Resources are class_ None. update_other_resources
+                    # applies only on ingest (see Ingest).
+                    self._persist_resources(None, session, mode.is_primary(Kind.OTHER))
 
                     # flush so the just-added resources have ids and are
                     # visible to _link's uri lookups. Required because the
@@ -1099,7 +1168,7 @@ class BluecoreGraph:
         something we already describe in full, since it has nothing to add and
         would wipe out whatever has been edited since.
         """
-        if class_ is None or not self._ingest:
+        if class_ is None or not isinstance(self._mode, Ingest):
             return False
         # already ours (a Marva or API save): it was never minted, so let it write
         if str(uri) not in self._minted_from:
@@ -1131,7 +1200,9 @@ class BluecoreGraph:
         else.
         """
         uri = self._subject(graph, class_)
-        is_reference = self._primary_class is not None and self._primary_class != class_
+        is_reference = isinstance(self._mode, Write) and not self._mode.is_primary(
+            _kind_of(class_)
+        )
         return (is_reference or self._is_stub(class_, uri)) and str(
             uri
         ) not in self._created

@@ -12,6 +12,7 @@ from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
     BluecoreGraph,
     BluecoreGraphError,
+    Kind,
     save_graph,
 )
 from bluecore_models.models import (
@@ -2211,7 +2212,7 @@ def test_empty_id_is_the_root_even_when_a_uri_resource_points_at_it():
         )
     )
 
-    assert graph._find_root(BF.Instance) == graph._new_resource
+    assert graph._find_root(Kind.INSTANCE) == graph._new_resource
 
 
 def test_a_create_with_nothing_to_create_is_refused():
@@ -2231,7 +2232,7 @@ def test_a_create_with_nothing_to_create_is_refused():
     )
 
     with pytest.raises(BluecoreGraphError, match="Nothing to create"):
-        graph._find_root(BF.Instance)
+        graph._find_root(Kind.INSTANCE)
 
 
 def test_a_lone_blank_node_is_the_root_even_when_pointed_at():
@@ -2250,7 +2251,7 @@ def test_a_lone_blank_node_is_the_root_even_when_pointed_at():
         )
     )
 
-    root = graph._find_root(BF.Work)
+    root = graph._find_root(Kind.WORK)
     assert root is not None
     assert (root, RDF.type, BF.Work) in graph.graph
 
@@ -2270,7 +2271,7 @@ def test_empty_id_on_a_different_kind_is_refused():
     with pytest.raises(
         BluecoreGraphError, match="The resource with an empty @id is not a Work"
     ):
-        graph._find_root(BF.Work)
+        graph._find_root(Kind.WORK)
 
 
 def test_unconnected_new_works_are_refused():
@@ -2291,7 +2292,7 @@ def test_unconnected_new_works_are_refused():
         BluecoreGraphError,
         match="2 blank node Works, none described inside another",
     ):
-        graph._find_root(BF.Work)
+        graph._find_root(Kind.WORK)
 
 
 def test_created_uri_is_the_resource_being_created(pg_session):
