@@ -1,10 +1,16 @@
 import uuid
 
+import pytest
 from rdflib import RDFS, Graph, Literal, URIRef
 from sqlalchemy import event
 
 from bluecore_models import bluecore_graph
-from bluecore_models.bluecore_graph import BluecoreGraph, Kind, save_graph
+from bluecore_models.bluecore_graph import (
+    BluecoreGraph,
+    BluecoreGraphError,
+    Kind,
+    save_graph,
+)
 from bluecore_models.namespaces import BF, RDF
 
 
@@ -91,3 +97,21 @@ def test_minting_looks_up_stored_identities_once_per_kind(engine, pg_session):
 
 def test_entries_are_empty_before_save():
     assert BluecoreGraph(_hub_work_instance_other())._entries == {}
+
+
+def _work_and_topic() -> Graph:
+    g = Graph()
+    g.add((_lc("works"), RDF.type, BF.Work))
+    g.add((URIRef("http://example.org/phase2/topic"), RDF.type, BF.Topic))
+    return g
+
+
+def test_subjects_of_refuses_other_resources():
+    # Kind.OTHER has no class, so this would otherwise match every typed subject
+    with pytest.raises(BluecoreGraphError, match="Other Resources"):
+        BluecoreGraph(_work_and_topic())._subjects_of(Kind.OTHER)
+
+
+def test_mint_uri_refuses_other_resources():
+    with pytest.raises(BluecoreGraphError, match="Other Resources"):
+        BluecoreGraph(_work_and_topic())._mint_uri(Kind.OTHER)

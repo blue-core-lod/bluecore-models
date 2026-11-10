@@ -732,6 +732,10 @@ class BluecoreGraph:
         resource (see _anonymous_description) and, from Works, the Hubs, which
         LC catalog data types as both bf:Hub and bf:Work.
         """
+        # Other Resources have no class, and subjects(RDF.type, None) is every
+        # typed subject
+        if kind.bf_class is None:
+            raise BluecoreGraphError("Other Resources aren't found by class")
         return [
             s
             for s in self.graph.subjects(RDF.type, kind.bf_class)
@@ -1026,6 +1030,8 @@ class BluecoreGraph:
         """
         Mints a Bluecore URI for a Hub, Work or Instance.
         """
+        if kind not in _COLLECTIONS:
+            raise BluecoreGraphError("Can't mint Bluecore URIs for Other Resources")
         return self.namespace[f"{_COLLECTIONS[kind]}/{uuid4()}"]
 
     def _derived_from_subject(self, source_uri: Node) -> URIRef | None:
