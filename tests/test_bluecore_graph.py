@@ -6,6 +6,7 @@ import uuid
 import pytest
 from rdflib import RDFS, BNode, Graph, Literal, URIRef
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from bluecore_models import bluecore_graph
@@ -1637,6 +1638,71 @@ def test_accessors_before_save_count_a_blank_root_as_a_record(pg_session):
     bg.save(pg_session)
 
     assert len(bg.works()) == 0
+
+
+def _rows_mentioning(pg_session, uri: str) -> int:
+    """How many stored resources mention uri anywhere, as their uri or in data."""
+    with pg_session() as session:
+        return session.execute(
+            text(
+                "SELECT count(*) FROM resource_base "
+                "WHERE uri = :uri OR data::text LIKE :pattern"
+            ),
+            {"uri": uri, "pattern": f"%{uri}%"},
+        ).scalar_one()
+
+
+def _work_citing_unstorable_subject() -> tuple[Graph, URIRef, URIRef]:
+    """
+    A Work whose subject is described only by a dcterms triple, which
+    generate_entity_graph leaves out, so the subject's subgraph is empty.
+    """
+    work = URIRef(f"http://example.org/phase2/empty-other-work/{uuid.uuid4()}")
+    subject = URIRef(f"http://example.org/phase2/empty-other-subject/{uuid.uuid4()}")
+    g = Graph()
+    g.add((work, RDF.type, BF.Work))
+    g.add((work, BF.subject, subject))
+    g.add((subject, URIRef("http://purl.org/dc/terms/title"), Literal("x")))
+    return g, work, subject
+
+
+def test_other_resource_with_nothing_storable_fails_the_save(pg_session):
+    """
+    A cited resource described only by triples generate_entity_graph leaves out
+    has an empty subgraph, and the save refuses it, writing nothing. Pinned
+    before Phase 2 of #213; whether it should is a policy question.
+    """
+    g, work, subject = _work_citing_unstorable_subject()
+
+    with pytest.raises(BluecoreGraphError, match="Unable to find subject URI for None"):
+        save_graph(pg_session, g)
+
+    assert _rows_mentioning(pg_session, str(work)) == 0
+    assert _rows_mentioning(pg_session, str(subject)) == 0
+
+
+def test_accessors_do_not_raise_for_an_empty_other_resource():
+    """Only a save refuses an empty Other Resource; others() just returns it."""
+    g, _, _ = _work_citing_unstorable_subject()
+
+    assert [len(other) for other in BluecoreGraph(g).others()] == [0]
+
+
+def test_uri_typed_work_and_instance_fails_the_save(pg_session):
+    """
+    A URI typed both bf:Work and bf:Instance is minted once and stored as both,
+    which the unique uri refuses, so nothing is written. Pinned before Phase 2 of
+    #213.
+    """
+    both = URIRef(f"http://example.org/phase2/both-work-instance/{uuid.uuid4()}")
+    g = Graph()
+    g.add((both, RDF.type, BF.Work))
+    g.add((both, RDF.type, BF.Instance))
+
+    with pytest.raises(IntegrityError):
+        save_graph(pg_session, g)
+
+    assert _rows_mentioning(pg_session, str(both)) == 0
 
 
 # --- stubbed resources -------------------------------------------------------
