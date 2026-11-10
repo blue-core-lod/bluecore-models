@@ -1,6 +1,6 @@
 import pytest
 
-from bluecore_models.bluecore_graph import Ingest, Kind, Write, _kind_of, _mode
+from bluecore_models.bluecore_graph import Ingest, Kind, Write, _mode
 from bluecore_models.models import OtherResource
 from bluecore_models.namespaces import BF
 
@@ -39,7 +39,3 @@ def test_modes_are_values():
         Write(Kind.WORK),
         Ingest(True),
     }
-
-
-def test_kind_of_internal_class():
-    assert [_kind_of(k.bf_class) for k in Kind] == list(Kind)
