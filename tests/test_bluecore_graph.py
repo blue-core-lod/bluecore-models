@@ -12,6 +12,7 @@ from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
     BluecoreGraph,
     BluecoreGraphError,
+    Kind,
     save_graph,
 )
 from bluecore_models.models import (
@@ -1544,6 +1545,100 @@ def test_update_other_resources_flag(pg_session):
         assert "Updated" in json.dumps(agent.data)
 
 
+def _work_citing_agent(work_uri: str, agent_uri: str, label: str) -> Graph:
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    g.add((URIRef(work_uri), RDFS.label, Literal(f"Work {label}")))
+    g.add((URIRef(work_uri), BF.contribution, URIRef(agent_uri)))
+    g.add((URIRef(agent_uri), RDF.type, BF.Agent))
+    g.add((URIRef(agent_uri), RDFS.label, Literal(f"Agent {label}")))
+    return g
+
+
+@pytest.mark.parametrize("primary_class", [BF.Item, str(BF.Work), 42])
+def test_primary_class_that_is_not_a_kind_writes_only_references(
+    pg_session, primary_class
+):
+    """
+    A primary_class that names no kind we store makes a write in which every
+    resource is a reference: existing rows keep their description, new ones are
+    inserted and linked, and nothing is created from a blank node. A str equal to
+    a class URI counts as no kind, since a URIRef never equals a str.
+    """
+    work_uri, agent_uri = _new_uri("works"), _new_uri("other_resources")
+    save_graph(
+        pg_session,
+        _work_citing_agent(work_uri, agent_uri, "1"),
+        primary_class=BF.Work,
+    )
+
+    g = _work_citing_agent(work_uri, agent_uri, "2")
+    new_work = _new_uri("works")
+    g.add((URIRef(new_work), RDF.type, BF.Work))
+    g.add((URIRef(new_work), BF.contribution, URIRef(agent_uri)))
+    blank = BNode()
+    g.add((blank, RDF.type, BF.Work))
+    g.add((blank, BF.title, Literal("Not created")))
+
+    with pg_session() as session:
+        works_before = session.query(Work).count()
+    bg = BluecoreGraph(g)
+    bg.save(pg_session, primary_class=primary_class)
+
+    with pg_session() as session:
+        work = session.query(Work).where(Work.uri == work_uri).one()
+        agent = session.query(OtherResource).where(OtherResource.uri == agent_uri).one()
+        assert "Work 2" not in json.dumps(work.data)
+        assert "Agent 2" not in json.dumps(agent.data)
+        inserted = session.query(Work).where(Work.uri == new_work).one()
+        assert [link.other_resource.uri for link in inserted.other_resources] == [
+            agent_uri
+        ]
+        assert session.query(Work).count() == works_before + 1
+    assert bg.created_uri is None
+
+
+def test_update_other_resources_is_ignored_when_writing_other_resources(pg_session):
+    """
+    update_other_resources only applies to an ingest: a write of Other Resources
+    updates them even when it is False.
+    """
+    work_uri, agent_uri = _new_uri("works"), _new_uri("other_resources")
+    save_graph(
+        pg_session,
+        _work_citing_agent(work_uri, agent_uri, "Old"),
+        primary_class=BF.Work,
+    )
+
+    save_graph(
+        pg_session,
+        _work_citing_agent(work_uri, agent_uri, "New"),
+        primary_class=OtherResource,
+        update_other_resources=False,
+    )
+
+    with pg_session() as session:
+        agent = session.query(OtherResource).where(OtherResource.uri == agent_uri).one()
+        assert "Agent New" in json.dumps(agent.data)
+
+
+def test_accessors_before_save_count_a_blank_root_as_a_record(pg_session):
+    """
+    Before save() there is no mode yet, so a blank root counts as a record. An
+    ingest keeps every blank node inline, so afterwards it doesn't.
+    """
+    g = Graph()
+    blank = BNode()
+    g.add((blank, RDF.type, BF.Work))
+    g.add((blank, BF.title, Literal("Inline")))
+    bg = BluecoreGraph(g)
+    assert len(bg.works()) == 1
+
+    bg.save(pg_session)
+
+    assert len(bg.works()) == 0
+
+
 # --- stubbed resources -------------------------------------------------------
 #
 # A record describes a few resources and only points at the others. We keep a
@@ -2117,7 +2212,7 @@ def test_empty_id_is_the_root_even_when_a_uri_resource_points_at_it():
         )
     )
 
-    assert graph._find_root(BF.Instance) == graph._new_resource
+    assert graph._find_root(Kind.INSTANCE) == graph._new_resource
 
 
 def test_a_create_with_nothing_to_create_is_refused():
@@ -2137,7 +2232,7 @@ def test_a_create_with_nothing_to_create_is_refused():
     )
 
     with pytest.raises(BluecoreGraphError, match="Nothing to create"):
-        graph._find_root(BF.Instance)
+        graph._find_root(Kind.INSTANCE)
 
 
 def test_a_lone_blank_node_is_the_root_even_when_pointed_at():
@@ -2156,7 +2251,7 @@ def test_a_lone_blank_node_is_the_root_even_when_pointed_at():
         )
     )
 
-    root = graph._find_root(BF.Work)
+    root = graph._find_root(Kind.WORK)
     assert root is not None
     assert (root, RDF.type, BF.Work) in graph.graph
 
@@ -2176,7 +2271,7 @@ def test_empty_id_on_a_different_kind_is_refused():
     with pytest.raises(
         BluecoreGraphError, match="The resource with an empty @id is not a Work"
     ):
-        graph._find_root(BF.Work)
+        graph._find_root(Kind.WORK)
 
 
 def test_unconnected_new_works_are_refused():
@@ -2197,7 +2292,7 @@ def test_unconnected_new_works_are_refused():
         BluecoreGraphError,
         match="2 blank node Works, none described inside another",
     ):
-        graph._find_root(BF.Work)
+        graph._find_root(Kind.WORK)
 
 
 def test_created_uri_is_the_resource_being_created(pg_session):
