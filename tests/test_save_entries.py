@@ -1,6 +1,7 @@
 import uuid
 
 from rdflib import RDFS, Graph, Literal, URIRef
+from sqlalchemy import event
 
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import BluecoreGraph, Kind, save_graph
@@ -60,6 +61,32 @@ def test_entries_keep_the_subject_and_where_it_came_from(pg_session):
     assert entry.original == work
     assert str(entry.subject).startswith("https://bcld.info/works/")
     assert (entry.subject, RDF.type, BF.Work) in entry.graph
+
+
+def test_minting_looks_up_stored_identities_once_per_kind(engine, pg_session):
+    """
+    Minting looks up whether each external uri is already stored under a
+    Bluecore uri with one query per kind, not one per resource.
+    """
+    g = Graph()
+    for _ in range(3):
+        g.add((_lc("works"), RDF.type, BF.Work))
+    for _ in range(2):
+        g.add((_lc("instances"), RDF.type, BF.Instance))
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        save_graph(pg_session, g)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    lookups = [s for s in statements if "jsonb_path_query_first" in s]
+    # one for the Works and one for the Instances; there are no Hubs to look up
+    assert len(lookups) == 2
 
 
 def test_entries_are_empty_before_save():

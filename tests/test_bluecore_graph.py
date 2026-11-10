@@ -2794,7 +2794,7 @@ def test_derived_from_lookup_uses_type_and_derived_from_index(
     """
     with pg_session() as session:
         query = BluecoreGraph._derived_from_query(
-            sqla_class, URIRef("http://id.loc.gov/resources/hubs/1234"), session
+            sqla_class, ["http://id.loc.gov/resources/hubs/1234"], session
         )
         sql = query.statement.compile(
             dialect=session.bind.dialect, compile_kwargs={"literal_binds": True}

@@ -87,8 +87,8 @@ RECORD_PREDICATES = (
 # Resources however they are cited.
 LC_RESOURCES = "http://id.loc.gov/resources/"
 
-# How many uris go into one IN clause when looking up held Other Resources, well
-# under psycopg's 65535 bind-parameter limit.
+# How many uris go into one IN clause when looking up held Other Resources or
+# stored identities, well under psycopg's 65535 bind-parameter limit.
 HELD_LOOKUP_CHUNK = 5000
 
 
@@ -946,52 +946,61 @@ class BluecoreGraph:
         a resource with a non-Bluecore URI may already be in the database under in
         its derivedFrom URI.
         """
-        sqla_class = _SQLA_CLASSES[kind]
+        # there's nothing to do for one that already has a bluecore URI
+        uris = [
+            uri for uri in self._subjects_of(kind) if not self._is_bluecore_uri(uri)
+        ]
+        # Which of them were previously saved with an adminMetadata derivedFrom
+        # assertion, looked up all at once. Minting changes the graph but not the
+        # database, so the answers hold for the whole loop.
+        stored = self._stored_identities(kind, uris, session)
 
-        for uri in self._subjects_of(kind):
-            if self._is_bluecore_uri(uri):
-                # there's nothing to do here if it's already a bluecore URI
-                continue
-            else:
-                # first look in the graph we are saving for an adminMetadata
-                # derivedFrom assertion that indicates an already minted bluecore
-                # URI for the external URI
+        for uri in uris:
+            # first look in the graph we are saving for an adminMetadata
+            # derivedFrom assertion that indicates an already minted bluecore
+            # URI for the external URI, then in the database
+            found: str | None = self._derived_from_subject(uri)
+            if found is None:
+                found = stored.get(str(uri))
 
-                bluecore_uri = self._derived_from_subject(uri)
+            # if we found an existing bluecore URI then we can update the graph to
+            # use it, otherwise we need to mint a new one
+            self._switch_uris(
+                derived_from=uri,
+                bluecore_uri=URIRef(found)
+                if found is not None
+                else self._mint_uri(kind),
+            )
 
-                # if not found look up the URI in the database to see if it has been
-                # previously saved with an adminMetadata derivedFrom assertion
-
-                if bluecore_uri is None:
-                    resource = self._derived_from_query(
-                        sqla_class, uri, session
-                    ).first()
-                    if resource is not None:
-                        bluecore_uri = resource.uri
-
-                # if we found an existing bluecore URI then we can update the graph to use it
-
-                if bluecore_uri is not None:
-                    self._switch_uris(
-                        derived_from=uri, bluecore_uri=URIRef(bluecore_uri)
-                    )
-
-                # otherwise we need to mint a new bluecore uri and update the graph
-
-                else:
-                    derived_from = uri
-                    bluecore_uri = self._mint_uri(kind)
-                    self._switch_uris(derived_from, bluecore_uri)
+    def _stored_identities(
+        self, kind: Kind, uris: list[IdentifiedNode], session: Session
+    ) -> dict[str, str]:
+        """
+        The Bluecore uri each of these uris was previously saved under as a Hub,
+        Work or Instance (kind), found from its adminMetadata derivedFrom, a chunk
+        at a time. Where more than one resource records the same derivedFrom, the
+        first row Postgres returns wins, as .first() did for a single uri.
+        """
+        values = [str(uri) for uri in uris]
+        stored: dict[str, str] = {}
+        for start in range(0, len(values), HELD_LOOKUP_CHUNK):
+            chunk = values[start : start + HELD_LOOKUP_CHUNK]
+            for derived_from, uri in self._derived_from_query(
+                _SQLA_CLASSES[kind], chunk, session
+            ):
+                stored.setdefault(derived_from, uri)
+        return stored
 
     @staticmethod
     def _derived_from_query(
         sqla_class: type[Hub] | type[Work] | type[Instance],
-        uri: IdentifiedNode,
+        uris: list[str],
         session: Session,
     ) -> Query:
         """
-        Builds the query that finds a saved resource of the given class whose
-        adminMetadata records a bf:derivedFrom assertion for the supplied URI.
+        Builds the query that finds the saved resources of the given class whose
+        adminMetadata records a bf:derivedFrom assertion for one of the supplied
+        URIs, as (derived_from, uri) rows.
         """
         # The query has to filter on both type and the derivedFrom @id to use
         # index_resource_base_on_type_derivedfrom_id, which leads with type.
@@ -1003,13 +1012,13 @@ class BluecoreGraph:
         # bound parameters: psycopg sends parameters server-side as varchar,
         # which doesn't resolve to jsonpath / text[], and the expression has to
         # match the functional index on derivedFrom for the planner to use it.
-        return session.query(sqla_class).where(
+        derived_from = func.jsonb_path_query_first(
+            sqla_class.data,
+            literal_column("""'$.adminMetadata[*].derivedFrom."@id"'::jsonpath"""),
+        ).op("#>>")(literal_column("'{}'::text[]"))
+        return session.query(derived_from, sqla_class.uri).where(
             sqla_class.type == sqla_class.__mapper__.polymorphic_identity,
-            func.jsonb_path_query_first(
-                sqla_class.data,
-                literal_column("""'$.adminMetadata[*].derivedFrom."@id"'::jsonpath"""),
-            ).op("#>>")(literal_column("'{}'::text[]"))
-            == str(uri),
+            derived_from.in_(uris),
         )
 
     def _mint_uri(self, kind: Kind) -> URIRef:
