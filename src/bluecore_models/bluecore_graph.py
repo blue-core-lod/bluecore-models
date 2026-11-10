@@ -198,8 +198,9 @@ class Entry:
     One resource a save writes: its subject, its kind, its subgraph, the subject
     it arrived with (before minting gave it a Bluecore URI), and the uris it
     cites that could be Other Resources (see _cited_uris; empty for an Other
-    Resource, which links nothing). save() builds them once minting is done, when
-    the graph has stopped changing.
+    Resource, which links nothing). save() builds its entries once minting is
+    done, when the graph has stopped changing; the accessors (works() and so on)
+    build fresh ones from the graph as it is.
     """
 
     subject: IdentifiedNode
