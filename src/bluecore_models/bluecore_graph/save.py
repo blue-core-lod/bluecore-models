@@ -1311,7 +1311,7 @@ class Resolution(_GraphView):
         # resolves the same Works, Instances and Other Resources repeatedly (a
         # Work is re-queried for every Other Resource it links to, etc.); caching
         # by (type, uri) turns those repeats into a single query each. Every
-        # resource was flushed by save() before _link runs, so the first lookup
+        # resource was flushed by apply() before _link runs, so the first lookup
         # already sees it.
         cache: dict[tuple, object] = {}
 

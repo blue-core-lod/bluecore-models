@@ -154,7 +154,7 @@ def _classify(
 
     A blank node has no identity of its own, so it stays inline in whatever
     describes it, except the one resource an API save is creating (root) or,
-    before a save, any root (see BluecoreGraph._find_roots). Every blank node of
+    before a save, any root (see SavePlan._find_roots). Every blank node of
     a bulk load is inline: LC catalog data routinely states bf:expressionOf
     against an anonymous bf:Hub and nests an anonymous bf:Work under
     bf:instanceOf, and minting a URI for one of those invents an identity nothing
@@ -162,7 +162,7 @@ def _classify(
 
     A bulk-loaded record describes a few resources and carries only a stub of the
     ones it points at: described holds the ones with adminMetadata of their own
-    (see BluecoreGraph._prepare). When the record uses adminMetadata at all, any
+    (see SavePlan.prepare). When the record uses adminMetadata at all, any
     other Hub, Work or Instance in it is a stub, judged by the name it arrived
     with.
     """

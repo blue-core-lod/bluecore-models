@@ -1,3 +1,4 @@
+import importlib
 import logging
 import uuid
 from pathlib import Path
@@ -464,3 +465,42 @@ def test_resolving_a_corpus_writes_nothing_and_apply_matches_it(pg_session):
     # it went through every role a resource with a row can have, and every action
     assert roles >= {Role.PRIMARY, Role.REFERENCE, Role.STUB}
     assert actions == set(Action)
+
+
+# Every public name bluecore_graph.py had before it became a package (#220).
+# Other repos import from it: bluecore-workflows imports EXCLUDED_TRIPLE_TYPES.
+PUBLIC_BEFORE_THE_PACKAGE = [
+    "Action",
+    "BluecoreGraph",
+    "BluecoreGraphError",
+    "Citation",
+    "DEFAULT_AGENT",
+    "DEFAULT_DESC_AUTH",
+    "DEFAULT_DESC_LANG",
+    "DEFAULT_DESC_LEVEL",
+    "DEFAULT_STATUS",
+    "EXCLUDED_TRIPLE_TYPES",
+    "Entry",
+    "HELD_LOOKUP_CHUNK",
+    "Ingest",
+    "Kind",
+    "LC_RESOURCES",
+    "Mode",
+    "RECORD_CLASSES",
+    "RECORD_PREDICATES",
+    "RETRYABLE_PG_ERRORS",
+    "Role",
+    "Roles",
+    "SAVE_MAX_ATTEMPTS",
+    "STUB_STATUS",
+    "Stored",
+    "Write",
+    "save_graph",
+]
+
+
+@pytest.mark.parametrize("name", PUBLIC_BEFORE_THE_PACKAGE)
+def test_every_public_name_still_imports_from_the_package(name):
+    package = importlib.import_module("bluecore_models.bluecore_graph")
+    assert hasattr(package, name)
+    assert name in package.__all__

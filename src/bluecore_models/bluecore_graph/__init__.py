@@ -9,8 +9,8 @@ Other Resource, and the links between them. A save goes in three steps, each
 doing one kind of work.
 
 **Plan** (SavePlan, in save.py). The payload is copied, so the caller's graph
-never changes, and normalised. Then every resource gets a Role, from the payload
-and the save's mode alone, without the database.
+never changes. Every resource gets a Role, from the payload and the save's mode
+alone, without the database, and then the graph is normalised for saving.
 
 **Resolve** (SavePlan.resolve, giving a Resolution). For each Hub, Work and
 Instance, the save reuses the Bluecore URI an earlier save gave the same source
@@ -89,6 +89,9 @@ a Write is creating.
 """
 
 from bluecore_models.bluecore_graph.policy import (
+    LC_RESOURCES,
+    RECORD_CLASSES,
+    RECORD_PREDICATES,
     STUB_STATUS,
     Action,
     Citation,
@@ -97,6 +100,8 @@ from bluecore_models.bluecore_graph.policy import (
     Kind,
     Mode,
     Role,
+    Roles,
+    Stored,
     Write,
     _action,
     _admin_nodes,
@@ -106,7 +111,14 @@ from bluecore_models.bluecore_graph.policy import (
     _stored_is_stub,
 )
 from bluecore_models.bluecore_graph.save import (
+    DEFAULT_AGENT,
+    DEFAULT_DESC_AUTH,
+    DEFAULT_DESC_LANG,
+    DEFAULT_DESC_LEVEL,
     DEFAULT_STATUS,
+    EXCLUDED_TRIPLE_TYPES,
+    HELD_LOOKUP_CHUNK,
+    RETRYABLE_PG_ERRORS,
     SAVE_MAX_ATTEMPTS,
     BluecoreGraph,
     BluecoreGraphError,
@@ -119,7 +131,17 @@ from bluecore_models.bluecore_graph.save import (
 )
 
 __all__ = [
+    "DEFAULT_AGENT",
+    "DEFAULT_DESC_AUTH",
+    "DEFAULT_DESC_LANG",
+    "DEFAULT_DESC_LEVEL",
     "DEFAULT_STATUS",
+    "EXCLUDED_TRIPLE_TYPES",
+    "HELD_LOOKUP_CHUNK",
+    "LC_RESOURCES",
+    "RECORD_CLASSES",
+    "RECORD_PREDICATES",
+    "RETRYABLE_PG_ERRORS",
     "SAVE_MAX_ATTEMPTS",
     "STUB_STATUS",
     "Action",
@@ -132,7 +154,9 @@ __all__ = [
     "Mode",
     "Resolution",
     "Role",
+    "Roles",
     "SavePlan",
+    "Stored",
     "Write",
     "_action",
     "_admin_nodes",
