@@ -1,13 +1,18 @@
+import types
 import uuid
 
 from rdflib import RDFS, BNode, Graph, Literal, URIRef
 
 from bluecore_models.bluecore_graph import (
+    STUB_STATUS,
+    Action,
     BluecoreGraph,
+    Entry,
     Ingest,
     Kind,
     Role,
     Write,
+    _action,
     _classify,
     save_graph,
 )
@@ -226,3 +231,84 @@ def test_entries_carry_their_role(pg_session):
         (described, Role.PRIMARY),
         (stub, Role.STUB),
     }
+
+
+def _entry(role: Role, kind: Kind = Kind.WORK, original: URIRef | None = None) -> Entry:
+    subject = _bc_work() if kind != Kind.OTHER else _example("agent")
+    return Entry(
+        subject=subject,
+        kind=kind,
+        role=role,
+        graph=Graph(),
+        original=original if original is not None else subject,
+        cited=frozenset(),
+    )
+
+
+def _minted_entry() -> Entry:
+    """A Work minted from an LC URI this save brought."""
+    return _entry(Role.PRIMARY, original=_lc("works"))
+
+
+def _stored_work(stub: bool = False):
+    """
+    The stored row of a Work, holding only the data _action reads. Not a Work:
+    the model rewrites data it is constructed with.
+    """
+    status = str(STUB_STATUS) if stub else "http://id.loc.gov/vocabulary/mstatus/c"
+    return types.SimpleNamespace(data={"adminMetadata": [{"status": {"@id": status}}]})
+
+
+def test_action_inserts_when_nothing_is_stored():
+    assert _action(_entry(Role.REFERENCE), None, Write(Kind.WORK)) == Action.INSERT
+
+
+def test_action_keeps_a_stored_reference_or_stub():
+    work = _stored_work()
+    assert _action(_entry(Role.REFERENCE), work, Write(Kind.INSTANCE)) == Action.KEEP
+    assert _action(_entry(Role.STUB), work, INGEST) == Action.KEEP
+
+
+def test_action_keeps_a_full_description_on_reingest():
+    assert _action(_minted_entry(), _stored_work(), INGEST) == Action.KEEP
+
+
+def test_action_replaces_a_stored_stub_on_reingest():
+    assert _action(_minted_entry(), _stored_work(stub=True), INGEST) == Action.UPDATE
+
+
+def test_action_updates_a_resource_that_arrives_with_its_bluecore_uri():
+    assert _action(_entry(Role.PRIMARY), _stored_work(), INGEST) == Action.UPDATE
+
+
+def test_action_updates_an_other_resource_when_primary():
+    stored = types.SimpleNamespace(data={})
+    entry = _entry(Role.PRIMARY, kind=Kind.OTHER)
+    assert _action(entry, stored, INGEST) == Action.UPDATE
+
+
+def test_actions_are_recorded_afresh_on_a_retry(pg_session):
+    from test_save_graph_deadlocks import _FlakySessionMaker
+
+    # an Agent we hold, cited by uri alone from a new stub
+    agent = URIRef(f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}")
+    holder = _bc_work()
+    g = Graph()
+    g.add((holder, RDF.type, BF.Work))
+    g.add((holder, BF.contributor, agent))
+    g.add((agent, RDF.type, BF.Agent))
+    g.add((agent, RDFS.label, Literal("Held Agent")))
+    save_graph(pg_session, g, primary_class=BF.Work)
+
+    g, _, stub = _described_with_stub()
+    g.add((stub, BF.contributor, agent))
+    bg = BluecoreGraph(g)
+    flaky = _FlakySessionMaker(pg_session, fail_times=1)
+    bg.save(flaky)
+
+    assert flaky.calls == 2
+    works = bg._entries[Kind.WORK]
+    assert {bg._actions[str(e.subject)] for e in works} == {Action.INSERT}
+    stub_entry = next(e for e in works if e.role == Role.STUB)
+    # (it is also linked to the stub status it carries, which the save describes)
+    assert str(agent) in _linked(pg_session, stub_entry.subject)

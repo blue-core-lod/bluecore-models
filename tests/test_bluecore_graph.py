@@ -16,6 +16,7 @@ from bluecore_models.bluecore_graph import (
     Kind,
     Role,
     Write,
+    _stored_is_stub,
     save_graph,
 )
 from bluecore_models.models import (
@@ -2017,7 +2018,7 @@ def test_stored_is_stub_reads_every_admin_metadata_shape(data, expected):
     """
     obj = types.SimpleNamespace(data=data)
 
-    assert BluecoreGraph(Graph())._stored_is_stub(obj) is expected
+    assert _stored_is_stub(obj) is expected
 
 
 def _relation_work(uri: str) -> Graph:

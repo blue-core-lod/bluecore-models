@@ -20,6 +20,7 @@ from bluecore_models.models import (
     OtherResource,
     Work,
 )
+from bluecore_models.models.resource import ResourceBase
 from bluecore_models.models.version import CURRENT_USER_ID
 from bluecore_models.namespaces import BF, BFLC, MADS, RDF, RDFS
 from bluecore_models.utils.graph import (
@@ -301,6 +302,58 @@ class Entry:
     cited: frozenset[URIRef]
 
 
+class Action(Enum):
+    """What a save does to a resource's row, decided from its role and the row."""
+
+    INSERT = "insert"
+    UPDATE = "update"
+    KEEP = "keep"
+
+
+def _action(entry: Entry, existing: ResourceBase | None, mode: Mode) -> Action:
+    """
+    What the save does to the row of entry, given the row we hold for it, if
+    any. Something absent is created whatever its role, from whatever the
+    payload knows about it. A reference or a stub never overwrites a stored
+    description, which may be a full one.
+
+    And an ingest leaves a resource alone when an outside record comes round
+    again for something we already describe in full, since it has nothing to
+    add and would wipe out whatever has been edited since. That's a resource
+    minted from an external URI; one that arrives with its Bluecore URI (a
+    Marva or API save) is ours, so it writes. A stored stub is only a
+    placeholder, so a real description always replaces it.
+    """
+    if existing is None:
+        return Action.INSERT
+    if entry.role in (Role.REFERENCE, Role.STUB):
+        return Action.KEEP
+    if (
+        entry.kind != Kind.OTHER
+        and isinstance(mode, Ingest)
+        and entry.original != entry.subject
+        and not _stored_is_stub(existing)
+    ):
+        return Action.KEEP
+    return Action.UPDATE
+
+
+def _stored_is_stub(existing: ResourceBase) -> bool:
+    """Whether what we hold is still a placeholder rather than a description."""
+    data = existing.data
+    admin_metadata = data.get("adminMetadata", []) if data else []
+    if isinstance(admin_metadata, dict):
+        admin_metadata = [admin_metadata]
+    for block in admin_metadata:
+        if not isinstance(block, dict):
+            continue
+        status = block.get("status")
+        for item in status if isinstance(status, list) else [status]:
+            if isinstance(item, dict) and item.get("@id") == str(STUB_STATUS):
+                return True
+    return False
+
+
 def _is_retryable_pg_error(error: BaseException) -> bool:
     """
     A graph save is only retried when Postgres aborted the transaction with one
@@ -429,8 +482,9 @@ class BluecoreGraph:
         self._renamed: dict[str, IdentifiedNode] = {}
         self._recorded_blank_nodes: set[BNode] = set()
         self._minted_from: dict[str, IdentifiedNode] = {}
-        # Resources this save inserted, which have no existing links to protect.
-        self._created: set[str] = set()
+        # What this save attempt did to each resource's row, by uri: one it
+        # inserted has no existing links to protect. See _action.
+        self._actions: dict[str, Action] = {}
         # How save() is writing: an Ingest when the caller didn't name the kind
         # of resource it was writing (the record loader never does), a Write of
         # that kind when it did (the API routes always do). Set by _prepare; None
@@ -760,8 +814,8 @@ class BluecoreGraph:
                 reraise=True,
             ):
                 with attempt, session_maker() as session:
-                    # start each attempt with a clean record of what was inserted
-                    self._created = set()
+                    # start each attempt with a clean record of what was done
+                    self._actions = {}
 
                     # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
                     # note: OtherResources keep their original URI
@@ -774,12 +828,10 @@ class BluecoreGraph:
                     # extracts the same entries again.
                     self._entries = self._extract_entries()
 
-                    # Kinds the mode makes primary are authoritatively upserted;
-                    # the rest are references (create-if-absent, never
-                    # overwrite). See Ingest, Write and _persist_resources.
-                    # update_other_resources applies only on ingest (see Ingest).
+                    # Each entry's role and stored row decide what is written:
+                    # see _classify and _action.
                     for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
-                        self._persist_resources(kind, session, mode.is_primary(kind))
+                        self._persist_resources(kind, session, mode)
 
                     # flush so the just-added resources have ids and are
                     # visible to _link's uri lookups. Required because the
@@ -1253,46 +1305,18 @@ class BluecoreGraph:
             self.graph.remove((admin_metadata, BF.status, STUB_STATUS))
             self.graph.add((admin_metadata, BF.status, DEFAULT_STATUS))
 
-    def _keep_existing(self, entry: Entry, obj) -> bool:
-        """
-        Leave a resource alone when an outside record comes round again for
-        something we already describe in full, since it has nothing to add and
-        would wipe out whatever has been edited since.
-        """
-        if entry.kind == Kind.OTHER or not isinstance(self._mode, Ingest):
-            return False
-        # already ours (a Marva or API save): it was never minted, so let it write
-        if str(entry.subject) not in self._minted_from:
-            return False
-        # a stub is only a placeholder, so a real description always replaces it
-        return not self._stored_is_stub(obj)
-
-    def _stored_is_stub(self, obj) -> bool:
-        """Whether what we hold is still a placeholder rather than a description."""
-        admin_metadata = obj.data.get("adminMetadata", []) if obj.data else []
-        if isinstance(admin_metadata, dict):
-            admin_metadata = [admin_metadata]
-        for block in admin_metadata:
-            if not isinstance(block, dict):
-                continue
-            status = block.get("status")
-            for item in status if isinstance(status, list) else [status]:
-                if isinstance(item, dict) and item.get("@id") == str(STUB_STATUS):
-                    return True
-        return False
-
     def _keeps_own_links(self, entry: Entry) -> bool:
         """
         Whether this resource's existing links should be left alone: it is one we
         only have a stub of, or only a reference to because an API save named a
         different kind as the one it is writing (an Instance save names its Work
         through bf:instanceOf), and it was already here to have links in
-        the first place. One we just created has none, so it links like anything
-        else.
+        the first place. One we just inserted has none, so it links like
+        anything else.
         """
         return (
             entry.role in (Role.REFERENCE, Role.STUB)
-            and str(entry.subject) not in self._created
+            and self._actions.get(str(entry.subject)) != Action.INSERT
         )
 
     def _strip_duplicate_values(self) -> None:
@@ -1314,17 +1338,10 @@ class BluecoreGraph:
                 f"stripped {dup.copies - 1}"
             )
 
-    def _persist_resources(
-        self, kind: Kind, session: Session, is_primary: bool = True
-    ) -> None:
+    def _persist_resources(self, kind: Kind, session: Session, mode: Mode) -> None:
         """
-        Persist the resources of the supplied kind to the given database session.
-
-        When is_primary is True these resources are authoritatively upserted;
-        otherwise they are references, which we create if absent but never
-        overwrite -- so a reference (even one carrying a display label) can't
-        clobber an existing full description. (save() sets is_primary per kind
-        from its mode; see Ingest and Write.)
+        Persist the resources of the supplied kind to the given database session,
+        as each one's action says (see _action), and note the action.
         """
         entries = self._entries[kind]
         sqla_class = _SQLA_CLASSES[kind]
@@ -1356,18 +1373,16 @@ class BluecoreGraph:
         for entry in entries:
             uri, g = entry.subject, entry.graph
             obj = existing.get(str(uri))
+            action = _action(entry, obj, mode)
+            self._actions[str(uri)] = action
 
-            if obj is not None and (
-                not is_primary
-                or entry.role == Role.STUB
-                or self._keep_existing(entry, obj)
-            ):
-                # a reference to an existing resource: link it (later, in _link)
-                # but never overwrite its stored description. Skip before building
+            if action == Action.KEEP:
+                # an existing resource we don't overwrite: link it (later, in
+                # _link) but leave its stored description. Skip before building
                 # its JSON-LD -- serializing and re-framing it would be wasted work
                 # (this is the hot path when batch-loading records that share many
                 # Other Resources).
-                logger.debug(f"keeping existing {uri} (referenced, not primary)")
+                logger.debug(f"keeping existing {uri} ({entry.role.value})")
                 continue
 
             # Serialize the entry's subgraph directly. save() already stripped
@@ -1394,7 +1409,6 @@ class BluecoreGraph:
                 obj = sqla_class(uri=str(uri), uuid=uuid, data=data)
                 logger.info(f"inserting {uri}")
                 session.add(obj)
-                self._created.add(str(uri))
 
     def _link(self, session) -> None:
         """
