@@ -1,8 +1,18 @@
 from typing import Literal
 
 import pytest
-from policy_cases import CASES, ROWS, PolicyCase, render_markdown
+from policy_cases import CASES, ROWS, Answer, PolicyCase, render_markdown
+from rdflib import BNode, URIRef
 from sqlalchemy.orm import sessionmaker
+
+from bluecore_models.bluecore_graph import (
+    BluecoreGraph,
+    Citation,
+    Kind,
+    Role,
+    _admin_nodes,
+    _citation,
+)
 
 
 def _noop(session_maker: sessionmaker) -> None:
@@ -14,6 +24,7 @@ def _case(
     row: str,
     sentence: str,
     decision: Literal["chosen", "inherited", "undecided"],
+    answer: Answer = Citation.OTHER,
 ) -> PolicyCase:
     return PolicyCase(
         id=case_id,
@@ -24,6 +35,8 @@ def _case(
         decision=decision,
         follow_up="#169" if decision == "inherited" else None,
         run=_noop,
+        answer=answer,
+        check=lambda: answer,
     )
 
 
@@ -68,5 +81,51 @@ def test_every_case_is_marked():
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c.id for c in CASES])
-def test_policy_case(case: PolicyCase, pg_session):
+def test_policy_answer(case: PolicyCase):
+    """What the code decides for the case, worked out with no database."""
+    assert case.check() == case.answer
+
+
+def _agrees(answer: Answer, last: BluecoreGraph) -> bool:
+    """Whether the last real save of a case decided what the case's answer says."""
+    if isinstance(answer, Citation):
+        return any(
+            _citation(last.graph, s, p, o, _admin_nodes(entry.graph)) == answer
+            for kind in (Kind.WORK, Kind.INSTANCE)
+            for entry in last._entries[kind]
+            for s, p, o in entry.graph
+            if isinstance(p, URIRef) and isinstance(o, URIRef)
+        )
+    kind, role, action = answer
+    if role == Role.INLINE:
+        # it got no entry: the only blank node with one is the resource a
+        # write is creating
+        return any(
+            isinstance(node, BNode) and k == kind and r == Role.INLINE
+            for (node, k), r in last._roles.items()
+        ) and all(
+            entry.role == Role.PRIMARY
+            for entry in last._entries[kind]
+            if isinstance(entry.original, BNode)
+        )
+    return any(
+        entry.role == role and last._actions.get(str(entry.subject)) == action
+        for entry in last._entries[kind]
+    )
+
+
+@pytest.mark.parametrize("case", CASES, ids=[c.id for c in CASES])
+def test_policy_case(case: PolicyCase, pg_session, monkeypatch):
+    saved: list[BluecoreGraph] = []
+    save = BluecoreGraph.save
+
+    def recording_save(self, *args, **kwargs):
+        saved.append(self)
+        return save(self, *args, **kwargs)
+
+    monkeypatch.setattr(BluecoreGraph, "save", recording_save)
+
     case.run(pg_session)
+
+    # the real save decided what the case's answer says
+    assert _agrees(case.answer, saved[-1])

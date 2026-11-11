@@ -3,6 +3,7 @@ import json
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Protocol
 from uuid import uuid4
 
 from psycopg import errors as psycopg_errors
@@ -20,7 +21,6 @@ from bluecore_models.models import (
     OtherResource,
     Work,
 )
-from bluecore_models.models.resource import ResourceBase
 from bluecore_models.models.version import CURRENT_USER_ID
 from bluecore_models.namespaces import BF, BFLC, MADS, RDF, RDFS
 from bluecore_models.utils.graph import (
@@ -310,7 +310,14 @@ class Action(Enum):
     KEEP = "keep"
 
 
-def _action(entry: Entry, existing: ResourceBase | None, mode: Mode) -> Action:
+class Stored(Protocol):
+    """What _action reads of the row we hold for a resource: its data."""
+
+    @property
+    def data(self) -> Any: ...
+
+
+def _action(entry: Entry, existing: Stored | None, mode: Mode) -> Action:
     """
     What the save does to the row of entry, given the row we hold for it, if
     any. Something absent is created whatever its role, from whatever the
@@ -338,7 +345,7 @@ def _action(entry: Entry, existing: ResourceBase | None, mode: Mode) -> Action:
     return Action.UPDATE
 
 
-def _stored_is_stub(existing: ResourceBase) -> bool:
+def _stored_is_stub(existing: Stored) -> bool:
     """Whether what we hold is still a placeholder rather than a description."""
     data = existing.data
     admin_metadata = data.get("adminMetadata", []) if data else []
