@@ -982,20 +982,28 @@ class BluecoreGraph:
             # always true of these; it tells mypy so
             if isinstance(s, IdentifiedNode)
             and not (kind == Kind.WORK and (s, RDF.type, BF.Hub) in self.graph)
-            and self._role(roles, self._classified_as(s), kind) != Role.INLINE
+            and self._role(roles, self._classified_as(s, kind, roles), kind)
+            != Role.INLINE
         ]
 
     def _original(self, subject: IdentifiedNode) -> IdentifiedNode:
         """What subject was called before minting gave it a Bluecore URI."""
         return self._minted_from.get(str(subject), subject)
 
-    def _classified_as(self, subject: IdentifiedNode) -> IdentifiedNode:
+    def _classified_as(
+        self, subject: IdentifiedNode, kind: Kind, roles: Roles
+    ) -> IdentifiedNode:
         """
-        What subject was called when this save classified it, which for a graph
-        saved before is the Bluecore URI that save minted rather than its
-        original.
+        What the resource of this kind called subject was called when this save
+        classified it, which for a graph saved before is the Bluecore URI that
+        save minted rather than its original. Minting a Work onto the uri of an
+        Instance that derives from it renames the uri, but the Instance was
+        classified under the uri it has now.
         """
-        return self._renamed.get(str(subject), subject)
+        renamed = self._renamed.get(str(subject))
+        if renamed is not None and (renamed, kind) in roles:
+            return renamed
+        return subject
 
     def _extract(self, kind: Kind) -> list[Entry]:
         """The Hubs, Works or Instances (kind) in the graph, as entries."""
@@ -1008,7 +1016,9 @@ class BluecoreGraph:
                 Entry(
                     subject=subject,
                     kind=kind,
-                    role=self._role(roles, self._classified_as(subject), kind),
+                    role=self._role(
+                        roles, self._classified_as(subject, kind, roles), kind
+                    ),
                     graph=graph,
                     original=original,
                     minted=str(subject) in self._minted_from,

@@ -1708,6 +1708,28 @@ def test_uri_typed_work_and_instance_fails_the_save(pg_session):
     assert _rows_mentioning(pg_session, str(both)) == 0
 
 
+def test_minting_a_work_onto_an_instance_fails_the_save(pg_session):
+    """
+    An Instance whose adminMetadata says it derives from a Work in the same
+    payload: minting switches the Work onto the Instance's uri, which is then
+    typed both and stored as both, so it fails like a uri typed both on arrival.
+    """
+    work = URIRef(f"http://example.org/phase3/cross-kind/{uuid.uuid4()}")
+    instance = URIRef(f"https://bcld.info/instances/{uuid.uuid4()}")
+    admin_metadata = BNode()
+    g = Graph()
+    g.add((work, RDF.type, BF.Work))
+    g.add((instance, RDF.type, BF.Instance))
+    g.add((instance, BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.derivedFrom, work))
+
+    with pytest.raises(IntegrityError):
+        save_graph(pg_session, g)
+
+    assert _rows_mentioning(pg_session, str(instance)) == 0
+
+
 # --- stubbed resources -------------------------------------------------------
 #
 # A record describes a few resources and only points at the others. We keep a
