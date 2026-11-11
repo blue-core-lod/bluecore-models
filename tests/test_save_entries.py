@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from rdflib import RDFS, Graph, Literal, URIRef
+from rdflib import RDFS, Graph, Literal, Namespace, URIRef
 from sqlalchemy import event
 
 from bluecore_models import bluecore_graph
@@ -9,9 +9,13 @@ from bluecore_models.bluecore_graph import (
     BluecoreGraph,
     BluecoreGraphError,
     Kind,
+    Resolution,
+    SavePlan,
     save_graph,
 )
 from bluecore_models.namespaces import BF, RDF
+
+NS = Namespace("https://bcld.info/")
 
 
 def _lc(kind: str) -> URIRef:
@@ -109,9 +113,9 @@ def _work_and_topic() -> Graph:
 def test_subjects_of_refuses_other_resources():
     # Kind.OTHER has no class, so this would otherwise match every typed subject
     with pytest.raises(BluecoreGraphError, match="Other Resources"):
-        BluecoreGraph(_work_and_topic())._subjects_of(Kind.OTHER, {})
+        SavePlan(_work_and_topic(), NS)._subjects_of(Kind.OTHER, {})
 
 
 def test_mint_uri_refuses_other_resources():
     with pytest.raises(BluecoreGraphError, match="Other Resources"):
-        BluecoreGraph(_work_and_topic())._mint_uri(Kind.OTHER)
+        Resolution(SavePlan(_work_and_topic(), NS))._mint_uri(Kind.OTHER)

@@ -28,7 +28,7 @@ from rdflib import RDF, RDFS, BNode, Graph, Literal, URIRef
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from bluecore_models.bluecore_graph import BluecoreGraph
+from bluecore_models.bluecore_graph import Resolution
 from bluecore_models.namespaces import BF as BF_NS
 
 BF = "http://id.loc.gov/ontologies/bibframe/"
@@ -380,13 +380,13 @@ def test_compare_sees_a_changed_save_end_to_end(pg_session, monkeypatch):
     a = load_and_snapshot()
     assert compare(a, load_and_snapshot(), same_code=True) == []
 
-    original = BluecoreGraph._generate_admin_metadata
+    original = Resolution._generate_admin_metadata
 
     def with_a_note(self, bluecore_uri, *args, **kwargs):
         original(self, bluecore_uri, *args, **kwargs)
         self.graph.add((bluecore_uri, RDFS.comment, Literal("an extra triple")))
 
-    monkeypatch.setattr(BluecoreGraph, "_generate_admin_metadata", with_a_note)
+    monkeypatch.setattr(Resolution, "_generate_admin_metadata", with_a_note)
     b = load_and_snapshot()
 
     differences = compare(a, b, same_code=True)

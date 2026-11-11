@@ -566,7 +566,159 @@ def _copy_graph(graph: Graph) -> Graph:
     return graph_copy
 
 
-class SavePlan:
+def _remove_admin_metadata(graph: Graph, subject: URIRef | None = None) -> None:
+    """
+    Removes existing AdminMetadata nodes. If a subject is supplied only that
+    resource's AdminMetadata is removed; otherwise all AdminMetadata in the graph
+    is removed. Scoping to a subject matters when the graph holds more than one
+    resource, so regenerating one resource's AdminMetadata doesn't wipe another's.
+    """
+    for s, admin_metadata in graph.subject_objects(predicate=BF.adminMetadata):
+        if subject is not None and s != subject:
+            continue
+        if not isinstance(admin_metadata, BNode):
+            continue
+        # remove all triples describing the AdminMetadata blank node (and any nested ones)
+        remove_bnode(graph, admin_metadata)
+        # remove the link from the resource to the AdminMetadata node
+        graph.remove((s, BF.adminMetadata, admin_metadata))
+
+
+class _GraphView:
+    """
+    Finds the resources in a graph, as entries: a plan's graph as it arrived
+    (which the accessors read before a save), or a resolution's once minting
+    has renamed them.
+    """
+
+    graph: Graph
+    # what each uri was called when this save classified it, and before
+    # minting gave it a Bluecore URI (see _classified_as and _original)
+    renamed: dict[str, IdentifiedNode]
+    minted_from: dict[str, IdentifiedNode]
+
+    def _view_plan(self) -> "SavePlan":
+        """The plan whose roles this graph's resources have."""
+        raise NotImplementedError
+
+    def _subjects_of(self, kind: Kind, roles: Roles) -> list[IdentifiedNode]:
+        """
+        The Hubs, Works or Instances (kind) that get a record of their own, in
+        graph order. Leaves out the anonymous descriptions kept inline in another
+        resource (Role.INLINE, see _classify) and, from Works, the Hubs, which
+        LC catalog data types as both bf:Hub and bf:Work.
+        """
+        # Other Resources have no class, and subjects(RDF.type, None) is every
+        # typed subject
+        if kind.bf_class is None:
+            raise BluecoreGraphError("Other Resources aren't found by class")
+        return [
+            s
+            for s in self.graph.subjects(RDF.type, kind.bf_class)
+            # always true of these; it tells mypy so
+            if isinstance(s, IdentifiedNode)
+            and not (kind == Kind.WORK and (s, RDF.type, BF.Hub) in self.graph)
+            and self._view_plan().role(roles, self._classified_as(s, kind, roles), kind)
+            != Role.INLINE
+        ]
+
+    def _original(self, subject: IdentifiedNode) -> IdentifiedNode:
+        """What subject was called before minting gave it a Bluecore URI."""
+        return self.minted_from.get(str(subject), subject)
+
+    def _classified_as(
+        self, subject: IdentifiedNode, kind: Kind, roles: Roles
+    ) -> IdentifiedNode:
+        """
+        What the resource of this kind called subject was called when this save
+        classified it, which for a graph saved before is the Bluecore URI that
+        save minted rather than its original. Minting a Work onto the uri of an
+        Instance that derives from it renames the uri, but the Instance was
+        classified under the uri it has now.
+        """
+        renamed = self.renamed.get(str(subject))
+        if renamed is not None and (renamed, kind) in roles:
+            return renamed
+        return subject
+
+    def _extract(self, kind: Kind) -> list[Entry]:
+        """The Hubs, Works or Instances (kind) in the graph, as entries."""
+        roles = self._view_plan().current_roles()
+        entries = []
+        for subject in self._subjects_of(kind, roles):
+            graph = generate_entity_graph(self.graph, subject)
+            original = self._original(subject)
+            entries.append(
+                Entry(
+                    subject=subject,
+                    kind=kind,
+                    role=self._view_plan().role(
+                        roles, self._classified_as(subject, kind, roles), kind
+                    ),
+                    graph=graph,
+                    original=original,
+                    minted=str(subject) in self.minted_from,
+                    cited=frozenset(self._cited_uris(graph)),
+                )
+            )
+        return entries
+
+    def _extract_others(self, citing: list[Entry]) -> list[Entry]:
+        """
+        The cited resources this payload describes, which are the Other Resource
+        rows the save writes, found from the entries citing them. Which ones get
+        linked is decided by what each Work or Instance cites, see _link.
+        """
+        roles = self._view_plan().current_roles()
+        others = []
+        other_uris = set()
+
+        for entry in citing:
+            # only a uri the payload says something about has a description to store
+            for o in entry.cited:
+                if (o, None, None) in self.graph and o not in other_uris:
+                    others.append(
+                        Entry(
+                            subject=o,
+                            kind=Kind.OTHER,
+                            role=self._view_plan().role(roles, o, Kind.OTHER),
+                            graph=generate_entity_graph(self.graph, o),
+                            original=o,
+                            minted=False,
+                            cited=frozenset(),
+                        )
+                    )
+                    other_uris.add(o)
+
+        return others
+
+    def _extract_entries(self) -> dict[Kind, list[Entry]]:
+        """Every resource the save writes, by kind."""
+        entries = {
+            kind: self._extract(kind) for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE)
+        }
+        entries[Kind.OTHER] = self._extract_others(
+            entries[Kind.WORK] + entries[Kind.INSTANCE] + entries[Kind.HUB]
+        )
+        return entries
+
+    def _cited_uris(self, g: Graph) -> set[URIRef]:
+        """
+        The uris a resource's subgraph cites that could be Other Resources: every
+        object uri, nested ones included, that the save would store a description
+        of (see Citation.stored).
+        """
+        admin_nodes = _admin_nodes(g)
+        return {
+            o
+            for s, p, o in g
+            if isinstance(o, URIRef)
+            and isinstance(p, URIRef)
+            and _citation(self.graph, s, p, o, admin_nodes).stored
+        }
+
+
+class SavePlan(_GraphView):
     """
     What a save is going to do, decided from the payload alone: the payload
     copied and normalised, and the role of every resource in it (see
@@ -590,6 +742,10 @@ class SavePlan:
         # What each Bluecore URI in the graph was called when it arrived, for a
         # graph saved before (see _classify's arrived_as).
         self.arrived_as: dict[str, IdentifiedNode] = {}
+        # Nothing has been renamed before minting, and the names minted before
+        # are the ones it arrived with.
+        self.renamed = {}
+        self.minted_from = self.arrived_as
         # Work these out before _infer, which adds links back up (bf:instanceOf
         # for a bf:hasInstance) that would make a new resource look nested.
         #
@@ -601,6 +757,41 @@ class SavePlan:
         # blank nodes nothing with a URI reaches. See _find_roots.
         self.roots, self.unattached = self._find_roots()
         self._infer()
+
+    def _view_plan(self) -> "SavePlan":
+        return self
+
+    def resolve(self, session: Session) -> "Resolution":
+        """
+        What saving this plan would do now, read on session: identities, the
+        rows we hold and each resource's action. It writes nothing, and works on
+        a copy of the graph (see Resolution), so the plan can be resolved again.
+        """
+        resolution = Resolution(self)
+        resolution.fill(session)
+        return resolution
+
+    def after(self, resolution: "Resolution") -> "SavePlan":
+        """
+        The plan for saving again what resolution saved: its graph, minted, with
+        what each Bluecore URI was called when it arrived. The resource being
+        created and the roots are the ones found when the payload arrived.
+        """
+        plan = SavePlan.__new__(SavePlan)
+        plan.graph = _copy_graph(resolution.graph)
+        plan.namespace = self.namespace
+        plan.source = self.source
+        plan.mode = None
+        plan.described = set()
+        plan.roles = {}
+        plan.root = None
+        plan.recorded_blank_nodes = set()
+        plan.arrived_as = dict(resolution.minted_from)
+        plan.renamed = {}
+        plan.minted_from = plan.arrived_as
+        plan.new_resource = self.new_resource
+        plan.roots, plan.unattached = self.roots, self.unattached
+        return plan
 
     @classmethod
     def from_graph(
@@ -935,392 +1126,80 @@ class SavePlan:
             )
 
 
-class BluecoreGraph:
+class Resolution(_GraphView):
     """
-    The BluecoreGraph is instantiated using an existing rdflib Graph for a set
-    of Bibframe Hubs, Works, Instances and "Other" Resources, which are all available
-    using methods that return them as subgraphs. The save method is then used to
-    persist the graph to a given database. If you want to change the default
-    namespace that is used for the bluecore instance you can pass that in with
-    the namespace parameter.
-
-    The heuristic that BluecoreGraph uses for updating the database:
-
-    1. Infer any missing assertions in the data that we rely on (notably rdf:type).
-    2. Extract subgraphs for Hubs, Works, Instances and Other Resources in the larger
-       graph. Note: LC catalog data types Hubs as both bf:Hub and bf:Work; they are
-       extracted as Hubs and excluded from Works to avoid double-processing.
-    3. Examine each Hub, Work, Instance and Other Resource graph to see if it has a
-       Bluecore subject URI.
-    4. If it doesn't have a Bluecore subject URI mint one for it, update the graph
-       to use it, and preserve the original URI as a bibframe:derivedFrom assertion.
-    5. Save (or update) each Hub, Work, Instance and Other Resource to the database.
-    6. Save relationships between the Hubs, Works, Instances and Other Resources,
-       being careful to remove existing many-to-many relations with Other Resources
-       prior to adding new ones.
-
-    Stubs: when the save has no primary_class (ingest mode) and the record
-    describes something with adminMetadata of its own, a Hub, Work or Instance
-    without adminMetadata is a stub: a placeholder for something described
-    elsewhere. It is marked mstatus/incmp when its Bluecore URI is minted.
-
-    References: when the save names a primary_class, resources of the other kinds
-    are created if they are absent and never overwritten.
-
-    Inline blank nodes: anonymous Works, Instances and Hubs stay inside their
-    parent's record rather than getting a record of their own, except the one
-    resource an API save is creating.
-
-    The link rule: Other Resource links follow each Work's and Instance's own
-    data, leaving out the predicates in RECORD_PREDICATES and the URIs under
-    LC_RESOURCES, which are records rather than Other Resources.
+    What a save of a plan does at this moment: what each resource is called,
+    the row we hold for it, and what the save does to that row (its Action).
+    It is worked out on a copy of the plan's graph, which minting renames, so
+    the plan is never changed and can be resolved again: on a retry, or as a dry
+    run that's thrown away. Resolving reads the database and writes nothing.
     """
 
-    def __init__(
-        self,
-        graph: Graph,
-        namespace: str = "https://bcld.info/",
-        source: str | None = None,
-    ):
-        """
-        Instantiate a BluecoreGraph using an rdflib Graph, and an optional
-        Bluecore Namespace URL: the default is https://bcld.info. source names where
-        the graph came from and is used only in log messages (see save_graph).
-        """
-        if not isinstance(namespace, str):
-            raise TypeError(f"default namespace cannot be {namespace}")
-        elif not namespace.startswith("http"):
-            raise BluecoreGraphError(
-                f"default namespace must be a URL, got {namespace}"
-            )
-        elif not namespace.endswith("/"):
-            namespace += "/"
-        self.namespace = Namespace(namespace)
-        self.source = source
-        # The payload, copied, and what is decided from it alone. See SavePlan.
-        self._plan = SavePlan(graph, self.namespace, source)
-        # Each resource the save writes, by kind. Set by save() once minting is
-        # done; empty until then. See Entry.
-        self._entries: dict[Kind, list[Entry]] = {}
-        # What each minted uri was called before this save's minting renamed
-        # it. Set by _switch_uris.
-        self._renamed: dict[str, IdentifiedNode] = {}
-        # What this save attempt did to each resource's row, by uri: one it
-        # inserted has no existing links to protect. See _action.
-        self._actions: dict[str, Action] = {}
-        # The URI save() minted for the root it was creating, so a caller
-        # creating a resource knows which one it created. None when the save
-        # created nothing.
+    def __init__(self, plan: "SavePlan") -> None:
+        self.plan = plan
+        self.namespace = plan.namespace
+        self.graph = _copy_graph(plan.graph)
+        self.minted_from = dict(plan.arrived_as)
+        self.renamed = {}
+        # The URI minted for the root a Write is creating, so a caller creating
+        # a resource knows which one it created. None when it creates nothing.
         self.created_uri: URIRef | None = None
+        # Each resource the save writes, by kind, once minting is done.
+        self.entries: dict[Kind, list[Entry]] = {}
+        # The row we hold for each resource, and what the save does to it, by
+        # uri. See _action.
+        self.stored: dict[str, Hub | Work | Instance | OtherResource] = {}
+        self.actions: dict[str, Action] = {}
 
-    # What the plan decided, under the names the rest of the class reads.
+    def _view_plan(self) -> "SavePlan":
+        return self.plan
 
-    @property
-    def graph(self) -> Graph:
-        return self._plan.graph
+    def fill(self, session: Session) -> None:
+        """Resolve on session: mint, find the entries and decide their actions."""
+        # resolve URIs in the graph to their Bluecore equivalent or mint them as
+        # appropriate. note: OtherResources keep their original URI
+        self._mint_all_uris(Kind.HUB, session)
+        self._mint_all_uris(Kind.WORK, session)
+        self._mint_all_uris(Kind.INSTANCE, session)
 
-    @property
-    def _mode(self) -> Mode | None:
-        return self._plan.mode
+        # Nothing changes the graph after minting, so extract each resource
+        # once, here.
+        self.entries = self._extract_entries()
 
-    @property
-    def _roles(self) -> Roles:
-        return self._plan.roles
+        for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
+            self._decide_actions(kind, session)
 
-    @property
-    def _root(self) -> BNode | None:
-        return self._plan.root
-
-    @property
-    def _new_resource(self) -> BNode | None:
-        return self._plan.new_resource
-
-    @property
-    def _recorded_blank_nodes(self) -> set[BNode]:
-        return self._plan.recorded_blank_nodes
-
-    @property
-    def _minted_from(self) -> dict[str, IdentifiedNode]:
-        # the plan classifies a graph saved before by these names
-        return self._plan.arrived_as
-
-    def _prepare(self, mode: Mode) -> None:
-        """Decide the roles under mode (see SavePlan.prepare)."""
-        # roles are keyed on what each resource is called now; minting renames
-        # them, and _switch_uris notes each rename here (see _classified_as)
-        self._renamed = {}
-        self._plan.prepare(mode)
-
-    def _find_root(self, kind: Kind | None) -> BNode | None:
-        return self._plan._find_root(kind)
-
-    def _current_roles(self) -> Roles:
-        return self._plan.current_roles()
-
-    def _role(self, roles: Roles, original: IdentifiedNode, kind: Kind) -> Role:
-        return self._plan.role(roles, original, kind)
-
-    def _is_inline(self, node: Node) -> bool:
+    def _decide_actions(self, kind: Kind, session: Session) -> None:
         """
-        Whether, in this save, node is a blank node with no record of its own:
-        every one is, except the resource an API save is creating.
+        Fetch the rows we hold for the resources of kind, and decide from each
+        entry's role and row what the save does to it (see _action).
         """
-        return isinstance(node, BNode) and node not in self._recorded_blank_nodes
+        entries = self.entries[kind]
+        # A cited resource described only by triples generate_entity_graph
+        # leaves out has nothing to store. The save has always refused one,
+        # with the error the subject lookup that preceded Entry raised.
+        if kind == Kind.OTHER and any(len(entry.graph) == 0 for entry in entries):
+            raise BluecoreGraphError("Unable to find subject URI for None")
 
-    def works(self) -> list[Graph]:
-        """
-        Returns a list of Bibframe Work rdflib Graphs, where each graph is for a
-        distinct Work. Excludes Hubs, which LC catalog data types as both bf:Hub
-        and bf:Work; they are handled separately by hubs().
-        """
-        return [entry.graph for entry in self._extract(Kind.WORK)]
-
-    def hubs(self) -> list[Graph]:
-        """
-        Returns a list of Bibframe Hub rdflib Graphs, where each graph is for a
-        distinct Hub.
-        """
-        return [entry.graph for entry in self._extract(Kind.HUB)]
-
-    def instances(self) -> list[Graph]:
-        """
-        Returns a list of Bibframe Instance rdflib Graphs, where each graph is for a
-        distinct Instance.
-        """
-        return [entry.graph for entry in self._extract(Kind.INSTANCE)]
-
-    def others(self) -> list[Graph]:
-        """
-        Return a list of "Other Resource" rdflib Graphs, where each graph is for a
-        distinct resource.
-        """
-        citing = (
-            self._extract(Kind.WORK)
-            + self._extract(Kind.INSTANCE)
-            + self._extract(Kind.HUB)
-        )
-        return [entry.graph for entry in self._extract_others(citing)]
-
-    def save(
-        self,
-        session_maker: sessionmaker,
-        max_attempts: int = SAVE_MAX_ATTEMPTS,
-        primary_class=None,
-        update_other_resources: bool = True,
-    ) -> None:
-        """
-        Persists the graph to the database using the supplied sqlalchemy
-        sessionmaker. All the database modifications are made using a single
-        transaction.
-
-        Under concurrent writers a transaction can still lose a race and be
-        aborted by Postgres with a deadlock or serialization failure. Since a
-        graph save is self-contained and idempotent, we simply re-run the whole
-        thing on a fresh session up to max_attempts times.
-        """
-
-        def log_retry(retry_state) -> None:
-            error = retry_state.outcome.exception()
-            logger.warning(
-                f"retrying graph save after {type(error.orig).__name__} "
-                f"(attempt {retry_state.attempt_number} of {max_attempts})"
+        # Fetch the resources of this batch that already exist in a single query,
+        # keyed by uri, rather than a SELECT per resource -- so re-saves and large
+        # batches don't fan out into a round-trip each.
+        mode = self.plan.mode
+        if mode is None:
+            raise BluecoreGraphError("Only a plan prepared for a save resolves")
+        sqla_class = _SQLA_CLASSES[kind]
+        existing = {
+            obj.uri: obj
+            for obj in session.query(sqla_class).where(
+                sqla_class.uri.in_([str(entry.subject) for entry in entries])
             )
-
-        mode = _mode(primary_class, update_other_resources)
-        self._prepare(mode)
-        self._plan.normalise()
-
-        try:
-            for attempt in Retrying(
-                retry=retry_if_exception(_is_retryable_pg_error),
-                stop=stop_after_attempt(max_attempts),
-                before_sleep=log_retry,
-                reraise=True,
-            ):
-                with attempt, session_maker() as session:
-                    # start each attempt with a clean record of what was done
-                    self._actions = {}
-
-                    # resolve URIs in the graph to their Bluecore equivalent or mint them as appropriate.
-                    # note: OtherResources keep their original URI
-                    self._mint_all_uris(Kind.HUB, session)
-                    self._mint_all_uris(Kind.WORK, session)
-                    self._mint_all_uris(Kind.INSTANCE, session)
-
-                    # Nothing changes the graph after minting, so extract each
-                    # resource once, here. A retry finds everything minted and
-                    # extracts the same entries again.
-                    self._entries = self._extract_entries()
-
-                    # Each entry's role and stored row decide what is written:
-                    # see _classify and _action.
-                    for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
-                        self._persist_resources(kind, session, mode)
-
-                    # flush so the just-added resources have ids and are
-                    # visible to _link's uri lookups. Required because the
-                    # session may have autoflush disabled (as the
-                    # bluecore_api session does), in which case _link's
-                    # queries would otherwise not see them and would build
-                    # link rows with null foreign keys.
-                    session.flush()
-
-                    # link all the works, instances and other resources together in the db.
-                    # _link issues many per-uri lookups; with autoflush on, each one
-                    # re-flushes the pending link changes (and re-fires update events /
-                    # bf-class recomputation). The resources it reads were already
-                    # flushed above, so turn autoflush off for the link phase and let
-                    # commit() do the single final flush. (bluecore_api's session already
-                    # runs with autoflush disabled.)
-                    prev_autoflush = session.autoflush
-                    session.autoflush = False
-                    try:
-                        self._link(session)
-                    finally:
-                        session.autoflush = prev_autoflush
-
-                    # all changes are part of one transaction!
-                    session.commit()
-        except (OperationalError, IntegrityError) as error:
-            logger.error(f"Exceeded {max_attempts} attempts with error {error}")
-            raise
-
-    def _subjects_of(self, kind: Kind, roles: Roles) -> list[IdentifiedNode]:
-        """
-        The Hubs, Works or Instances (kind) that get a record of their own, in
-        graph order. Leaves out the anonymous descriptions kept inline in another
-        resource (Role.INLINE, see _classify) and, from Works, the Hubs, which
-        LC catalog data types as both bf:Hub and bf:Work.
-        """
-        # Other Resources have no class, and subjects(RDF.type, None) is every
-        # typed subject
-        if kind.bf_class is None:
-            raise BluecoreGraphError("Other Resources aren't found by class")
-        return [
-            s
-            for s in self.graph.subjects(RDF.type, kind.bf_class)
-            # always true of these; it tells mypy so
-            if isinstance(s, IdentifiedNode)
-            and not (kind == Kind.WORK and (s, RDF.type, BF.Hub) in self.graph)
-            and self._role(roles, self._classified_as(s, kind, roles), kind)
-            != Role.INLINE
-        ]
-
-    def _original(self, subject: IdentifiedNode) -> IdentifiedNode:
-        """What subject was called before minting gave it a Bluecore URI."""
-        return self._minted_from.get(str(subject), subject)
-
-    def _classified_as(
-        self, subject: IdentifiedNode, kind: Kind, roles: Roles
-    ) -> IdentifiedNode:
-        """
-        What the resource of this kind called subject was called when this save
-        classified it, which for a graph saved before is the Bluecore URI that
-        save minted rather than its original. Minting a Work onto the uri of an
-        Instance that derives from it renames the uri, but the Instance was
-        classified under the uri it has now.
-        """
-        renamed = self._renamed.get(str(subject))
-        if renamed is not None and (renamed, kind) in roles:
-            return renamed
-        return subject
-
-    def _extract(self, kind: Kind) -> list[Entry]:
-        """The Hubs, Works or Instances (kind) in the graph, as entries."""
-        roles = self._current_roles()
-        entries = []
-        for subject in self._subjects_of(kind, roles):
-            graph = generate_entity_graph(self.graph, subject)
-            original = self._original(subject)
-            entries.append(
-                Entry(
-                    subject=subject,
-                    kind=kind,
-                    role=self._role(
-                        roles, self._classified_as(subject, kind, roles), kind
-                    ),
-                    graph=graph,
-                    original=original,
-                    minted=str(subject) in self._minted_from,
-                    cited=frozenset(self._cited_uris(graph)),
-                )
-            )
-        return entries
-
-    def _extract_others(self, citing: list[Entry]) -> list[Entry]:
-        """
-        The cited resources this payload describes, which are the Other Resource
-        rows the save writes, found from the entries citing them. Which ones get
-        linked is decided by what each Work or Instance cites, see _link.
-        """
-        roles = self._current_roles()
-        others = []
-        other_uris = set()
-
-        for entry in citing:
-            # only a uri the payload says something about has a description to store
-            for o in entry.cited:
-                if (o, None, None) in self.graph and o not in other_uris:
-                    others.append(
-                        Entry(
-                            subject=o,
-                            kind=Kind.OTHER,
-                            role=self._role(roles, o, Kind.OTHER),
-                            graph=generate_entity_graph(self.graph, o),
-                            original=o,
-                            minted=False,
-                            cited=frozenset(),
-                        )
-                    )
-                    other_uris.add(o)
-
-        return others
-
-    def _extract_entries(self) -> dict[Kind, list[Entry]]:
-        """Every resource the save writes, by kind."""
-        entries = {
-            kind: self._extract(kind) for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE)
         }
-        entries[Kind.OTHER] = self._extract_others(
-            entries[Kind.WORK] + entries[Kind.INSTANCE] + entries[Kind.HUB]
-        )
-        return entries
-
-    def _cited_uris(self, g: Graph) -> set[URIRef]:
-        """
-        The uris a resource's subgraph cites that could be Other Resources: every
-        object uri, nested ones included, that the save would store a description
-        of (see Citation.stored).
-        """
-        admin_nodes = _admin_nodes(g)
-        return {
-            o
-            for s, p, o in g
-            if isinstance(o, URIRef)
-            and isinstance(p, URIRef)
-            and _citation(self.graph, s, p, o, admin_nodes).stored
-        }
-
-    def _linkable_uris(
-        self, g: Graph, cited: frozenset[URIRef], described: set[IdentifiedNode]
-    ) -> set[URIRef]:
-        """
-        The cited uris a Work or Instance may be linked to as Other Resources,
-        if we hold a row for them: those that one of its triples cites as an
-        Other Resource, or under bf:adminMetadata when this payload describes
-        them. See _citation.
-        """
-        admin_nodes = _admin_nodes(g)
-        linkable = set()
-        for s, p, o in g:
-            if not (isinstance(o, URIRef) and isinstance(p, URIRef) and o in cited):
-                continue
-            citation = _citation(self.graph, s, p, o, admin_nodes)
-            if citation == Citation.OTHER or (
-                citation == Citation.ADMIN_ONLY and o in described
-            ):
-                linkable.add(o)
-        return linkable
+        for entry in entries:
+            uri = str(entry.subject)
+            row = existing.get(uri)
+            if row is not None:
+                self.stored[uri] = row
+            self.actions[uri] = _action(entry, row, mode)
 
     def _generate_admin_metadata(
         self,
@@ -1346,7 +1225,7 @@ class BluecoreGraph:
             status = STUB_STATUS
             self._describe_stub_status()
 
-        self._remove_admin_metadata(self.graph, bluecore_uri)
+        _remove_admin_metadata(self.graph, bluecore_uri)
 
         # First bf:AdminMetadata
         first_admin_metadata = BNode()
@@ -1390,23 +1269,6 @@ class BluecoreGraph:
         self.graph.add((STUB_STATUS, RDFS.label, Literal("incomplete")))
         self.graph.add((STUB_STATUS, BF.code, Literal("incmp")))
 
-    def _remove_admin_metadata(self, graph: Graph, subject: URIRef | None = None):
-        """
-        Removes existing AdminMetadata nodes. If a subject is supplied only that
-        resource's AdminMetadata is removed; otherwise all AdminMetadata in the graph
-        is removed. Scoping to a subject matters when the graph holds more than one
-        resource, so regenerating one resource's AdminMetadata doesn't wipe another's.
-        """
-        for s, admin_metadata in graph.subject_objects(predicate=BF.adminMetadata):
-            if subject is not None and s != subject:
-                continue
-            if not isinstance(admin_metadata, BNode):
-                continue
-            # remove all triples describing the AdminMetadata blank node (and any nested ones)
-            remove_bnode(graph, admin_metadata)
-            # remove the link from the resource to the AdminMetadata node
-            graph.remove((s, BF.adminMetadata, admin_metadata))
-
     def _mint_all_uris(self, kind: Kind, session: Session) -> None:
         """
         Examine the Bibframe Hubs, Works or Instances (kind) in the graph, and
@@ -1417,7 +1279,7 @@ class BluecoreGraph:
         # there's nothing to do for one that already has a bluecore URI
         uris = [
             uri
-            for uri in self._subjects_of(kind, self._roles)
+            for uri in self._subjects_of(kind, self.plan.roles)
             if not self._is_bluecore_uri(uri)
         ]
         # Which of them were previously saved with an adminMetadata derivedFrom
@@ -1526,9 +1388,9 @@ class BluecoreGraph:
         A bibframe:derivedFrom assertion is added to record the relationship
         if the derived_from is URIRef, marking a stub of kind as one.
         """
-        self._minted_from[str(bluecore_uri)] = derived_from
-        self._renamed[str(bluecore_uri)] = derived_from
-        if self._root is not None and derived_from == self._root:
+        self.minted_from[str(bluecore_uri)] = derived_from
+        self.renamed[str(bluecore_uri)] = derived_from
+        if self.plan.root is not None and derived_from == self.plan.root:
             self.created_uri = bluecore_uri
         replace_uri(self.graph, derived_from, bluecore_uri)
         # only add derivedFrom assertions for URIs
@@ -1536,11 +1398,285 @@ class BluecoreGraph:
             self._generate_admin_metadata(
                 bluecore_uri,
                 derived_from,
-                stub=self._roles.get((derived_from, kind)) == Role.STUB,
+                stub=self.plan.roles.get((derived_from, kind)) == Role.STUB,
             )
 
     def _is_bluecore_uri(self, uri) -> bool:
         return uri in self.namespace
+
+
+class BluecoreGraph:
+    """
+    The BluecoreGraph is instantiated using an existing rdflib Graph for a set
+    of Bibframe Hubs, Works, Instances and "Other" Resources, which are all available
+    using methods that return them as subgraphs. The save method is then used to
+    persist the graph to a given database. If you want to change the default
+    namespace that is used for the bluecore instance you can pass that in with
+    the namespace parameter.
+
+    The heuristic that BluecoreGraph uses for updating the database:
+
+    1. Infer any missing assertions in the data that we rely on (notably rdf:type).
+    2. Extract subgraphs for Hubs, Works, Instances and Other Resources in the larger
+       graph. Note: LC catalog data types Hubs as both bf:Hub and bf:Work; they are
+       extracted as Hubs and excluded from Works to avoid double-processing.
+    3. Examine each Hub, Work, Instance and Other Resource graph to see if it has a
+       Bluecore subject URI.
+    4. If it doesn't have a Bluecore subject URI mint one for it, update the graph
+       to use it, and preserve the original URI as a bibframe:derivedFrom assertion.
+    5. Save (or update) each Hub, Work, Instance and Other Resource to the database.
+    6. Save relationships between the Hubs, Works, Instances and Other Resources,
+       being careful to remove existing many-to-many relations with Other Resources
+       prior to adding new ones.
+
+    Stubs: when the save has no primary_class (ingest mode) and the record
+    describes something with adminMetadata of its own, a Hub, Work or Instance
+    without adminMetadata is a stub: a placeholder for something described
+    elsewhere. It is marked mstatus/incmp when its Bluecore URI is minted.
+
+    References: when the save names a primary_class, resources of the other kinds
+    are created if they are absent and never overwritten.
+
+    Inline blank nodes: anonymous Works, Instances and Hubs stay inside their
+    parent's record rather than getting a record of their own, except the one
+    resource an API save is creating.
+
+    The link rule: Other Resource links follow each Work's and Instance's own
+    data, leaving out the predicates in RECORD_PREDICATES and the URIs under
+    LC_RESOURCES, which are records rather than Other Resources.
+    """
+
+    def __init__(
+        self,
+        graph: Graph,
+        namespace: str = "https://bcld.info/",
+        source: str | None = None,
+    ):
+        """
+        Instantiate a BluecoreGraph using an rdflib Graph, and an optional
+        Bluecore Namespace URL: the default is https://bcld.info. source names where
+        the graph came from and is used only in log messages (see save_graph).
+        """
+        if not isinstance(namespace, str):
+            raise TypeError(f"default namespace cannot be {namespace}")
+        elif not namespace.startswith("http"):
+            raise BluecoreGraphError(
+                f"default namespace must be a URL, got {namespace}"
+            )
+        elif not namespace.endswith("/"):
+            namespace += "/"
+        self.namespace = Namespace(namespace)
+        self.source = source
+        # The payload, copied, and what is decided from it alone. See SavePlan.
+        self._plan = SavePlan(graph, self.namespace, source)
+        # The resolution of the last attempt to save, committed or not; None
+        # before a save. See Resolution.
+        self._resolution: Resolution | None = None
+
+    # What the plan decided and the last attempt resolved, under the names the
+    # rest of the class reads.
+
+    def _view(self) -> _GraphView:
+        """The graph the accessors read: the last save's, else the payload's."""
+        return self._resolution if self._resolution is not None else self._plan
+
+    @property
+    def graph(self) -> Graph:
+        return self._view().graph
+
+    @property
+    def created_uri(self) -> URIRef | None:
+        """
+        The URI save() minted for the root it was creating, so a caller creating
+        a resource knows which one it created. None when the save created
+        nothing.
+        """
+        return self._resolution.created_uri if self._resolution is not None else None
+
+    @property
+    def _entries(self) -> dict[Kind, list[Entry]]:
+        # each resource the save writes, by kind; empty until a save
+        return self._resolution.entries if self._resolution is not None else {}
+
+    @property
+    def _actions(self) -> dict[str, Action]:
+        return self._resolution.actions if self._resolution is not None else {}
+
+    @property
+    def _mode(self) -> Mode | None:
+        return self._plan.mode
+
+    @property
+    def _roles(self) -> Roles:
+        return self._plan.roles
+
+    @property
+    def _root(self) -> BNode | None:
+        return self._plan.root
+
+    @property
+    def _new_resource(self) -> BNode | None:
+        return self._plan.new_resource
+
+    @property
+    def _recorded_blank_nodes(self) -> set[BNode]:
+        return self._plan.recorded_blank_nodes
+
+    def _prepare(self, mode: Mode) -> None:
+        """Decide the roles under mode (see SavePlan.prepare)."""
+        self._plan.prepare(mode)
+
+    def _find_root(self, kind: Kind | None) -> BNode | None:
+        return self._plan._find_root(kind)
+
+    def _current_roles(self) -> Roles:
+        return self._plan.current_roles()
+
+    def _role(self, roles: Roles, original: IdentifiedNode, kind: Kind) -> Role:
+        return self._plan.role(roles, original, kind)
+
+    def _is_inline(self, node: Node) -> bool:
+        """
+        Whether, in this save, node is a blank node with no record of its own:
+        every one is, except the resource an API save is creating.
+        """
+        return isinstance(node, BNode) and node not in self._recorded_blank_nodes
+
+    def works(self) -> list[Graph]:
+        """
+        Returns a list of Bibframe Work rdflib Graphs, where each graph is for a
+        distinct Work. Excludes Hubs, which LC catalog data types as both bf:Hub
+        and bf:Work; they are handled separately by hubs().
+        """
+        return [entry.graph for entry in self._view()._extract(Kind.WORK)]
+
+    def hubs(self) -> list[Graph]:
+        """
+        Returns a list of Bibframe Hub rdflib Graphs, where each graph is for a
+        distinct Hub.
+        """
+        return [entry.graph for entry in self._view()._extract(Kind.HUB)]
+
+    def instances(self) -> list[Graph]:
+        """
+        Returns a list of Bibframe Instance rdflib Graphs, where each graph is for a
+        distinct Instance.
+        """
+        return [entry.graph for entry in self._view()._extract(Kind.INSTANCE)]
+
+    def others(self) -> list[Graph]:
+        """
+        Return a list of "Other Resource" rdflib Graphs, where each graph is for a
+        distinct resource.
+        """
+        view = self._view()
+        citing = (
+            view._extract(Kind.WORK)
+            + view._extract(Kind.INSTANCE)
+            + view._extract(Kind.HUB)
+        )
+        return [entry.graph for entry in view._extract_others(citing)]
+
+    def save(
+        self,
+        session_maker: sessionmaker,
+        max_attempts: int = SAVE_MAX_ATTEMPTS,
+        primary_class=None,
+        update_other_resources: bool = True,
+    ) -> None:
+        """
+        Persists the graph to the database using the supplied sqlalchemy
+        sessionmaker. All the database modifications are made using a single
+        transaction.
+
+        Under concurrent writers a transaction can still lose a race and be
+        aborted by Postgres with a deadlock or serialization failure. Since a
+        graph save is self-contained and idempotent, we simply re-run the whole
+        thing on a fresh session up to max_attempts times.
+        """
+
+        def log_retry(retry_state) -> None:
+            error = retry_state.outcome.exception()
+            logger.warning(
+                f"retrying graph save after {type(error.orig).__name__} "
+                f"(attempt {retry_state.attempt_number} of {max_attempts})"
+            )
+
+        mode = _mode(primary_class, update_other_resources)
+        if self._resolution is not None:
+            # saving again what the last save saved
+            self._plan = self._plan.after(self._resolution)
+            self._resolution = None
+        self._prepare(mode)
+        self._plan.normalise()
+
+        try:
+            for attempt in Retrying(
+                retry=retry_if_exception(_is_retryable_pg_error),
+                stop=stop_after_attempt(max_attempts),
+                before_sleep=log_retry,
+                reraise=True,
+            ):
+                with attempt, session_maker() as session:
+                    # Each attempt resolves afresh, on a copy of the plan: a
+                    # retry looks every identity up again, since another save
+                    # may have committed one meanwhile. Note the attempt before
+                    # resolving, so a failure leaves it to read.
+                    self._resolution = Resolution(self._plan)
+                    self._resolution.fill(session)
+
+                    # Each entry's action decides what is written: see _action.
+                    for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
+                        self._persist_resources(kind, session, mode)
+
+                    # flush so the just-added resources have ids and are
+                    # visible to _link's uri lookups. Required because the
+                    # session may have autoflush disabled (as the
+                    # bluecore_api session does), in which case _link's
+                    # queries would otherwise not see them and would build
+                    # link rows with null foreign keys.
+                    session.flush()
+
+                    # link all the works, instances and other resources together in the db.
+                    # _link issues many per-uri lookups; with autoflush on, each one
+                    # re-flushes the pending link changes (and re-fires update events /
+                    # bf-class recomputation). The resources it reads were already
+                    # flushed above, so turn autoflush off for the link phase and let
+                    # commit() do the single final flush. (bluecore_api's session already
+                    # runs with autoflush disabled.)
+                    prev_autoflush = session.autoflush
+                    session.autoflush = False
+                    try:
+                        self._link(session)
+                    finally:
+                        session.autoflush = prev_autoflush
+
+                    # all changes are part of one transaction!
+                    session.commit()
+        except (OperationalError, IntegrityError) as error:
+            logger.error(f"Exceeded {max_attempts} attempts with error {error}")
+            raise
+
+    def _linkable_uris(
+        self, g: Graph, cited: frozenset[URIRef], described: set[IdentifiedNode]
+    ) -> set[URIRef]:
+        """
+        The cited uris a Work or Instance may be linked to as Other Resources,
+        if we hold a row for them: those that one of its triples cites as an
+        Other Resource, or under bf:adminMetadata when this payload describes
+        them. See _citation.
+        """
+        admin_nodes = _admin_nodes(g)
+        linkable = set()
+        for s, p, o in g:
+            if not (isinstance(o, URIRef) and isinstance(p, URIRef) and o in cited):
+                continue
+            citation = _citation(self.graph, s, p, o, admin_nodes)
+            if citation == Citation.OTHER or (
+                citation == Citation.ADMIN_ONLY and o in described
+            ):
+                linkable.add(o)
+        return linkable
 
     def _keeps_own_links(self, entry: Entry) -> bool:
         """
@@ -1559,17 +1695,14 @@ class BluecoreGraph:
     def _persist_resources(self, kind: Kind, session: Session, mode: Mode) -> None:
         """
         Persist the resources of the supplied kind to the given database session,
-        as each one's action says (see _action), and note the action.
+        as each one's action says (see Resolution and _action).
         """
+        assert self._resolution is not None
+        stored, actions = self._resolution.stored, self._resolution.actions
         entries = self._entries[kind]
         sqla_class = _SQLA_CLASSES[kind]
 
         if kind == Kind.OTHER:
-            # A cited resource described only by triples generate_entity_graph
-            # leaves out has nothing to store. The save has always refused one,
-            # with the error the subject lookup that preceded Entry raised.
-            if any(len(entry.graph) == 0 for entry in entries):
-                raise BluecoreGraphError("Unable to find subject URI for None")
             # Only Other Resources are written in URI order. They keep their
             # external URIs, so two transactions can insert the same one; taking
             # the locks in the same order makes them serialize instead of
@@ -1578,21 +1711,10 @@ class BluecoreGraph:
             # UUID can't collide on INSERT.
             entries = sorted(entries, key=lambda entry: str(entry.subject))
 
-        # Fetch the resources of this batch that already exist in a single query,
-        # keyed by uri, rather than a SELECT per resource -- so re-saves and large
-        # batches don't fan out into a round-trip each.
-        existing = {
-            obj.uri: obj
-            for obj in session.query(sqla_class).where(
-                sqla_class.uri.in_([str(entry.subject) for entry in entries])
-            )
-        }
-
         for entry in entries:
             uri, g = entry.subject, entry.graph
-            obj = existing.get(str(uri))
-            action = _action(entry, obj, mode)
-            self._actions[str(uri)] = action
+            obj = stored.get(str(uri))
+            action = actions[str(uri)]
 
             if action == Action.KEEP:
                 # an existing resource we don't overwrite: link it (later, in

@@ -4,7 +4,7 @@ import types
 import uuid
 
 import pytest
-from rdflib import RDFS, BNode, Graph, Literal, URIRef
+from rdflib import RDFS, BNode, Graph, Literal, Namespace, URIRef
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -14,7 +14,9 @@ from bluecore_models.bluecore_graph import (
     BluecoreGraph,
     BluecoreGraphError,
     Kind,
+    Resolution,
     Role,
+    SavePlan,
     Write,
     _stored_is_stub,
     save_graph,
@@ -358,7 +360,8 @@ def test_dangling_admin_metadata_is_not_taken_for_a_resource():
     g.add((admin_metadata, RDF.type, BF.AdminMetadata))
     g.add((admin_metadata, BF.derivedFrom, source))
 
-    assert BluecoreGraph(g)._derived_from_subject(source) is None
+    plan = SavePlan(g, Namespace("https://bcld.info/"))
+    assert Resolution(plan)._derived_from_subject(source) is None
 
 
 def test_invalid_namespace(pg_session):
@@ -1279,7 +1282,7 @@ def test_admin_metadata_given_as_a_uri_is_left_in_place():
     )
     bg = BluecoreGraph(g)
 
-    bg._remove_admin_metadata(bg.graph, URIRef(EXISTING_WORK))
+    bluecore_graph._remove_admin_metadata(bg.graph, URIRef(EXISTING_WORK))
 
     work = URIRef(EXISTING_WORK)
     assert (work, BF.adminMetadata, URIRef("http://example.org/am/1")) in bg.graph
@@ -2829,7 +2832,7 @@ def test_derived_from_lookup_uses_type_and_derived_from_index(
     reads the whole index for every lookup.
     """
     with pg_session() as session:
-        query = BluecoreGraph._derived_from_query(
+        query = Resolution._derived_from_query(
             sqla_class, ["http://id.loc.gov/resources/hubs/1234"], session
         )
         sql = query.statement.compile(

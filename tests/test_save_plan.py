@@ -1,12 +1,15 @@
 import uuid
 
 from rdflib import BNode, Graph, Namespace, URIRef
+from sqlalchemy import text
 
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
+    Action,
     BluecoreGraph,
     Ingest,
     Kind,
+    Resolution,
     Role,
     SavePlan,
     _copy_graph,
@@ -107,3 +110,58 @@ def test_a_store_laid_out_differently_is_deep_copied_in_order(monkeypatch):
     assert list(copy.subjects(RDF.type, BF.Work)) == list(g.subjects(RDF.type, BF.Work))
     for s in set(g.subjects()):
         assert list(copy.predicate_objects(s)) == list(g.predicate_objects(s))
+
+
+TABLES = (
+    "resource_base",
+    "bibframe_other_resources",
+    "versions",
+    "resource_bibframe_classes",
+)
+
+
+def _table_counts(pg_session) -> dict[str, int]:
+    with pg_session() as session:
+        return {
+            table: session.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+            for table in TABLES
+        }
+
+
+def _shape(resolution: Resolution) -> list[tuple[str, str, str]]:
+    return sorted(
+        (entry.kind.value, str(entry.original), entry.role.value)
+        for entries in resolution.entries.values()
+        for entry in entries
+    )
+
+
+def test_resolve_writes_nothing(pg_session):
+    work = _lc("works")
+    save_graph(pg_session, _record_with_stub(work))
+    # the same LC Work again (held: KEEP), now citing a new stub (INSERT)
+    plan = SavePlan.from_graph(_record_with_stub(work), NS, INGEST)
+    before = _table_counts(pg_session)
+
+    with pg_session() as session:
+        resolution = plan.resolve(session)
+        # nothing added, changed or deleted, flushed or not
+        assert not (session.new or session.dirty or session.deleted)
+        session.rollback()
+
+    assert _table_counts(pg_session) == before
+    assert set(resolution.actions.values()) >= {Action.INSERT, Action.KEEP}
+
+
+def test_resolve_leaves_the_plan_alone(pg_session):
+    plan = SavePlan.from_graph(_record_with_stub(), NS, INGEST)
+    triples, roles = set(plan.graph), dict(plan.roles)
+
+    with pg_session() as session:
+        first = plan.resolve(session)
+        second = plan.resolve(session)
+
+    assert set(plan.graph) == triples
+    assert plan.roles == roles
+    assert _shape(first) == _shape(second)
+    assert first.graph is not second.graph
