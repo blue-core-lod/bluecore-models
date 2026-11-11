@@ -1,7 +1,11 @@
 import uuid
 
-from rdflib import BNode, Graph, Namespace, URIRef
+import pytest
+from psycopg import errors as pg_errors
+from rdflib import BNode, Graph, Literal, Namespace, URIRef
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.orm import sessionmaker
 
 from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
@@ -15,7 +19,8 @@ from bluecore_models.bluecore_graph import (
     _copy_graph,
     save_graph,
 )
-from bluecore_models.namespaces import BF, RDF
+from bluecore_models.models import Instance
+from bluecore_models.namespaces import BF, RDF, RDFS
 
 NS = Namespace("https://bcld.info/")
 INGEST = Ingest(update_others=True)
@@ -165,3 +170,164 @@ def test_resolve_leaves_the_plan_alone(pg_session):
     assert plan.roles == roles
     assert _shape(first) == _shape(second)
     assert first.graph is not second.graph
+
+
+def _deadlock() -> OperationalError:
+    return OperationalError(
+        "UPDATE resource_base SET data=%(data)s::JSONB ...",
+        {},
+        pg_errors.DeadlockDetected("deadlock detected"),
+    )
+
+
+class _CompetingSessionMaker:
+    """
+    Wraps a real sessionmaker. The first session it makes runs competing just
+    before its commit, as another load committing meanwhile, and then fails
+    the commit with a deadlock, so the save retries.
+    """
+
+    def __init__(self, real_maker, competing):
+        self._real = real_maker
+        self._competing = competing
+        self.calls = 0
+
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        session = self._real(*args, **kwargs)
+        if self.calls == 1:
+
+            def compete_then_fail():
+                self._competing()
+                raise _deadlock()
+
+            session.commit = compete_then_fail
+        return session
+
+
+class _FailingSessionMaker:
+    """Wraps a real sessionmaker whose every commit fails with a deadlock."""
+
+    def __init__(self, real_maker):
+        self._real = real_maker
+
+    def __call__(self, *args, **kwargs):
+        session = self._real(*args, **kwargs)
+
+        def fail():
+            raise _deadlock()
+
+        session.commit = fail
+        return session
+
+
+def _bare_record(work: URIRef) -> Graph:
+    """
+    An LC Work described by its record, citing nothing that would be stored as
+    an Other Resource, so a competing save of it takes no lock the first
+    attempt holds.
+    """
+    admin_metadata = BNode()
+    g = Graph()
+    g.add((work, RDF.type, BF.Work))
+    g.add((work, RDFS.label, Literal("A Work")))
+    g.add((work, BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    return g
+
+
+def _works_derived_from(pg_session, source: URIRef) -> int:
+    with pg_session() as session:
+        return session.execute(
+            text(
+                "SELECT count(*) FROM resource_base "
+                "WHERE type = 'works' AND data::text LIKE :source"
+            ),
+            {"source": f'%"{source}"%'},
+        ).scalar_one()
+
+
+def test_a_retry_finds_what_another_load_committed_meanwhile(pg_session):
+    source = _lc("works")
+    racing = _CompetingSessionMaker(
+        pg_session, lambda: save_graph(pg_session, _bare_record(source))
+    )
+
+    save_graph(racing, _bare_record(source))
+
+    assert racing.calls == 2
+    assert _works_derived_from(pg_session, source) == 1
+
+
+def _new_work() -> Graph:
+    work = BNode()
+    g = Graph()
+    g.add((work, RDF.type, BF.Work))
+    g.add((work, RDFS.label, Literal("A New Work")))
+    return g
+
+
+def test_a_failed_save_shows_the_attempt_that_failed(pg_session):
+    bg = BluecoreGraph(_new_work())
+
+    with pytest.raises(OperationalError):
+        bg.save(_FailingSessionMaker(pg_session), primary_class=BF.Work)
+
+    assert bg.created_uri is not None
+    assert (bg.created_uri, RDF.type, BF.Work) in bg.graph
+    assert [e.subject for e in bg._entries[Kind.WORK]] == [bg.created_uri]
+
+
+def _shape_of(bg: BluecoreGraph) -> list[tuple[str, str, str]]:
+    return sorted(
+        (entry.kind.value, str(entry.original), entry.role.value)
+        for entries in bg._entries.values()
+        for entry in entries
+    )
+
+
+def test_a_second_save_classifies_as_the_first(pg_session):
+    bg = BluecoreGraph(_record_with_stub())
+    bg.save(pg_session)
+    first = _shape_of(bg)
+
+    bg.save(pg_session)
+
+    assert _shape_of(bg) == first
+
+
+def _new_instance_of_a_new_work() -> tuple[Graph, URIRef]:
+    instance, work = BNode(), URIRef(f"https://bcld.info/works/{uuid.uuid4()}")
+    g = Graph()
+    g.add((instance, RDF.type, BF.Instance))
+    g.add((instance, RDFS.label, Literal("A New Instance")))
+    g.add((instance, BF.instanceOf, work))
+    g.add((work, RDF.type, BF.Work))
+    g.add((work, RDFS.label, Literal("Its Work")))
+    return g, work
+
+
+def test_save_links_with_autoflush_disabled(engine, pg_session):
+    g, work = _new_instance_of_a_new_work()
+    bg = BluecoreGraph(g)
+
+    bg.save(sessionmaker(bind=engine, autoflush=False), primary_class=BF.Instance)
+
+    with pg_session() as session:
+        instance = (
+            session.query(Instance).where(Instance.uri == str(bg.created_uri)).one()
+        )
+        assert instance.work is not None
+        assert instance.work.uri == str(work)
+
+
+def test_uri_typed_both_fails_with_autoflush_disabled(engine, pg_session):
+    both = URIRef(f"http://example.org/phase4/both/{uuid.uuid4()}")
+    g = Graph()
+    g.add((both, RDF.type, BF.Work))
+    g.add((both, RDF.type, BF.Instance))
+
+    with pytest.raises(IntegrityError):
+        save_graph(sessionmaker(bind=engine, autoflush=False), g)
+
+    assert _works_derived_from(pg_session, both) == 0

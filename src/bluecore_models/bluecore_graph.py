@@ -2,6 +2,7 @@ import copy
 import datetime
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Protocol
@@ -717,6 +718,27 @@ class _GraphView:
             and _citation(self.graph, s, p, o, admin_nodes).stored
         }
 
+    def _linkable_uris(
+        self, g: Graph, cited: frozenset[URIRef], described: set[IdentifiedNode]
+    ) -> set[URIRef]:
+        """
+        The cited uris a Work or Instance may be linked to as Other Resources,
+        if we hold a row for them: those that one of its triples cites as an
+        Other Resource, or under bf:adminMetadata when this payload describes
+        them. See _citation.
+        """
+        admin_nodes = _admin_nodes(g)
+        linkable = set()
+        for s, p, o in g:
+            if not (isinstance(o, URIRef) and isinstance(p, URIRef) and o in cited):
+                continue
+            citation = _citation(self.graph, s, p, o, admin_nodes)
+            if citation == Citation.OTHER or (
+                citation == Citation.ADMIN_ONLY and o in described
+            ):
+                linkable.add(o)
+        return linkable
+
 
 class SavePlan(_GraphView):
     """
@@ -736,6 +758,9 @@ class SavePlan(_GraphView):
         # prepare): None and empty until then.
         self.mode: Mode | None = None
         self.described: set[str] = set()
+        # For a plan saving again what an earlier save saved, which resources
+        # arrived described the first time (see after); None for a payload.
+        self.carried_described: set[str] | None = None
         self.roles: Roles = {}
         self.root: BNode | None = None
         self.recorded_blank_nodes: set[BNode] = set()
@@ -771,6 +796,82 @@ class SavePlan(_GraphView):
         resolution.fill(session)
         return resolution
 
+    def apply(
+        self,
+        session_maker: sessionmaker,
+        max_attempts: int = SAVE_MAX_ATTEMPTS,
+        on_attempt: Callable[["Resolution"], None] | None = None,
+    ) -> "Resolution":
+        """
+        Save this plan in one transaction, as a fresh resolution of it says,
+        and return that resolution. Under concurrent writers a transaction can
+        lose a race and be aborted by Postgres with a deadlock or serialization
+        failure, so the whole save is retried on a fresh session up to
+        max_attempts times. on_attempt is told of each attempt's resolution
+        before it resolves. Nothing here decides what to write: the resolution
+        does (see Resolution and _action).
+        """
+        committed: Resolution | None = None
+
+        def log_retry(retry_state) -> None:
+            error = retry_state.outcome.exception()
+            logger.warning(
+                f"retrying graph save after {type(error.orig).__name__} "
+                f"(attempt {retry_state.attempt_number} of {max_attempts})"
+            )
+
+        try:
+            for attempt in Retrying(
+                retry=retry_if_exception(_is_retryable_pg_error),
+                stop=stop_after_attempt(max_attempts),
+                before_sleep=log_retry,
+                reraise=True,
+            ):
+                with attempt, session_maker() as session:
+                    # Each attempt resolves afresh, on a copy of the plan: a
+                    # retry looks every identity up again, since another save
+                    # may have committed one meanwhile. Report the attempt
+                    # before resolving, so a failure leaves it to read.
+                    resolution = Resolution(self)
+                    if on_attempt is not None:
+                        on_attempt(resolution)
+                    resolution.fill(session)
+
+                    # Each entry's action decides what is written: see _action.
+                    for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
+                        resolution._persist(kind, session)
+
+                    # flush so the just-added resources have ids and are
+                    # visible to _link's uri lookups. Required because the
+                    # session may have autoflush disabled (as the
+                    # bluecore_api session does), in which case _link's
+                    # queries would otherwise not see them and would build
+                    # link rows with null foreign keys.
+                    session.flush()
+
+                    # link all the works, instances and other resources together in the db.
+                    # _link issues many per-uri lookups; with autoflush on, each one
+                    # re-flushes the pending link changes (and re-fires update events /
+                    # bf-class recomputation). The resources it reads were already
+                    # flushed above, so turn autoflush off for the link phase and let
+                    # commit() do the single final flush. (bluecore_api's session already
+                    # runs with autoflush disabled.)
+                    prev_autoflush = session.autoflush
+                    session.autoflush = False
+                    try:
+                        resolution._link(session)
+                    finally:
+                        session.autoflush = prev_autoflush
+
+                    # all changes are part of one transaction!
+                    session.commit()
+                    committed = resolution
+        except (OperationalError, IntegrityError) as error:
+            logger.error(f"Exceeded {max_attempts} attempts with error {error}")
+            raise
+        assert committed is not None
+        return committed
+
     def after(self, resolution: "Resolution") -> "SavePlan":
         """
         The plan for saving again what resolution saved: its graph, minted, with
@@ -783,6 +884,13 @@ class SavePlan(_GraphView):
         plan.source = self.source
         plan.mode = None
         plan.described = set()
+        # Judge stubs as the first save did: minting writes adminMetadata,
+        # and our stub marker, onto everything it mints.
+        plan.carried_described = (
+            self.carried_described
+            if self.carried_described is not None
+            else set(self.described)
+        )
         plan.roles = {}
         plan.root = None
         plan.recorded_blank_nodes = set()
@@ -827,7 +935,7 @@ class SavePlan(_GraphView):
 
         # Strip the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from the
         # graph once, before any subgraph is extracted. Each entry's subgraph is
-        # then already clean, so _persist_resources can serialize it directly
+        # then already clean, so Resolution._persist can serialize it directly
         # rather than copying it just to strip these out.
         self._strip_excluded_triples()
 
@@ -1001,11 +1109,15 @@ class SavePlan(_GraphView):
         # everything would look like a stub (see _classify).
         # A resource we previously wrote as a stub doesn't count as described
         # just because it comes back carrying the adminMetadata we gave it.
-        self.described = {
-            str(s)
-            for s in self.graph.subjects(BF.adminMetadata, None)
-            if not self._marked_stub(s)
-        }
+        if self.carried_described is not None:
+            # saving again: what arrived described, by the names it arrived with
+            self.described = set(self.carried_described)
+        else:
+            self.described = {
+                str(s)
+                for s in self.graph.subjects(BF.adminMetadata, None)
+                if not self._marked_stub(s)
+            }
         self.mode = mode
         self.root = None
         try:
@@ -1080,7 +1192,7 @@ class SavePlan(_GraphView):
         Remove the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from
         self.graph. Called once from save() before subgraphs are extracted, so the
         entries' subgraphs -- and the JSON-LD serialized from them in
-        _persist_resources -- never contain these triples, and _persist_resources
+        Resolution._persist -- never contain these triples, and Resolution._persist
         can serialize each one without copying it first.
         """
         for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
@@ -1404,6 +1516,239 @@ class Resolution(_GraphView):
     def _is_bluecore_uri(self, uri) -> bool:
         return uri in self.namespace
 
+    def _is_inline(self, node: Node) -> bool:
+        """
+        Whether, in this save, node is a blank node with no record of its own:
+        every one is, except the resource an API save is creating.
+        """
+        return isinstance(node, BNode) and node not in self.plan.recorded_blank_nodes
+
+    def _keeps_own_links(self, entry: Entry) -> bool:
+        """
+        Whether this resource's existing links should be left alone: it is one we
+        only have a stub of, or only a reference to because an API save named a
+        different kind as the one it is writing (an Instance save names its Work
+        through bf:instanceOf), and it was already here to have links in
+        the first place. One we just inserted has none, so it links like
+        anything else.
+        """
+        return (
+            entry.role in (Role.REFERENCE, Role.STUB)
+            and self.actions.get(str(entry.subject)) != Action.INSERT
+        )
+
+    def _persist(self, kind: Kind, session: Session) -> None:
+        """
+        Persist the resources of the supplied kind to the given database session,
+        as each one's action says (see Resolution and _action).
+        """
+        entries = self.entries[kind]
+        sqla_class = _SQLA_CLASSES[kind]
+
+        if kind == Kind.OTHER:
+            # Only Other Resources are written in URI order. They keep their
+            # external URIs, so two transactions can insert the same one; taking
+            # the locks in the same order makes them serialize instead of
+            # deadlocking. Hubs, Works and Instances don't need it: SQLAlchemy
+            # already issues UPDATEs in primary-key order, and a freshly minted
+            # UUID can't collide on INSERT.
+            entries = sorted(entries, key=lambda entry: str(entry.subject))
+
+        for entry in entries:
+            uri, g = entry.subject, entry.graph
+            action = self.actions[str(uri)]
+
+            if action == Action.KEEP:
+                # an existing resource we don't overwrite: link it (later, in
+                # _link) but leave its stored description. Skip before building
+                # its JSON-LD -- serializing and re-framing it would be wasted work
+                # (this is the hot path when batch-loading records that share many
+                # Other Resources).
+                logger.debug(f"keeping existing {uri} ({entry.role.value})")
+                continue
+
+            # Serialize the entry's subgraph directly. save() already stripped
+            # EXCLUDED_TRIPLE_TYPES from self.graph up front (see
+            # _strip_excluded_triples), so there's nothing to remove here.
+            data = json.loads(g.serialize(format="json-ld"))
+
+            if action == Action.UPDATE:
+                obj = self.stored[str(uri)]
+                obj.data = data
+                logger.info(f"updating {uri}")
+                # Sqlalchemy ORM already does a comparison between the retrieved object
+                # and new object and will only do an UPDATE if they are different
+                session.add(obj)
+            else:
+                if kind == Kind.OTHER:
+                    uuid = None
+                else:
+                    uuid = str(uri).split("/")[-1]
+
+                # create-if-absent for both primary and referenced resources; the
+                # stored data is the full extracted subgraph (whatever the payload
+                # knows -- inline triples + inferred type/link), so a referenced
+                # resource is created with a label etc. if it isn't in the db yet.
+                obj = sqla_class(uri=str(uri), uuid=uuid, data=data)
+                logger.info(f"inserting {uri}")
+                session.add(obj)
+
+    def _link(self, session) -> None:
+        """
+        Save relations between Hubs, Instances, Works and Other Resources in the
+        graph: bf:instanceOf and bf:hasInstance tie Instances to Works,
+        bf:expressionOf ties a Work to its Hub, and a Work or Instance is linked to
+        every Other Resource it cites that we hold a row for.
+        """
+
+        # Cache resource lookups for the duration of this link operation. _link
+        # resolves the same Works, Instances and Other Resources repeatedly (a
+        # Work is re-queried for every Other Resource it links to, etc.); caching
+        # by (type, uri) turns those repeats into a single query each. Every
+        # resource was flushed by save() before _link runs, so the first lookup
+        # already sees it.
+        cache: dict[tuple, object] = {}
+
+        # Sort all the link iterations by URI so that, like _persist,
+        # concurrent transactions acquire row locks in the same deterministic order.
+
+        # use bibframe:instanceOf to link instances with works. A payload stating the
+        # relationship the other way round, as bf:hasInstance, has already had this
+        # direction added for it by _infer.
+        for s, o in sorted(
+            self.graph.subject_objects(BF.instanceOf),
+            key=lambda pair: (str(pair[0]), str(pair[1])),
+        ):
+            # an anonymous description has no record of its own to link
+            if self._is_inline(s) or self._is_inline(o):
+                continue
+            logger.info(f"linking {s} to {o}")
+            instance = self._get_first(session, Instance, s, cache)
+            work = self._get_first(session, Work, o, cache)
+            instance.work = work
+            session.add(instance)
+
+        # use bibframe:expressionOf to link works with hubs. A payload stating the
+        # relationship the other way round, as bf:hasExpression, has already had this
+        # direction added for it by _infer.
+        for s, o in sorted(
+            self.graph.subject_objects(BF.expressionOf),
+            key=lambda pair: (str(pair[0]), str(pair[1])),
+        ):
+            # an anonymous description has no record of its own to link
+            if self._is_inline(s) or self._is_inline(o):
+                continue
+            # Only link a Hub this document actually describes: an expressionOf
+            # pointing at a Hub described elsewhere has no row here to link to. And
+            # skip a subject that is itself a Hub, since LC types Hubs as both
+            # bf:Hub and bf:Work and works() leaves those out.
+            if (o, RDF.type, BF.Hub) not in self.graph:
+                continue
+            if (s, RDF.type, BF.Hub) in self.graph:
+                continue
+            logger.info(f"linking {s} to {o}")
+            work = self._get_first(session, Work, s, cache)
+            hub = self._get_first(session, Hub, o, cache)
+            work.hub = hub
+            session.add(work)
+
+        # link Works and Instances to their Other Resources, which is a bit more
+        # complex since a Work or Instance has a many to many relationship with
+        # Other Resources
+
+        # first remove any existing Other Resource linkages between Works and
+        # Instances so that they can be replaced with the new ones
+        self._delete_other_links(Kind.WORK, session, cache)
+        self._delete_other_links(Kind.INSTANCE, session, cache)
+
+        # Link each Work and Instance to every Other Resource it cites that this
+        # payload describes, and to every one it cites by uri alone that we hold
+        # a row for: the links follow from the resource's own data, so a save
+        # citing a term by uri alone doesn't lose them. A uri we hold nothing
+        # about stays a bare reference. See _linkable_uris for what is never
+        # linked. Only rebuild links for resources this record describes; a stub
+        # would otherwise drop that resource's links to its subjects and agents.
+        described = {entry.subject for entry in self.entries[Kind.OTHER]}
+        cited = []
+        for kind in (Kind.WORK, Kind.INSTANCE):
+            for entry in sorted(
+                self.entries[kind], key=lambda entry: str(entry.subject)
+            ):
+                if self._keeps_own_links(entry):
+                    continue
+                linkable = self._linkable_uris(entry.graph, entry.cited, described)
+                cited.append((_SQLA_CLASSES[kind], entry.subject, linkable))
+
+        # resolve the cited uris a chunk at a time rather than one query per uri,
+        # fetching only the ids a link row needs
+        all_cited = sorted({str(uri) for _, _, uris in cited for uri in uris})
+        held: dict[str, int] = {}
+        for start in range(0, len(all_cited), HELD_LOOKUP_CHUNK):
+            chunk = all_cited[start : start + HELD_LOOKUP_CHUNK]
+            held.update(
+                (uri, id_)
+                for id_, uri in session.query(
+                    OtherResource.id, OtherResource.uri
+                ).where(OtherResource.uri.in_(chunk))
+            )
+
+        for sqla_class, resource_uri, uris in cited:
+            for other_uri in sorted(uris):
+                other_id = held.get(str(other_uri))
+                if other_id is None:
+                    continue
+                logger.info(f"linking {resource_uri} to {other_uri}")
+                resource_model = self._resolve(session, sqla_class, resource_uri, cache)
+                session.add(
+                    BibframeOtherResources(
+                        bibframe_resource=resource_model, other_resource_id=other_id
+                    )
+                )
+
+    def _delete_other_links(self, kind: Kind, session: Session, cache: dict) -> None:
+        """
+        Delete the existing Other Resource links of the Works or Instances (kind)
+        so that they can be replaced with new ones. Resources this record only
+        stubs out keep the links they have, since a stub isn't a description of
+        them.
+        """
+        for entry in self.entries[kind]:
+            if self._keeps_own_links(entry):
+                continue
+            bf_resource = self._resolve(
+                session, _SQLA_CLASSES[kind], entry.subject, cache
+            )
+
+            session.query(BibframeOtherResources).filter(
+                BibframeOtherResources.bibframe_resource == bf_resource
+            ).delete()
+
+    def _resolve(self, session: Session, sqla_class, uri: Node, cache: dict):
+        """
+        Look up a resource of the given type by uri, caching the result (keyed by
+        type + uri) so repeated lookups within a single _link operation only hit
+        the database once. Returns None if there is no matching resource.
+        """
+        key = (sqla_class, str(uri))
+        if key not in cache:
+            cache[key] = (
+                session.query(sqla_class).where(sqla_class.uri == str(uri)).first()
+            )
+        return cache[key]
+
+    def _get_first(
+        self, session: Session, sqla_class: Instance | Work, uri: Node, cache: dict
+    ):
+        """
+        Look up the first object of the given type in the database and return it
+        or throw an exception.
+        """
+        obj = self._resolve(session, sqla_class, uri, cache)
+        if obj is None:
+            raise BluecoreGraphError(f"Unable to find in db: uri={uri}")
+
+        return obj
+
 
 class BluecoreGraph:
     """
@@ -1503,24 +1848,12 @@ class BluecoreGraph:
         return self._resolution.actions if self._resolution is not None else {}
 
     @property
-    def _mode(self) -> Mode | None:
-        return self._plan.mode
-
-    @property
     def _roles(self) -> Roles:
         return self._plan.roles
 
     @property
-    def _root(self) -> BNode | None:
-        return self._plan.root
-
-    @property
     def _new_resource(self) -> BNode | None:
         return self._plan.new_resource
-
-    @property
-    def _recorded_blank_nodes(self) -> set[BNode]:
-        return self._plan.recorded_blank_nodes
 
     def _prepare(self, mode: Mode) -> None:
         """Decide the roles under mode (see SavePlan.prepare)."""
@@ -1529,18 +1862,8 @@ class BluecoreGraph:
     def _find_root(self, kind: Kind | None) -> BNode | None:
         return self._plan._find_root(kind)
 
-    def _current_roles(self) -> Roles:
-        return self._plan.current_roles()
-
     def _role(self, roles: Roles, original: IdentifiedNode, kind: Kind) -> Role:
         return self._plan.role(roles, original, kind)
-
-    def _is_inline(self, node: Node) -> bool:
-        """
-        Whether, in this save, node is a blank node with no record of its own:
-        every one is, except the resource an API save is creating.
-        """
-        return isinstance(node, BNode) and node not in self._recorded_blank_nodes
 
     def works(self) -> list[Graph]:
         """
@@ -1609,299 +1932,8 @@ class BluecoreGraph:
             self._resolution = None
         self._prepare(mode)
         self._plan.normalise()
+        self._plan.apply(session_maker, max_attempts, on_attempt=self._attempted)
 
-        try:
-            for attempt in Retrying(
-                retry=retry_if_exception(_is_retryable_pg_error),
-                stop=stop_after_attempt(max_attempts),
-                before_sleep=log_retry,
-                reraise=True,
-            ):
-                with attempt, session_maker() as session:
-                    # Each attempt resolves afresh, on a copy of the plan: a
-                    # retry looks every identity up again, since another save
-                    # may have committed one meanwhile. Note the attempt before
-                    # resolving, so a failure leaves it to read.
-                    self._resolution = Resolution(self._plan)
-                    self._resolution.fill(session)
-
-                    # Each entry's action decides what is written: see _action.
-                    for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
-                        self._persist_resources(kind, session, mode)
-
-                    # flush so the just-added resources have ids and are
-                    # visible to _link's uri lookups. Required because the
-                    # session may have autoflush disabled (as the
-                    # bluecore_api session does), in which case _link's
-                    # queries would otherwise not see them and would build
-                    # link rows with null foreign keys.
-                    session.flush()
-
-                    # link all the works, instances and other resources together in the db.
-                    # _link issues many per-uri lookups; with autoflush on, each one
-                    # re-flushes the pending link changes (and re-fires update events /
-                    # bf-class recomputation). The resources it reads were already
-                    # flushed above, so turn autoflush off for the link phase and let
-                    # commit() do the single final flush. (bluecore_api's session already
-                    # runs with autoflush disabled.)
-                    prev_autoflush = session.autoflush
-                    session.autoflush = False
-                    try:
-                        self._link(session)
-                    finally:
-                        session.autoflush = prev_autoflush
-
-                    # all changes are part of one transaction!
-                    session.commit()
-        except (OperationalError, IntegrityError) as error:
-            logger.error(f"Exceeded {max_attempts} attempts with error {error}")
-            raise
-
-    def _linkable_uris(
-        self, g: Graph, cited: frozenset[URIRef], described: set[IdentifiedNode]
-    ) -> set[URIRef]:
-        """
-        The cited uris a Work or Instance may be linked to as Other Resources,
-        if we hold a row for them: those that one of its triples cites as an
-        Other Resource, or under bf:adminMetadata when this payload describes
-        them. See _citation.
-        """
-        admin_nodes = _admin_nodes(g)
-        linkable = set()
-        for s, p, o in g:
-            if not (isinstance(o, URIRef) and isinstance(p, URIRef) and o in cited):
-                continue
-            citation = _citation(self.graph, s, p, o, admin_nodes)
-            if citation == Citation.OTHER or (
-                citation == Citation.ADMIN_ONLY and o in described
-            ):
-                linkable.add(o)
-        return linkable
-
-    def _keeps_own_links(self, entry: Entry) -> bool:
-        """
-        Whether this resource's existing links should be left alone: it is one we
-        only have a stub of, or only a reference to because an API save named a
-        different kind as the one it is writing (an Instance save names its Work
-        through bf:instanceOf), and it was already here to have links in
-        the first place. One we just inserted has none, so it links like
-        anything else.
-        """
-        return (
-            entry.role in (Role.REFERENCE, Role.STUB)
-            and self._actions.get(str(entry.subject)) != Action.INSERT
-        )
-
-    def _persist_resources(self, kind: Kind, session: Session, mode: Mode) -> None:
-        """
-        Persist the resources of the supplied kind to the given database session,
-        as each one's action says (see Resolution and _action).
-        """
-        assert self._resolution is not None
-        stored, actions = self._resolution.stored, self._resolution.actions
-        entries = self._entries[kind]
-        sqla_class = _SQLA_CLASSES[kind]
-
-        if kind == Kind.OTHER:
-            # Only Other Resources are written in URI order. They keep their
-            # external URIs, so two transactions can insert the same one; taking
-            # the locks in the same order makes them serialize instead of
-            # deadlocking. Hubs, Works and Instances don't need it: SQLAlchemy
-            # already issues UPDATEs in primary-key order, and a freshly minted
-            # UUID can't collide on INSERT.
-            entries = sorted(entries, key=lambda entry: str(entry.subject))
-
-        for entry in entries:
-            uri, g = entry.subject, entry.graph
-            obj = stored.get(str(uri))
-            action = actions[str(uri)]
-
-            if action == Action.KEEP:
-                # an existing resource we don't overwrite: link it (later, in
-                # _link) but leave its stored description. Skip before building
-                # its JSON-LD -- serializing and re-framing it would be wasted work
-                # (this is the hot path when batch-loading records that share many
-                # Other Resources).
-                logger.debug(f"keeping existing {uri} ({entry.role.value})")
-                continue
-
-            # Serialize the entry's subgraph directly. save() already stripped
-            # EXCLUDED_TRIPLE_TYPES from self.graph up front (see
-            # _strip_excluded_triples), so there's nothing to remove here.
-            data = json.loads(g.serialize(format="json-ld"))
-
-            if obj:
-                obj.data = data
-                logger.info(f"updating {uri}")
-                # Sqlalchemy ORM already does a comparison between the retrieved object
-                # and new object and will only do an UPDATE if they are different
-                session.add(obj)
-            else:
-                if kind == Kind.OTHER:
-                    uuid = None
-                else:
-                    uuid = str(uri).split("/")[-1]
-
-                # create-if-absent for both primary and referenced resources; the
-                # stored data is the full extracted subgraph (whatever the payload
-                # knows -- inline triples + inferred type/link), so a referenced
-                # resource is created with a label etc. if it isn't in the db yet.
-                obj = sqla_class(uri=str(uri), uuid=uuid, data=data)
-                logger.info(f"inserting {uri}")
-                session.add(obj)
-
-    def _link(self, session) -> None:
-        """
-        Save relations between Hubs, Instances, Works and Other Resources in the
-        graph: bf:instanceOf and bf:hasInstance tie Instances to Works,
-        bf:expressionOf ties a Work to its Hub, and a Work or Instance is linked to
-        every Other Resource it cites that we hold a row for.
-        """
-
-        # Cache resource lookups for the duration of this link operation. _link
-        # resolves the same Works, Instances and Other Resources repeatedly (a
-        # Work is re-queried for every Other Resource it links to, etc.); caching
-        # by (type, uri) turns those repeats into a single query each. Every
-        # resource was flushed by save() before _link runs, so the first lookup
-        # already sees it.
-        cache: dict[tuple, object] = {}
-
-        # Sort all the link iterations by URI so that, like _persist_resources,
-        # concurrent transactions acquire row locks in the same deterministic order.
-
-        # use bibframe:instanceOf to link instances with works. A payload stating the
-        # relationship the other way round, as bf:hasInstance, has already had this
-        # direction added for it by _infer.
-        for s, o in sorted(
-            self.graph.subject_objects(BF.instanceOf),
-            key=lambda pair: (str(pair[0]), str(pair[1])),
-        ):
-            # an anonymous description has no record of its own to link
-            if self._is_inline(s) or self._is_inline(o):
-                continue
-            logger.info(f"linking {s} to {o}")
-            instance = self._get_first(session, Instance, s, cache)
-            work = self._get_first(session, Work, o, cache)
-            instance.work = work
-            session.add(instance)
-
-        # use bibframe:expressionOf to link works with hubs. A payload stating the
-        # relationship the other way round, as bf:hasExpression, has already had this
-        # direction added for it by _infer.
-        for s, o in sorted(
-            self.graph.subject_objects(BF.expressionOf),
-            key=lambda pair: (str(pair[0]), str(pair[1])),
-        ):
-            # an anonymous description has no record of its own to link
-            if self._is_inline(s) or self._is_inline(o):
-                continue
-            # Only link a Hub this document actually describes: an expressionOf
-            # pointing at a Hub described elsewhere has no row here to link to. And
-            # skip a subject that is itself a Hub, since LC types Hubs as both
-            # bf:Hub and bf:Work and works() leaves those out.
-            if (o, RDF.type, BF.Hub) not in self.graph:
-                continue
-            if (s, RDF.type, BF.Hub) in self.graph:
-                continue
-            logger.info(f"linking {s} to {o}")
-            work = self._get_first(session, Work, s, cache)
-            hub = self._get_first(session, Hub, o, cache)
-            work.hub = hub
-            session.add(work)
-
-        # link Works and Instances to their Other Resources, which is a bit more
-        # complex since a Work or Instance has a many to many relationship with
-        # Other Resources
-
-        # first remove any existing Other Resource linkages between Works and
-        # Instances so that they can be replaced with the new ones
-        self._delete_other_links(Kind.WORK, session, cache)
-        self._delete_other_links(Kind.INSTANCE, session, cache)
-
-        # Link each Work and Instance to every Other Resource it cites that this
-        # payload describes, and to every one it cites by uri alone that we hold
-        # a row for: the links follow from the resource's own data, so a save
-        # citing a term by uri alone doesn't lose them. A uri we hold nothing
-        # about stays a bare reference. See _linkable_uris for what is never
-        # linked. Only rebuild links for resources this record describes; a stub
-        # would otherwise drop that resource's links to its subjects and agents.
-        described = {entry.subject for entry in self._entries[Kind.OTHER]}
-        cited = []
-        for kind in (Kind.WORK, Kind.INSTANCE):
-            for entry in sorted(
-                self._entries[kind], key=lambda entry: str(entry.subject)
-            ):
-                if self._keeps_own_links(entry):
-                    continue
-                linkable = self._linkable_uris(entry.graph, entry.cited, described)
-                cited.append((_SQLA_CLASSES[kind], entry.subject, linkable))
-
-        # resolve the cited uris a chunk at a time rather than one query per uri,
-        # fetching only the ids a link row needs
-        all_cited = sorted({str(uri) for _, _, uris in cited for uri in uris})
-        held: dict[str, int] = {}
-        for start in range(0, len(all_cited), HELD_LOOKUP_CHUNK):
-            chunk = all_cited[start : start + HELD_LOOKUP_CHUNK]
-            held.update(
-                (uri, id_)
-                for id_, uri in session.query(
-                    OtherResource.id, OtherResource.uri
-                ).where(OtherResource.uri.in_(chunk))
-            )
-
-        for sqla_class, resource_uri, uris in cited:
-            for other_uri in sorted(uris):
-                other_id = held.get(str(other_uri))
-                if other_id is None:
-                    continue
-                logger.info(f"linking {resource_uri} to {other_uri}")
-                resource_model = self._resolve(session, sqla_class, resource_uri, cache)
-                session.add(
-                    BibframeOtherResources(
-                        bibframe_resource=resource_model, other_resource_id=other_id
-                    )
-                )
-
-    def _delete_other_links(self, kind: Kind, session: Session, cache: dict) -> None:
-        """
-        Delete the existing Other Resource links of the Works or Instances (kind)
-        so that they can be replaced with new ones. Resources this record only
-        stubs out keep the links they have, since a stub isn't a description of
-        them.
-        """
-        for entry in self._entries[kind]:
-            if self._keeps_own_links(entry):
-                continue
-            bf_resource = self._resolve(
-                session, _SQLA_CLASSES[kind], entry.subject, cache
-            )
-
-            session.query(BibframeOtherResources).filter(
-                BibframeOtherResources.bibframe_resource == bf_resource
-            ).delete()
-
-    def _resolve(self, session: Session, sqla_class, uri: Node, cache: dict):
-        """
-        Look up a resource of the given type by uri, caching the result (keyed by
-        type + uri) so repeated lookups within a single _link operation only hit
-        the database once. Returns None if there is no matching resource.
-        """
-        key = (sqla_class, str(uri))
-        if key not in cache:
-            cache[key] = (
-                session.query(sqla_class).where(sqla_class.uri == str(uri)).first()
-            )
-        return cache[key]
-
-    def _get_first(
-        self, session: Session, sqla_class: Instance | Work, uri: Node, cache: dict
-    ):
-        """
-        Look up the first object of the given type in the database and return it
-        or throw an exception.
-        """
-        obj = self._resolve(session, sqla_class, uri, cache)
-        if obj is None:
-            raise BluecoreGraphError(f"Unable to find in db: uri={uri}")
-
-        return obj
+    def _attempted(self, resolution: "Resolution") -> None:
+        """Note an attempt to save, so that what it did can be read even if it fails."""
+        self._resolution = resolution

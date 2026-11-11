@@ -3052,8 +3052,8 @@ def test_admin_metadata_sharing_a_nested_node_is_walked_once():
         """,
         format="turtle",
     )
-    bg = BluecoreGraph(g)
     org = URIRef("http://example.org/org/x")
     topic = URIRef("http://example.org/topic/y")
 
-    assert bg._linkable_uris(bg.graph, {org, topic}, set()) == {topic}
+    plan = SavePlan(g, Namespace("https://bcld.info/"))
+    assert plan._linkable_uris(plan.graph, {org, topic}, set()) == {topic}
