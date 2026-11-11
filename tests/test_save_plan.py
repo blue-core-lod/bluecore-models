@@ -1,7 +1,9 @@
 import logging
 import uuid
+from pathlib import Path
 
 import pytest
+from diff_save import Step, load, sequences
 from psycopg import errors as pg_errors
 from rdflib import BNode, Graph, Literal, Namespace, URIRef
 from sqlalchemy import text
@@ -12,17 +14,20 @@ from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
     Action,
     BluecoreGraph,
+    BluecoreGraphError,
     Ingest,
     Kind,
     Resolution,
     Role,
     SavePlan,
     _copy_graph,
+    _mode,
     save_graph,
 )
 from bluecore_models.models import Instance
 from bluecore_models.namespaces import BF, RDF, RDFS
 
+DATA = Path(__file__).parent / "data"
 NS = Namespace("https://bcld.info/")
 INGEST = Ingest(update_others=True)
 
@@ -367,3 +372,95 @@ def test_render_is_skipped_when_debug_is_off(pg_session, mocker, caplog):
     save_graph(pg_session, _record_with_stub())
 
     assert spy.call_count == 0
+
+
+def _clear(pg_session) -> None:
+    """Remove every resource row (as tests/test_diff_save.py's _clear does)."""
+    with pg_session() as session:
+        session.execute(
+            text(
+                "TRUNCATE TABLE bibframe_other_resources, resource_bibframe_classes, "
+                "versions, instances, works, hubs, other_resources, resource_base "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
+        session.commit()
+
+
+def _parsed(name: str, format: str) -> Step:
+    def build(_) -> Graph:
+        g = Graph()
+        g.parse(DATA / name, format=format)
+        return g
+
+    return f"tests/data/{name}", build, None
+
+
+def _fingerprint(pg_session) -> tuple:
+    """Every table's row count, and a hash of every resource's uri and data."""
+    with pg_session() as session:
+        resources = session.execute(
+            text(
+                "SELECT md5(string_agg(uri || data::text, '|' ORDER BY uri)) "
+                "FROM resource_base"
+            )
+        ).scalar_one()
+        links = session.execute(
+            text(
+                "SELECT md5(string_agg(bibframe_resource_id || '-' || "
+                "other_resource_id, '|' ORDER BY bibframe_resource_id, "
+                "other_resource_id)) FROM bibframe_other_resources"
+            )
+        ).scalar_one()
+    return resources, links, _table_counts(pg_session)
+
+
+def _by_original(resolution: Resolution) -> dict[tuple[str, str], Action]:
+    # minted uuids differ between a dry run and the save, by design, so key
+    # each action by what the resource was called when it arrived
+    return {
+        (entry.kind.value, str(entry.original)): resolution.actions[str(entry.subject)]
+        for entries in resolution.entries.values()
+        for entry in entries
+    }
+
+
+def test_resolving_a_corpus_writes_nothing_and_apply_matches_it(pg_session):
+    # Ingests with stubs and held Other Resources, and Writes that create,
+    # edit and re-save, as the diff harness runs them
+    steps = [
+        _parsed("23807141.ttl", "turtle"),
+        _parsed("19167709.cbd.jsonld", "json-ld"),
+        _parsed("marc2bibframe2-dlc.rdf", "xml"),
+        *sequences(),
+    ]
+    _clear(pg_session)
+    load(pg_session, steps, passes=1)
+    resolved = 0
+    roles: set[Role] = set()
+    actions: set[Action] = set()
+
+    for name, build, primary_class in steps:
+        try:
+            plan = SavePlan.from_graph(
+                build(pg_session), NS, _mode(primary_class, True), source=name
+            )
+        except BluecoreGraphError:
+            continue  # a payload the save refuses before resolving
+        before = _fingerprint(pg_session)
+        with pg_session() as session:
+            shown = plan.resolve(session)
+            session.rollback()
+        assert _fingerprint(pg_session) == before, name
+
+        done = plan.apply(pg_session)
+
+        assert _by_original(shown) == _by_original(done), name
+        resolved += 1
+        roles |= {e.role for entries in done.entries.values() for e in entries}
+        actions |= set(done.actions.values())
+
+    assert resolved > 10
+    # it went through every role a resource with a row can have, and every action
+    assert roles >= {Role.PRIMARY, Role.REFERENCE, Role.STUB}
+    assert actions == set(Action)
