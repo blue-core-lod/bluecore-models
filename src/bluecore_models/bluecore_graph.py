@@ -286,8 +286,10 @@ _COLLECTIONS = {
 @dataclass(frozen=True)
 class Entry:
     """
-    One resource a save writes: its subject, its kind, its role, its subgraph, the subject
-    it arrived with (before minting gave it a Bluecore URI), and the uris it
+    One resource a save writes: its subject, its kind, its role, its subgraph,
+    the subject it arrived with (before minting gave it a Bluecore URI), whether
+    minting switched it (onto a new uri, a stored one, or, for a resource whose
+    adminMetadata says it is derived from itself, its own), and the uris it
     cites that could be Other Resources (see _cited_uris; empty for an Other
     Resource, which links nothing). save() builds its entries once minting is
     done, when the graph has stopped changing; the accessors (works() and so on)
@@ -299,6 +301,7 @@ class Entry:
     role: Role
     graph: Graph
     original: IdentifiedNode
+    minted: bool
     cited: frozenset[URIRef]
 
 
@@ -338,7 +341,7 @@ def _action(entry: Entry, existing: Stored | None, mode: Mode) -> Action:
     if (
         entry.kind != Kind.OTHER
         and isinstance(mode, Ingest)
-        and entry.original != entry.subject
+        and entry.minted
         and not _stored_is_stub(existing)
     ):
         return Action.KEEP
@@ -750,23 +753,29 @@ class BluecoreGraph:
             if not self._marked_stub(s)
         }
         self._mode = mode
-        self._root = self._find_root(mode.kind) if isinstance(mode, Write) else None
-        self._roles = _classify(
-            self.graph,
-            mode,
-            self._roots,
-            self._root,
-            self._described,
-            self._minted_from,
-        )
         # roles are keyed on what each resource is called now; minting renames
         # them, and _switch_uris notes each rename here (see _classified_as)
         self._renamed = {}
-        self._recorded_blank_nodes = {
-            node
-            for (node, _), role in self._roles.items()
-            if isinstance(node, BNode) and role != Role.INLINE
-        }
+        self._root = None
+        try:
+            if isinstance(mode, Write):
+                self._root = self._find_root(mode.kind)
+        finally:
+            # classify even when _find_root refuses the payload, so the
+            # accessors still read it under this mode, with nothing created
+            self._roles = _classify(
+                self.graph,
+                mode,
+                self._roots,
+                self._root,
+                self._described,
+                self._minted_from,
+            )
+            self._recorded_blank_nodes = {
+                node
+                for (node, _), role in self._roles.items()
+                if isinstance(node, BNode) and role != Role.INLINE
+            }
 
     def _current_roles(self) -> Roles:
         """
@@ -1002,6 +1011,7 @@ class BluecoreGraph:
                     role=self._role(roles, self._classified_as(subject), kind),
                     graph=graph,
                     original=original,
+                    minted=str(subject) in self._minted_from,
                     cited=frozenset(self._cited_uris(graph)),
                 )
             )
@@ -1028,6 +1038,7 @@ class BluecoreGraph:
                             role=self._role(roles, o, Kind.OTHER),
                             graph=generate_entity_graph(self.graph, o),
                             original=o,
+                            minted=False,
                             cited=frozenset(),
                         )
                     )

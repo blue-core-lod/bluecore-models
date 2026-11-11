@@ -1,12 +1,14 @@
 import types
 import uuid
 
+import pytest
 from rdflib import RDFS, BNode, Graph, Literal, URIRef
 
 from bluecore_models.bluecore_graph import (
     STUB_STATUS,
     Action,
     BluecoreGraph,
+    BluecoreGraphError,
     Citation,
     Entry,
     Ingest,
@@ -244,6 +246,7 @@ def _entry(role: Role, kind: Kind = Kind.WORK, original: URIRef | None = None) -
         role=role,
         graph=Graph(),
         original=original if original is not None else subject,
+        minted=original is not None,
         cited=frozenset(),
     )
 
@@ -391,3 +394,41 @@ def test_only_vocabulary_terms_and_records_are_never_stored():
         Citation.VOCABULARY,
         Citation.RECORD,
     }
+
+
+def _derived_from_itself(work: URIRef, label: str) -> Graph:
+    """A Work whose adminMetadata says it is derived from itself."""
+    admin_metadata = BNode()
+    g = Graph()
+    g.add((work, RDF.type, BF.Work))
+    g.add((work, RDFS.label, Literal(label)))
+    g.add((work, BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.derivedFrom, work))
+    return g
+
+
+def test_accessors_still_work_after_a_save_that_cannot_find_its_root(pg_session):
+    a, b, work = BNode(), BNode(), _bc_work()
+    g = Graph()
+    for node in (a, b, work):
+        g.add((node, RDF.type, BF.Work))
+    bg = BluecoreGraph(g)
+
+    with pytest.raises(BluecoreGraphError, match="Unable to tell which resource"):
+        bg.save(pg_session, primary_class=BF.Work)
+
+    assert len(bg.works()) == 1
+
+
+def test_reingest_of_a_resource_derived_from_itself_keeps_it(pg_session):
+    # The derivedFrom lookup finds the resource under its own uri, so it is
+    # switched onto itself: it counts as minted, and an ingest keeps it.
+    work = _example("selfderived")
+    save_graph(pg_session, _derived_from_itself(work, "v1"))
+    save_graph(pg_session, _derived_from_itself(work, "v2"))
+
+    with pg_session() as session:
+        stored = session.query(Work).where(Work.uri == str(work)).one()
+        assert "v1" in str(stored.data)
+        assert "v2" not in str(stored.data)
