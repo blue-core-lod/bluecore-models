@@ -9,7 +9,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
     BluecoreGraph,
     BluecoreGraphError,
@@ -19,6 +18,7 @@ from bluecore_models.bluecore_graph import (
     SavePlan,
     Write,
     _stored_is_stub,
+    save,
     save_graph,
 )
 from bluecore_models.models import (
@@ -31,7 +31,7 @@ from bluecore_models.models import (
 from bluecore_models.namespaces import BF, MADS, RDF
 from bluecore_models.utils.graph import CONTEXT_URL, NEW_RESOURCE, load_jsonld
 
-STUB_STATUS_ID = str(bluecore_graph.STUB_STATUS)
+STUB_STATUS_ID = str(save.STUB_STATUS)
 
 
 def _derived_from_ids(data: dict) -> list[str]:
@@ -108,9 +108,7 @@ def test_remove_oclc_number_identifiers():
     assert len(instances) == 1
     instance_graph = instances[0]
 
-    bluecore_graph._remove_triples_by_type(
-        instance_graph, BF.identifiedBy, BF.OclcNumber
-    )
+    save._remove_triples_by_type(instance_graph, BF.identifiedBy, BF.OclcNumber)
 
     identifier_types = {
         identifier_type
@@ -218,13 +216,13 @@ def test_non_bluecore_work(pg_session, monkeypatch, mocker):
     with the original URI presered in a derivedFrom assertion.
     """
     monkeypatch.setattr(
-        bluecore_graph,
+        save,
         "uuid4",
         lambda *args, **kwargs: "7dbb7674-7373-473f-9014-b9a993a2dd03",
     )
 
     # spy on uuid generation which happens when new bluecore URIs are minted
-    uuid_spy = mocker.spy(bluecore_graph, "uuid4")
+    uuid_spy = mocker.spy(save, "uuid4")
 
     jsonld_object = {
         "@context": CONTEXT_URL,
@@ -283,9 +281,9 @@ def test_blank_node_resource(
     test_bulk_load_ignores_anonymous_resources.
     """
     minted_uuid = "7dbb7674-7373-473f-9014-b9a993a2dd03"
-    monkeypatch.setattr(bluecore_graph, "uuid4", lambda *args, **kwargs: minted_uuid)
+    monkeypatch.setattr(save, "uuid4", lambda *args, **kwargs: minted_uuid)
 
-    uuid_spy = mocker.spy(bluecore_graph, "uuid4")
+    uuid_spy = mocker.spy(save, "uuid4")
 
     graph = Graph()
     resource = BNode()
@@ -317,7 +315,7 @@ def test_namespace(pg_session, monkeypatch, mocker):
     Ensure that the default bluecore namespace can be changed.
     """
     monkeypatch.setattr(
-        bluecore_graph,
+        save,
         "uuid4",
         lambda *args, **kwargs: "7dbb7674-7373-473f-9014-b9a993a2dd03",
     )
@@ -423,11 +421,11 @@ def test_second_batch_load_does_not_update_the_work(pg_session, monkeypatch, moc
     load of the same external Work *should not* overlay.
     """
     monkeypatch.setattr(
-        bluecore_graph,
+        save,
         "uuid4",
         lambda *_, **__: "7dbb7674-7373-473f-9014-b9a993a2dd03",
     )
-    uuid_spy = mocker.spy(bluecore_graph, "uuid4")
+    uuid_spy = mocker.spy(save, "uuid4")
 
     lc_uri = "http://id.loc.gov/resources/works/13187321"
     work_uri = "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03"
@@ -471,11 +469,11 @@ def test_batch_load_with_the_bluecore_uri_updates_the_work(
     *should* update the original description.
     """
     monkeypatch.setattr(
-        bluecore_graph,
+        save,
         "uuid4",
         lambda *_, **__: "7dbb7674-7373-473f-9014-b9a993a2dd03",
     )
-    uuid_spy = mocker.spy(bluecore_graph, "uuid4")
+    uuid_spy = mocker.spy(save, "uuid4")
 
     lc_uri = "http://id.loc.gov/resources/works/13187321"
     work_uri = "https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03"
@@ -545,7 +543,7 @@ def test_non_bluecore_instance(pg_session, monkeypatch):
 
     # patch the UUID function to return a known value during URI minting
     monkeypatch.setattr(
-        bluecore_graph,
+        save,
         "uuid4",
         lambda *args, **kwargs: "7dbb7674-7373-473f-9014-b9a993a2dd03",
     )
@@ -1038,9 +1036,7 @@ def test_oclc_number_given_as_a_uri_is_not_stripped():
     assert len(instances) == 1
     instance_graph = instances[0]
 
-    bluecore_graph._remove_triples_by_type(
-        instance_graph, BF.identifiedBy, BF.OclcNumber
-    )
+    save._remove_triples_by_type(instance_graph, BF.identifiedBy, BF.OclcNumber)
 
     instance = URIRef(
         "https://dev.bcld.info/instances/0ca0f64e-d086-4309-a3e7-22ed061ad7e8"
@@ -1104,12 +1100,12 @@ def test_non_bluecore_hub(pg_session, monkeypatch, mocker):
     with the original URI preserved in a derivedFrom assertion.
     """
     monkeypatch.setattr(
-        bluecore_graph,
+        save,
         "uuid4",
         lambda *args, **kwargs: "7dbb7674-7373-473f-9014-b9a993a2dd03",
     )
 
-    uuid_spy = mocker.spy(bluecore_graph, "uuid4")
+    uuid_spy = mocker.spy(save, "uuid4")
 
     jsonld_object = {
         "@context": CONTEXT_URL,
@@ -1282,7 +1278,7 @@ def test_admin_metadata_given_as_a_uri_is_left_in_place():
     )
     bg = BluecoreGraph(g)
 
-    bluecore_graph._remove_admin_metadata(bg.graph, URIRef(EXISTING_WORK))
+    save._remove_admin_metadata(bg.graph, URIRef(EXISTING_WORK))
 
     work = URIRef(EXISTING_WORK)
     assert (work, BF.adminMetadata, URIRef("http://example.org/am/1")) in bg.graph
@@ -1825,11 +1821,11 @@ def test_stub_is_marked_incomplete(pg_session):
         full = _fetch(session, _minted(out, described))
         stubbed = _fetch(session, _minted(out, stub))
 
-        assert str(bluecore_graph.DEFAULT_STATUS) in _statuses(full.data)
-        assert str(bluecore_graph.STUB_STATUS) not in _statuses(full.data)
+        assert str(save.DEFAULT_STATUS) in _statuses(full.data)
+        assert str(save.STUB_STATUS) not in _statuses(full.data)
 
-        assert str(bluecore_graph.STUB_STATUS) in _statuses(stubbed.data)
-        assert str(bluecore_graph.DEFAULT_STATUS) not in _statuses(stubbed.data)
+        assert str(save.STUB_STATUS) in _statuses(stubbed.data)
+        assert str(save.DEFAULT_STATUS) not in _statuses(stubbed.data)
 
 
 def test_stub_status_resolves_as_an_other_resource(pg_session):
@@ -1844,14 +1840,14 @@ def test_stub_status_resolves_as_an_other_resource(pg_session):
     with pg_session() as session:
         marker = (
             session.query(OtherResource)
-            .where(OtherResource.uri == str(bluecore_graph.STUB_STATUS))
+            .where(OtherResource.uri == str(save.STUB_STATUS))
             .first()
         )
         assert marker is not None
         assert "incomplete" in json.dumps(marker.data)
 
         stubbed = _fetch(session, _minted(out, stub))
-        assert str(bluecore_graph.STUB_STATUS) in _linked_others(session, stubbed)
+        assert str(save.STUB_STATUS) in _linked_others(session, stubbed)
 
 
 def test_full_description_replaces_a_stub(pg_session):
@@ -1871,7 +1867,7 @@ def test_full_description_replaces_a_stub(pg_session):
     with pg_session() as session:
         work = _fetch(session, stub_uri)
         assert "Now Fully Described" in json.dumps(work.data)
-        assert str(bluecore_graph.STUB_STATUS) not in _statuses(work.data)
+        assert str(save.STUB_STATUS) not in _statuses(work.data)
 
 
 def test_stub_does_not_clobber_a_full_description(pg_session):
@@ -1894,7 +1890,7 @@ def test_stub_does_not_clobber_a_full_description(pg_session):
         assert json.dumps(work.data, sort_keys=True) == before
         assert "Full Description" in json.dumps(work.data)
         assert "stub label" not in json.dumps(work.data)
-        assert str(bluecore_graph.STUB_STATUS) not in _statuses(work.data)
+        assert str(save.STUB_STATUS) not in _statuses(work.data)
 
 
 def test_stub_keeps_the_links_its_description_gave_it(pg_session):
@@ -1983,7 +1979,7 @@ def test_api_save_clears_the_stub_marker(pg_session):
     uri = _minted(out, stub)
 
     with pg_session() as session:
-        assert str(bluecore_graph.STUB_STATUS) in _statuses(_fetch(session, uri).data)
+        assert str(save.STUB_STATUS) in _statuses(_fetch(session, uri).data)
         edited = dict(_fetch(session, uri).data)
 
     edited["title"] = {"@type": "Title", "mainTitle": "Now Described By Hand"}
@@ -1992,8 +1988,8 @@ def test_api_save_clears_the_stub_marker(pg_session):
     with pg_session() as session:
         work = _fetch(session, uri)
         assert "Now Described By Hand" in json.dumps(work.data)
-        assert str(bluecore_graph.STUB_STATUS) not in _statuses(work.data)
-        assert str(bluecore_graph.DEFAULT_STATUS) in _statuses(work.data)
+        assert str(save.STUB_STATUS) not in _statuses(work.data)
+        assert str(save.DEFAULT_STATUS) in _statuses(work.data)
 
 
 def test_clearing_the_stub_marker_leaves_a_contents_note_alone(pg_session):
@@ -2013,14 +2009,14 @@ def test_clearing_the_stub_marker_leaves_a_contents_note_alone(pg_session):
     g.add(
         (contents, RDFS.label, Literal("v. 1. Beginnings -- v. 2. The middle years."))
     )
-    g.add((contents, BF.status, bluecore_graph.STUB_STATUS))
+    g.add((contents, BF.status, save.STUB_STATUS))
 
     save_graph(pg_session, g, primary_class=BF.Work)
 
     with pg_session() as session:
         data = json.dumps(_fetch(session, uri).data)
-        assert str(bluecore_graph.STUB_STATUS) in data  # the note survives
-        assert str(bluecore_graph.DEFAULT_STATUS) not in data  # not rewritten
+        assert str(save.STUB_STATUS) in data  # the note survives
+        assert str(save.DEFAULT_STATUS) not in data  # not rewritten
 
 
 # ---------------------------------------------------------------------------

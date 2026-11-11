@@ -4,13 +4,13 @@ import pytest
 from rdflib import RDFS, Graph, Literal, Namespace, URIRef
 from sqlalchemy import event
 
-from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
     BluecoreGraph,
     BluecoreGraphError,
     Kind,
     Resolution,
     SavePlan,
+    save,
     save_graph,
 )
 from bluecore_models.namespaces import BF, RDF
@@ -43,13 +43,13 @@ def test_save_extracts_each_resource_once(pg_session, monkeypatch):
     resource's subgraph once rather than again whenever minting has moved on.
     """
     extracted: list[str] = []
-    original = bluecore_graph.generate_entity_graph
+    original = save.generate_entity_graph
 
     def counting(graph, entity):
         extracted.append(str(entity))
         return original(graph, entity)
 
-    monkeypatch.setattr(bluecore_graph, "generate_entity_graph", counting)
+    monkeypatch.setattr(save, "generate_entity_graph", counting)
 
     save_graph(pg_session, _hub_work_instance_other())
 

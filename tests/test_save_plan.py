@@ -10,7 +10,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import sessionmaker
 
-from bluecore_models import bluecore_graph
 from bluecore_models.bluecore_graph import (
     Action,
     BluecoreGraph,
@@ -22,6 +21,7 @@ from bluecore_models.bluecore_graph import (
     SavePlan,
     _copy_graph,
     _mode,
+    save,
     save_graph,
 )
 from bluecore_models.models import Instance
@@ -114,7 +114,7 @@ def test_a_copy_and_its_original_change_on_their_own():
 def test_a_store_laid_out_differently_is_deep_copied_in_order(monkeypatch):
     g = Graph()
     g.parse("tests/data/23807141.ttl")
-    monkeypatch.setattr(bluecore_graph, "_MEMORY_FIELDS", frozenset())
+    monkeypatch.setattr(save, "_MEMORY_FIELDS", frozenset())
 
     copy = _copy_graph(g)
 
