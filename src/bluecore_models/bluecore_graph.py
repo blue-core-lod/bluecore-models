@@ -175,6 +175,96 @@ def _mode(primary_class: object, update_other_resources: bool) -> Mode:
     return Write(None)
 
 
+class Role(Enum):
+    """What a save does with a resource, decided from the payload and the mode."""
+
+    PRIMARY = "primary"  # authoritatively upserted
+    REFERENCE = "reference"  # created if absent; keeps its existing links
+    STUB = "stub"  # placeholder; replaced by a real description
+    INLINE = "inline"  # anonymous; stays in its parent's record
+
+
+# The role of each resource, keyed on what it was called before minting and on
+# its kind: a URI typed both Work and Instance is two resources, and a save
+# writing one of those kinds treats the other as a reference.
+Roles = dict[tuple[IdentifiedNode, Kind], Role]
+
+
+def _classify(
+    graph: Graph,
+    mode: Mode | None,
+    roots: set[BNode],
+    root: BNode | None,
+    described: set[str],
+    arrived_as: dict[str, IdentifiedNode] | None = None,
+) -> Roles:
+    """
+    The role of every Hub, Work, Instance and Other Resource in graph, before
+    minting. mode is None before save() has set one, when the accessors read the
+    graph as it is. arrived_as maps the uris an earlier save of the same graph
+    minted back to what they were called when they arrived.
+
+    A blank node has no identity of its own, so it stays inline in whatever
+    describes it, except the one resource an API save is creating (root) or,
+    before a save, any root (see BluecoreGraph._find_roots). Every blank node of
+    a bulk load is inline: LC catalog data routinely states bf:expressionOf
+    against an anonymous bf:Hub and nests an anonymous bf:Work under
+    bf:instanceOf, and minting a URI for one of those invents an identity nothing
+    can ever match again.
+
+    A bulk-loaded record describes a few resources and carries only a stub of the
+    ones it points at: described holds the ones with adminMetadata of their own
+    (see BluecoreGraph._prepare). When the record uses adminMetadata at all, any
+    other Hub, Work or Instance in it is a stub, judged by the name it arrived
+    with.
+    """
+    arrived_as = arrived_as or {}
+    records = {
+        (s, kind)
+        for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE)
+        for s in graph.subjects(RDF.type, kind.bf_class)
+        # LC types Hubs as both bf:Hub and bf:Work; they are Hubs
+        if not (kind == Kind.WORK and (s, RDF.type, BF.Hub) in graph)
+        and isinstance(s, IdentifiedNode)
+    }
+    others = {
+        (s, Kind.OTHER)
+        for s in set(graph.subjects())
+        if isinstance(s, URIRef)
+        and not any((s, RDF.type, class_) in graph for class_ in RECORD_CLASSES)
+    }
+
+    def role(node: IdentifiedNode, kind: Kind) -> Role:
+        if isinstance(node, BNode):
+            if isinstance(mode, Ingest):
+                return Role.INLINE
+            if isinstance(mode, Write) and node != root:
+                return Role.INLINE
+            if mode is None and node not in roots:
+                return Role.INLINE
+        if (
+            kind != Kind.OTHER
+            and isinstance(mode, Ingest)
+            and described
+            and str(arrived_as.get(str(node), node)) not in described
+        ):
+            return Role.STUB
+        return _role_by_mode(mode, kind)
+
+    return {(node, kind): role(node, kind) for node, kind in records | others}
+
+
+def _role_by_mode(mode: Mode | None, kind: Kind) -> Role:
+    """
+    The role of a resource of kind with nothing else to decide it. It is all an
+    Other Resource's role depends on, so it also covers the ones the save
+    describes itself (the stub status, see _describe_stub_status).
+    """
+    if mode is None or mode.is_primary(kind):
+        return Role.PRIMARY
+    return Role.REFERENCE
+
+
 _SQLA_CLASSES: dict[
     Kind, type[Hub] | type[Work] | type[Instance] | type[OtherResource]
 ] = {
@@ -195,7 +285,7 @@ _COLLECTIONS = {
 @dataclass(frozen=True)
 class Entry:
     """
-    One resource a save writes: its subject, its kind, its subgraph, the subject
+    One resource a save writes: its subject, its kind, its role, its subgraph, the subject
     it arrived with (before minting gave it a Bluecore URI), and the uris it
     cites that could be Other Resources (see _cited_uris; empty for an Other
     Resource, which links nothing). save() builds its entries once minting is
@@ -205,6 +295,7 @@ class Entry:
 
     subject: IdentifiedNode
     kind: Kind
+    role: Role
     graph: Graph
     original: IdentifiedNode
     cited: frozenset[URIRef]
@@ -330,17 +421,19 @@ class BluecoreGraph:
         # Each resource the save writes, by kind. Set by save() once minting is
         # done; empty until then. See Entry.
         self._entries: dict[Kind, list[Entry]] = {}
-        # Whether this save should tell described resources from stubs,
-        # which ones arrived described, and what each minted uri was called
-        # beforehand. Set by save() and _switch_uris, see _is_stub.
-        self._spot_stubs = False
+        # Which resources arrived described, the role of each (see _classify),
+        # and what each minted uri was called beforehand. Set by _prepare and
+        # _switch_uris.
         self._described: set[str] = set()
+        self._roles: Roles = {}
+        self._renamed: dict[str, IdentifiedNode] = {}
+        self._recorded_blank_nodes: set[BNode] = set()
         self._minted_from: dict[str, IdentifiedNode] = {}
         # Resources this save inserted, which have no existing links to protect.
         self._created: set[str] = set()
         # How save() is writing: an Ingest when the caller didn't name the kind
         # of resource it was writing (the record loader never does), a Write of
-        # that kind when it did (the API routes always do). Set by save(); None
+        # that kind when it did (the API routes always do). Set by _prepare; None
         # until save() runs. See _mode.
         self._mode: Mode | None = None
         # Work these out before _infer, which adds links back up (bf:instanceOf
@@ -517,33 +610,68 @@ class BluecoreGraph:
             "Give the one being created an empty @id."
         )
 
-    def _anonymous_description(self, subject: Node) -> bool:
+    def _prepare(self, mode: Mode) -> None:
         """
-        Is this subject a blank node that shouldn't get a record of its own?
-
-        A resource newly created in an editor arrives without a URI, and minting one
-        for it is the whole point. The API says which kind it is authoritatively
-        writing (primary_class), and the one blank node of that kind no other
-        resource describes is the resource being created, so this returns False for
-        it. Every other blank node stays inline: it has no identity of its own until
-        something gives it a URI (see _find_roots). Before save() sets the mode,
-        every root counts.
-
-        A bulk-loaded record is different. Its blank nodes are inline descriptions of
-        resources it merely refers to: LC catalog data routinely states
-        bf:expressionOf against an anonymous bf:Hub, and nests an anonymous bf:Work
-        under bf:instanceOf. Minting a URI for one of those invents an identity
-        nothing can ever match again, so a reload of the same record mints another,
-        and -- for Hubs -- they compete with the identified Hub for the single
-        Work.hub_id, where sort order decides which one wins.
+        Decide what this save does with each resource, before anything changes
+        the graph: the mode, which resources arrived described, the resource an
+        API save is creating, and every resource's role. Reads no database.
         """
-        if isinstance(subject, URIRef):
-            return False
-        if isinstance(self._mode, Ingest):
-            return True
-        if isinstance(self._mode, Write):
-            return subject != self._root
-        return subject not in self._roots
+        # A record describes a few resources and carries only a stub of the ones
+        # it points at, giving the described ones adminMetadata and the stubs none. Note
+        # them now: minting later generates adminMetadata of our own for every
+        # resource, which washes the distinction away. Only an ingest tells
+        # stubs apart, and only if this record uses adminMetadata at all, or
+        # everything would look like a stub (see _classify).
+        # A resource we previously wrote as a stub doesn't count as described
+        # just because it comes back carrying the adminMetadata we gave it.
+        self._described = {
+            str(s)
+            for s in self.graph.subjects(BF.adminMetadata, None)
+            if not self._marked_stub(s)
+        }
+        self._mode = mode
+        self._root = self._find_root(mode.kind) if isinstance(mode, Write) else None
+        self._roles = _classify(
+            self.graph,
+            mode,
+            self._roots,
+            self._root,
+            self._described,
+            self._minted_from,
+        )
+        # roles are keyed on what each resource is called now; minting renames
+        # them, and _switch_uris notes each rename here (see _classified_as)
+        self._renamed = {}
+        self._recorded_blank_nodes = {
+            node
+            for (node, _), role in self._roles.items()
+            if isinstance(node, BNode) and role != Role.INLINE
+        }
+
+    def _current_roles(self) -> Roles:
+        """
+        The roles save() decided, or, before a save, the roles of the graph as it
+        is, which the accessors read.
+        """
+        if self._mode is None:
+            return _classify(self.graph, None, self._roots, None, set())
+        return self._roles
+
+    def _role(self, roles: Roles, original: IdentifiedNode, kind: Kind) -> Role:
+        """The role of the resource of this kind that arrived as original."""
+        if kind == Kind.OTHER:
+            return _role_by_mode(self._mode, kind)
+        role = roles.get((original, kind))
+        if role is None:
+            raise BluecoreGraphError(f"{original} was not classified as a {kind.value}")
+        return role
+
+    def _is_inline(self, node: Node) -> bool:
+        """
+        Whether, in this save, node is a blank node with no record of its own:
+        every one is, except the resource an API save is creating.
+        """
+        return isinstance(node, BNode) and node not in self._recorded_blank_nodes
 
     def works(self) -> list[Graph]:
         """
@@ -604,23 +732,8 @@ class BluecoreGraph:
                 f"(attempt {retry_state.attempt_number} of {max_attempts})"
             )
 
-        # A record describes a few resources and carries only a stub of the ones
-        # it points at, giving the described ones adminMetadata and the stubs none. Note
-        # them now: minting later generates adminMetadata of our own for every
-        # resource, which washes the distinction away. Only do this when the
-        # caller hasn't said what it is writing, and only if this record uses
-        # adminMetadata at all, or everything would look like a stub.
-        # A resource we previously wrote as a stub doesn't count as described
-        # just because it comes back carrying the adminMetadata we gave it.
-        self._described = {
-            str(s)
-            for s in self.graph.subjects(BF.adminMetadata, None)
-            if not self._marked_stub(s)
-        }
         mode = _mode(primary_class, update_other_resources)
-        self._mode = mode
-        self._spot_stubs = isinstance(mode, Ingest) and bool(self._described)
-        self._root = self._find_root(mode.kind) if isinstance(mode, Write) else None
+        self._prepare(mode)
         # Strip blank node values the payload itself duplicated, before anything
         # here has had a chance to alter the graph. A caller is answerable for what
         # it sent us, not for what our own normalisation went on to do with it -- if
@@ -725,11 +838,11 @@ class BluecoreGraph:
             for o in self.graph.objects(predicate=predicate):
                 self.graph.add((o, RDF.type, object_type))
 
-    def _subjects_of(self, kind: Kind) -> list[IdentifiedNode]:
+    def _subjects_of(self, kind: Kind, roles: Roles) -> list[IdentifiedNode]:
         """
         The Hubs, Works or Instances (kind) that get a record of their own, in
         graph order. Leaves out the anonymous descriptions kept inline in another
-        resource (see _anonymous_description) and, from Works, the Hubs, which
+        resource (Role.INLINE, see _classify) and, from Works, the Hubs, which
         LC catalog data types as both bf:Hub and bf:Work.
         """
         # Other Resources have no class, and subjects(RDF.type, None) is every
@@ -739,23 +852,38 @@ class BluecoreGraph:
         return [
             s
             for s in self.graph.subjects(RDF.type, kind.bf_class)
-            if not (kind == Kind.WORK and (s, RDF.type, BF.Hub) in self.graph)
-            and not self._anonymous_description(s)
-            # always true of what's left; it tells mypy so
-            and isinstance(s, IdentifiedNode)
+            # always true of these; it tells mypy so
+            if isinstance(s, IdentifiedNode)
+            and not (kind == Kind.WORK and (s, RDF.type, BF.Hub) in self.graph)
+            and self._role(roles, self._classified_as(s), kind) != Role.INLINE
         ]
+
+    def _original(self, subject: IdentifiedNode) -> IdentifiedNode:
+        """What subject was called before minting gave it a Bluecore URI."""
+        return self._minted_from.get(str(subject), subject)
+
+    def _classified_as(self, subject: IdentifiedNode) -> IdentifiedNode:
+        """
+        What subject was called when this save classified it, which for a graph
+        saved before is the Bluecore URI that save minted rather than its
+        original.
+        """
+        return self._renamed.get(str(subject), subject)
 
     def _extract(self, kind: Kind) -> list[Entry]:
         """The Hubs, Works or Instances (kind) in the graph, as entries."""
+        roles = self._current_roles()
         entries = []
-        for subject in self._subjects_of(kind):
+        for subject in self._subjects_of(kind, roles):
             graph = generate_entity_graph(self.graph, subject)
+            original = self._original(subject)
             entries.append(
                 Entry(
                     subject=subject,
                     kind=kind,
+                    role=self._role(roles, self._classified_as(subject), kind),
                     graph=graph,
-                    original=self._minted_from.get(str(subject), subject),
+                    original=original,
                     cited=frozenset(self._cited_uris(graph)),
                 )
             )
@@ -767,6 +895,7 @@ class BluecoreGraph:
         rows the save writes, found from the entries citing them. Which ones get
         linked is decided by what each Work or Instance cites, see _link.
         """
+        roles = self._current_roles()
         others = []
         other_uris = set()
 
@@ -778,6 +907,7 @@ class BluecoreGraph:
                         Entry(
                             subject=o,
                             kind=Kind.OTHER,
+                            role=self._role(roles, o, Kind.OTHER),
                             graph=generate_entity_graph(self.graph, o),
                             original=o,
                             cited=frozenset(),
@@ -953,7 +1083,9 @@ class BluecoreGraph:
         """
         # there's nothing to do for one that already has a bluecore URI
         uris = [
-            uri for uri in self._subjects_of(kind) if not self._is_bluecore_uri(uri)
+            uri
+            for uri in self._subjects_of(kind, self._roles)
+            if not self._is_bluecore_uri(uri)
         ]
         # Which of them were previously saved with an adminMetadata derivedFrom
         # assertion, looked up all at once. Minting changes the graph but not the
@@ -975,6 +1107,7 @@ class BluecoreGraph:
                 bluecore_uri=URIRef(found)
                 if found is not None
                 else self._mint_uri(kind),
+                kind=kind,
             )
 
     def _stored_identities(
@@ -1051,21 +1184,26 @@ class BluecoreGraph:
                 return subject
         return None
 
-    def _switch_uris(self, derived_from: IdentifiedNode, bluecore_uri: URIRef) -> None:
+    def _switch_uris(
+        self, derived_from: IdentifiedNode, bluecore_uri: URIRef, kind: Kind
+    ) -> None:
         """
         Updates the supplied graph so that assertions involving the
         derived_from as the subject now use the bluecore_uri in its place.
         A bibframe:derivedFrom assertion is added to record the relationship
-        if the derived_from is URIRef.
+        if the derived_from is URIRef, marking a stub of kind as one.
         """
         self._minted_from[str(bluecore_uri)] = derived_from
+        self._renamed[str(bluecore_uri)] = derived_from
         if self._root is not None and derived_from == self._root:
             self.created_uri = bluecore_uri
         replace_uri(self.graph, derived_from, bluecore_uri)
         # only add derivedFrom assertions for URIs
         if isinstance(derived_from, URIRef):
             self._generate_admin_metadata(
-                bluecore_uri, derived_from, stub=self._arrived_as_stub(derived_from)
+                bluecore_uri,
+                derived_from,
+                stub=self._roles.get((derived_from, kind)) == Role.STUB,
             )
 
     def _exclude_uri_from_other_resources(self, uri: Node) -> bool:
@@ -1115,21 +1253,6 @@ class BluecoreGraph:
             self.graph.remove((admin_metadata, BF.status, STUB_STATUS))
             self.graph.add((admin_metadata, BF.status, DEFAULT_STATUS))
 
-    def _arrived_as_stub(self, original: Node) -> bool:
-        """
-        Whether this record carries only a stub of the resource that arrived as
-        original (the uri it had before minting) rather than a description of it,
-        which we tell from it arriving without adminMetadata of its own, or with
-        the marker we wrote when it was last a stub.
-        """
-        if not self._spot_stubs:
-            return False
-        return str(original) not in self._described
-
-    def _is_stub(self, entry: Entry) -> bool:
-        """Other Resources never carry adminMetadata, so they are left out."""
-        return entry.kind != Kind.OTHER and self._arrived_as_stub(entry.original)
-
     def _keep_existing(self, entry: Entry, obj) -> bool:
         """
         Leave a resource alone when an outside record comes round again for
@@ -1167,12 +1290,10 @@ class BluecoreGraph:
         the first place. One we just created has none, so it links like anything
         else.
         """
-        is_reference = isinstance(self._mode, Write) and not self._mode.is_primary(
-            entry.kind
+        return (
+            entry.role in (Role.REFERENCE, Role.STUB)
+            and str(entry.subject) not in self._created
         )
-        return (is_reference or self._is_stub(entry)) and str(
-            entry.subject
-        ) not in self._created
 
     def _strip_duplicate_values(self) -> None:
         """
@@ -1238,7 +1359,7 @@ class BluecoreGraph:
 
             if obj is not None and (
                 not is_primary
-                or self._is_stub(entry)
+                or entry.role == Role.STUB
                 or self._keep_existing(entry, obj)
             ):
                 # a reference to an existing resource: link it (later, in _link)
@@ -1302,7 +1423,7 @@ class BluecoreGraph:
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
             # an anonymous description has no record of its own to link
-            if self._anonymous_description(s) or self._anonymous_description(o):
+            if self._is_inline(s) or self._is_inline(o):
                 continue
             logger.info(f"linking {s} to {o}")
             instance = self._get_first(session, Instance, s, cache)
@@ -1318,7 +1439,7 @@ class BluecoreGraph:
             key=lambda pair: (str(pair[0]), str(pair[1])),
         ):
             # an anonymous description has no record of its own to link
-            if self._anonymous_description(s) or self._anonymous_description(o):
+            if self._is_inline(s) or self._is_inline(o):
                 continue
             # Only link a Hub this document actually describes: an expressionOf
             # pointing at a Hub described elsewhere has no row here to link to. And
