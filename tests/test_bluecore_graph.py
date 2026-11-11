@@ -14,6 +14,9 @@ from bluecore_models.bluecore_graph import (
     BluecoreGraph,
     BluecoreGraphError,
     Kind,
+    Role,
+    Write,
+    _stored_is_stub,
     save_graph,
 )
 from bluecore_models.models import (
@@ -1705,11 +1708,33 @@ def test_uri_typed_work_and_instance_fails_the_save(pg_session):
     assert _rows_mentioning(pg_session, str(both)) == 0
 
 
+def test_minting_a_work_onto_an_instance_fails_the_save(pg_session):
+    """
+    An Instance whose adminMetadata says it derives from a Work in the same
+    payload: minting switches the Work onto the Instance's uri, which is then
+    typed both and stored as both, so it fails like a uri typed both on arrival.
+    """
+    work = URIRef(f"http://example.org/phase3/cross-kind/{uuid.uuid4()}")
+    instance = URIRef(f"https://bcld.info/instances/{uuid.uuid4()}")
+    admin_metadata = BNode()
+    g = Graph()
+    g.add((work, RDF.type, BF.Work))
+    g.add((instance, RDF.type, BF.Instance))
+    g.add((instance, BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.derivedFrom, work))
+
+    with pytest.raises(IntegrityError):
+        save_graph(pg_session, g)
+
+    assert _rows_mentioning(pg_session, str(instance)) == 0
+
+
 # --- stubbed resources -------------------------------------------------------
 #
 # A record describes a few resources and only points at the others. We keep a
 # stub of those, marked bf:status mstatus/incmp on the AdminMetadata we generate,
-# until a record that really describes them is ingested. See _arrived_as_stub.
+# until a record that really describes them is ingested. See _classify.
 
 
 def _ext_uri(kind: str) -> str:
@@ -2015,7 +2040,7 @@ def test_stored_is_stub_reads_every_admin_metadata_shape(data, expected):
     """
     obj = types.SimpleNamespace(data=data)
 
-    assert BluecoreGraph(Graph())._stored_is_stub(obj) is expected
+    assert _stored_is_stub(obj) is expected
 
 
 def _relation_work(uri: str) -> Graph:
@@ -2279,6 +2304,9 @@ def test_empty_id_is_the_root_even_when_a_uri_resource_points_at_it():
     )
 
     assert graph._find_root(Kind.INSTANCE) == graph._new_resource
+    graph._prepare(Write(Kind.INSTANCE))
+    assert graph._roles[(graph._new_resource, Kind.INSTANCE)] == Role.PRIMARY
+    assert graph._roles[(URIRef(EXISTING_WORK), Kind.WORK)] == Role.REFERENCE
 
 
 def test_a_create_with_nothing_to_create_is_refused():
@@ -2320,6 +2348,10 @@ def test_a_lone_blank_node_is_the_root_even_when_pointed_at():
     root = graph._find_root(Kind.WORK)
     assert root is not None
     assert (root, RDF.type, BF.Work) in graph.graph
+    graph._prepare(Write(Kind.WORK))
+    assert graph._roles[(root, Kind.WORK)] == Role.PRIMARY
+    instance = next(graph.graph.subjects(RDF.type, BF.Instance))
+    assert graph._roles[(instance, Kind.INSTANCE)] == Role.INLINE
 
 
 def test_empty_id_on_a_different_kind_is_refused():

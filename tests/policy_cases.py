@@ -1,11 +1,13 @@
 """
 Today's behaviour of `save_graph`, written down as a policy.
 
-Each row of the two policy tables in #213 (what happens to each resource, and
-which cited URIs become links) is a key of `ROWS`. Each `PolicyCase` is one
-outcome under one row: it sets up a record, saves it against a real database
-and asserts what the code does today. `render_markdown` turns the cases into the
-table catalogers read. Run this file to print that table.
+Each rule of the policy, a row of one of #213's tables (what happens to each
+resource, and which cited URIs become links), is a key of `RULES`. Each
+`PolicyCase` is one outcome under one rule: it sets up a record, saves it
+against a real database
+and asserts what the code does today. Each also says what the code decides (its
+`Answer`) and how to work that out with no database. `render_document` turns the
+cases into docs/save-policy.md; run this file to print it.
 """
 
 import json
@@ -13,6 +15,7 @@ import sys
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Literal
 
 import psycopg.errors
@@ -25,7 +28,18 @@ from sqlalchemy.orm import Session, sessionmaker
 from bluecore_models.bluecore_graph import (
     DEFAULT_STATUS,
     STUB_STATUS,
+    Action,
     BluecoreGraph,
+    Citation,
+    Entry,
+    Ingest,
+    Kind,
+    Mode,
+    Role,
+    Write,
+    _action,
+    _admin_nodes,
+    _citation,
     save_graph,
 )
 from bluecore_models.models import (
@@ -40,22 +54,32 @@ from bluecore_models.utils.graph import CONTEXT_URL, load_jsonld
 
 Decision = Literal["chosen", "inherited", "undecided"]
 
+# What the code decides in a case, about the resource the case is about in its
+# last save: its kind, role and action (no action for an inline one), or, for a
+# case about a link, what the cited uri is.
+type Answer = tuple[Kind, Role, Action | None] | Citation
+
 
 @dataclass(frozen=True)
 class PolicyCase:
     id: str
-    row: str
+    rule: str
     situation: str
     outcome: str
     sentence: str
     decision: Decision
     follow_up: str | None
     run: Callable[[sessionmaker], None]
+    # the case's Answer, and how to work it out with no database
+    answer: Answer
+    check: Callable[[], Answer]
+    # for a case about a link, the predicate its cited uri is cited through
+    via: URIRef | None = None
 
 
-# Row id to the row's text in #213. R1-R11 are the resources table in order,
-# L1-L8 the links table in order, X1 and X2 the related questions.
-ROWS: dict[str, str] = {
+# Rule id to the rule's text, its row in #213. R1-R11 are the resources table in
+# order, L1-L8 the links table in order, X1 and X2 the related questions.
+RULES: dict[str, str] = {
     "R1": "ingest / blank Work / Instance / Hub",
     "R2": "ingest / URI resource with its own adminMetadata (not our stub marker)",
     "R3": "ingest / URI resource without adminMetadata, when the record uses adminMetadata at all",
@@ -153,6 +177,59 @@ def row(session: Session, model: Any, uri: str) -> Any:
     return session.query(model).where(model.uri == uri).first()
 
 
+# What a stored row holds, as far as _action reads it: a full description, a
+# stub, or (for an Other Resource) anything.
+FULL = {"adminMetadata": [{"status": {"@id": str(DEFAULT_STATUS)}}]}
+STUB = {"adminMetadata": [{"status": {"@id": str(STUB_STATUS)}}]}
+ANY: dict[str, Any] = {}
+
+INGEST = Ingest(update_others=True)
+
+
+def resource_answer(
+    g: Graph,
+    mode: Mode,
+    original: Any,
+    kind: Kind,
+    stored: dict[str, Any] | None = None,
+) -> Answer:
+    """
+    What the code decides, with no database, for the resource of kind that
+    arrives in g as original (a uri, or a blank node), saved under mode, when
+    the row we hold for it has stored as its data (None: we hold none).
+    """
+    bg = BluecoreGraph(g)
+    bg._prepare(mode)
+    node = _node(original)
+    role = bg._role(bg._roles, node, kind)
+    if role == Role.INLINE:
+        return (kind, role, None)
+    # anything without a Bluecore URI is minted one
+    subject = node if str(node).startswith(str(bg.namespace)) else URIRef(bc_uri("x"))
+    entry = Entry(
+        subject=subject,
+        kind=kind,
+        role=role,
+        graph=Graph(),
+        original=node,
+        minted=subject != node,
+        cited=frozenset(),
+    )
+    existing = None if stored is None else SimpleNamespace(data=stored)
+    return (kind, role, _action(entry, existing, mode))
+
+
+def citation_answer(g: Graph, s: Any, p: URIRef, o: Any) -> Citation:
+    """What the cited uri o is, cited by (s, p, o) in g once the save has read it."""
+    graph = BluecoreGraph(g).graph
+    return _citation(graph, _node(s), p, URIRef(o), _admin_nodes(graph))
+
+
+def _node(value: Any) -> Any:
+    """A node as given, or a uri given as a string (a BNode is a str too)."""
+    return value if isinstance(value, (URIRef, BNode)) else URIRef(value)
+
+
 # --- what happens to each resource (R1-R11) -----------------------------------
 
 
@@ -211,26 +288,28 @@ def _stored_other(session: Session, uri: str) -> str:
     return json.dumps(stored.data, sort_keys=True)
 
 
+def _instance_of_blank_work(instance_uri: str) -> Graph:
+    """An Instance whose Work is described inside it, with no URI."""
+    return load_jsonld(
+        {
+            "@context": CONTEXT_URL,
+            "@id": instance_uri,
+            "@type": "Instance",
+            "title": {"@type": "Title", "mainTitle": "Gravity's rainbow"},
+            "instanceOf": {
+                "@type": "Work",
+                "title": {"@type": "Title", "mainTitle": "Blank Work Title"},
+            },
+        }
+    )
+
+
 def _ingest_blank_record_stays_inline(session_maker: sessionmaker) -> None:
     instance_uri = bc_uri("instances")
     with session_maker() as session:
         works_before = session.query(Work).count()
 
-    save_graph(
-        session_maker,
-        load_jsonld(
-            {
-                "@context": CONTEXT_URL,
-                "@id": instance_uri,
-                "@type": "Instance",
-                "title": {"@type": "Title", "mainTitle": "Gravity's rainbow"},
-                "instanceOf": {
-                    "@type": "Work",
-                    "title": {"@type": "Title", "mainTitle": "Blank Work Title"},
-                },
-            }
-        ),
-    )
+    save_graph(session_maker, _instance_of_blank_work(instance_uri))
 
     with session_maker() as session:
         instance = row(session, Instance, instance_uri)
@@ -376,8 +455,7 @@ def _ingest_stub_new_gets_links(session_maker: sessionmaker) -> None:
         assert agent in linked(session, stubbed)
 
 
-def _ingest_no_admin_metadata_all_primary(session_maker: sessionmaker) -> None:
-    first, second = ext_uri("works"), ext_uri("works")
+def _works_without_admin_metadata(first: str, second: str) -> Graph:
     g = Graph()
     for uri, title in ((first, "First Work"), (second, "Second Work")):
         title_node = BNode()
@@ -385,7 +463,12 @@ def _ingest_no_admin_metadata_all_primary(session_maker: sessionmaker) -> None:
         g.add((URIRef(uri), BF.title, title_node))
         g.add((title_node, RDF.type, BF.Title))
         g.add((title_node, BF.mainTitle, RdfLiteral(title)))
-    out = save_graph(session_maker, g)
+    return g
+
+
+def _ingest_no_admin_metadata_all_primary(session_maker: sessionmaker) -> None:
+    first, second = ext_uri("works"), ext_uri("works")
+    out = save_graph(session_maker, _works_without_admin_metadata(first, second))
 
     with session_maker() as session:
         for source in (first, second):
@@ -436,17 +519,19 @@ def _ingest_other_held_kept(session_maker: sessionmaker) -> None:
         assert "Changed" not in after
 
 
-def _write_root_blank_inserted(session_maker: sessionmaker) -> None:
-    graph = load_jsonld(
+def _new_work_accompanied_by(uri: str) -> Graph:
+    """A Work being created, with no URI, accompanied by one that has a URI."""
+    return load_jsonld(
         {
             "@context": CONTEXT_URL,
             "@type": "Work",
-            "accompaniedBy": {
-                "@id": ext_uri("works"),
-                "@type": "Work",
-            },
+            "accompaniedBy": {"@id": uri, "@type": "Work"},
         }
     )
+
+
+def _write_root_blank_inserted(session_maker: sessionmaker) -> None:
+    graph = _new_work_accompanied_by(ext_uri("works"))
     bg = BluecoreGraph(graph)
     bg.save(session_maker, primary_class=BF.Work)
 
@@ -483,23 +568,26 @@ def _write_uri_held_updated(session_maker: sessionmaker) -> None:
         assert work.data["title"][0]["mainTitle"] == ["Vineland"]
 
 
+def _new_work_with_blank_work() -> Graph:
+    """A Work being created, accompanied by a Work described inside it."""
+    return load_jsonld(
+        {
+            "@context": CONTEXT_URL,
+            "@type": "Work",
+            "accompaniedBy": {
+                "@type": "Work",
+                "language": {"@id": "http://id.loc.gov/vocabulary/languages/lat"},
+            },
+        }
+    )
+
+
 def _write_other_blank_inline(session_maker: sessionmaker) -> None:
     with session_maker() as session:
         works_before = session.query(Work).count()
 
     graph = save_graph(
-        session_maker,
-        load_jsonld(
-            {
-                "@context": CONTEXT_URL,
-                "@type": "Work",
-                "accompaniedBy": {
-                    "@type": "Work",
-                    "language": {"@id": "http://id.loc.gov/vocabulary/languages/lat"},
-                },
-            }
-        ),
-        primary_class=BF.Work,
+        session_maker, _new_work_with_blank_work(), primary_class=BF.Work
     )
     parent = str(next(graph.subjects(BF.accompaniedBy)))
 
@@ -515,12 +603,27 @@ def _write_other_blank_inline(session_maker: sessionmaker) -> None:
         assert session.query(Work).count() == works_before + 1
 
 
-def _write_reference_new_inserted(session_maker: sessionmaker) -> None:
-    work_uri, inst_uri = bc_uri("works"), bc_uri("instances")
+def _work_with_labelled_instance(work_uri: str, inst_uri: str) -> Graph:
+    """A Work naming an Instance it only gives a label."""
     g = Graph()
     g.add((URIRef(work_uri), RDF.type, BF.Work))
     g.add((URIRef(work_uri), BF.hasInstance, URIRef(inst_uri)))
     g.add((URIRef(inst_uri), RDFS.label, RdfLiteral("just a label")))
+    return g
+
+
+def _instance_of_labelled_work(inst_uri: str, work_uri: str) -> Graph:
+    """An Instance naming its Work, which it only gives a label."""
+    g = Graph()
+    g.add((URIRef(inst_uri), RDF.type, BF.Instance))
+    g.add((URIRef(inst_uri), BF.instanceOf, URIRef(work_uri)))
+    g.add((URIRef(work_uri), RDFS.label, RdfLiteral("display label")))
+    return g
+
+
+def _write_reference_new_inserted(session_maker: sessionmaker) -> None:
+    work_uri, inst_uri = bc_uri("works"), bc_uri("instances")
+    g = _work_with_labelled_instance(work_uri, inst_uri)
     save_graph(session_maker, g, primary_class=BF.Work)
 
     with session_maker() as session:
@@ -546,10 +649,7 @@ def _write_reference_held_kept(session_maker: sessionmaker) -> None:
         before = _work_data(session, work_uri)
 
     inst_uri = bc_uri("instances")
-    g = Graph()
-    g.add((URIRef(inst_uri), RDF.type, BF.Instance))
-    g.add((URIRef(inst_uri), BF.instanceOf, URIRef(work_uri)))
-    g.add((URIRef(work_uri), RDFS.label, RdfLiteral("display label")))
+    g = _instance_of_labelled_work(inst_uri, work_uri)
     save_graph(session_maker, g, primary_class=BF.Instance)
 
     with session_maker() as session:
@@ -571,10 +671,7 @@ def _write_reference_keeps_links(session_maker: sessionmaker) -> None:
     assert before == sorted([subject, agent])
 
     inst_uri = bc_uri("instances")
-    g = Graph()
-    g.add((URIRef(inst_uri), RDF.type, BF.Instance))
-    g.add((URIRef(inst_uri), BF.instanceOf, URIRef(work_uri)))
-    g.add((URIRef(work_uri), RDFS.label, RdfLiteral("display label")))
+    g = _instance_of_labelled_work(inst_uri, work_uri)
     save_graph(session_maker, g, primary_class=BF.Instance)
 
     with session_maker() as session:
@@ -631,32 +728,118 @@ def _write_clears_stub_marker(session_maker: sessionmaker) -> None:
         assert str(STUB_STATUS) not in statuses(work.data)
 
 
+# Each case's last save, with no database: the graph it brings, the mode it
+# saves under, and the row it meets.
+
+
+def _check_blank_record_inline() -> Answer:
+    g = _instance_of_blank_work(bc_uri("instances"))
+    blank_work = next(g.objects(predicate=BF.instanceOf))
+    return resource_answer(g, INGEST, blank_work, Kind.WORK)
+
+
+def _check_described(stored: dict[str, Any] | None, bluecore: bool = False) -> Answer:
+    source = bc_uri("works") if bluecore else ext_uri("works")
+    return resource_answer(
+        _record(source, "Described"), INGEST, source, Kind.WORK, stored
+    )
+
+
+def _check_stub(stored: dict[str, Any] | None) -> Answer:
+    stub = ext_uri("works")
+    g = _record(ext_uri("works"), "Points At A Stub", stub=stub)
+    return resource_answer(g, INGEST, stub, Kind.WORK, stored)
+
+
+def _check_no_admin_metadata() -> Answer:
+    first = ext_uri("works")
+    g = _works_without_admin_metadata(first, ext_uri("works"))
+    return resource_answer(g, INGEST, first, Kind.WORK)
+
+
+def _check_ingest_other(update_others: bool, stored: dict[str, Any] | None) -> Answer:
+    agent = f"http://id.loc.gov/rwo/agents/{uuid.uuid4()}"
+    g, _ = _work_citing_agent(agent, "Agent")
+    mode = Ingest(update_others=update_others)
+    return resource_answer(g, mode, agent, Kind.OTHER, stored)
+
+
+def _check_root_blank() -> Answer:
+    g = _new_work_accompanied_by(ext_uri("works"))
+    root = next(g.subjects(BF.accompaniedBy))
+    return resource_answer(g, Write(Kind.WORK), root, Kind.WORK)
+
+
+def _check_write_uri(stored: dict[str, Any] | None) -> Answer:
+    work = bc_uri("works")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    return resource_answer(g, Write(Kind.WORK), work, Kind.WORK, stored)
+
+
+def _check_nested_blank_inline() -> Answer:
+    g = _new_work_with_blank_work()
+    nested = next(g.objects(predicate=BF.accompaniedBy))
+    return resource_answer(g, Write(Kind.WORK), nested, Kind.WORK)
+
+
+def _check_reference_new() -> Answer:
+    inst = bc_uri("instances")
+    g = _work_with_labelled_instance(bc_uri("works"), inst)
+    return resource_answer(g, Write(Kind.WORK), inst, Kind.INSTANCE)
+
+
+def _check_reference_held() -> Answer:
+    work = bc_uri("works")
+    g = _instance_of_labelled_work(bc_uri("instances"), work)
+    return resource_answer(g, Write(Kind.INSTANCE), work, Kind.WORK, FULL)
+
+
+def _check_write_other(kind: Kind) -> Answer:
+    agent = bc_uri("other_resources")
+    g, _ = _work_citing_agent(agent, "Agent")
+    return resource_answer(g, Write(kind), agent, Kind.OTHER, ANY)
+
+
+def _check_write_stub() -> Answer:
+    work = bc_uri("works")
+    g = _record(work, "Now Described By Hand")
+    return resource_answer(g, Write(Kind.WORK), work, Kind.WORK, STUB)
+
+
 def _case(
     case_id: str,
-    row_id: str,
+    rule_id: str,
     situation: str,
     outcome: str,
     sentence: str,
     run: Callable[[sessionmaker], None],
+    *,
+    answer: Answer,
+    check: Callable[[], Answer],
+    via: URIRef | None = None,
     decision: Decision = "inherited",
     follow_up: str | None = REVIEW_BEFORE_RELOAD,
 ) -> PolicyCase:
     return PolicyCase(
         id=case_id,
-        row=row_id,
+        rule=rule_id,
         situation=situation,
         outcome=outcome,
         sentence=sentence,
         decision=decision,
         follow_up=follow_up,
         run=run,
+        answer=answer,
+        check=check,
+        via=via,
     )
 
 
 CASES.extend(
     [
         _case(
-            "ingest-blank-record-stays-inline",
+            "ingest-blank-record",
             "R1",
             "A bulk load brings a Work, Instance or Hub with no URI",
             "No record is made for it; its description stays inside its parent's data",
@@ -664,36 +847,44 @@ CASES.extend(
             "described inside an Instance, is not saved as a record. It is "
             "kept as part of the record that mentions it.",
             _ingest_blank_record_stays_inline,
+            answer=(Kind.WORK, Role.INLINE, None),
+            check=_check_blank_record_inline,
         ),
         _case(
-            "ingest-described-new-inserted",
+            "ingest-described-new",
             "R2",
             "A bulk load brings a described resource we don't hold",
             "It is inserted under a new Bluecore URI, with the normal status and a note of where it came from",
             "A new record from LC is added to Blue Core under a Blue Core "
             "identifier, and remembers the LC identifier it came from.",
             _ingest_described_new_inserted,
+            answer=(Kind.WORK, Role.PRIMARY, Action.INSERT),
+            check=lambda: _check_described(None),
         ),
         _case(
-            "ingest-described-ours-updated",
+            "ingest-described-ours",
             "R2",
             "A bulk load brings a described resource that already has a Bluecore URI",
             "The stored description is replaced by the incoming one",
             "When a description that already carries its Blue Core "
             "identifier is loaded, it replaces what we hold.",
             _ingest_described_ours_updated,
+            answer=(Kind.WORK, Role.PRIMARY, Action.UPDATE),
+            check=lambda: _check_described(FULL, bluecore=True),
         ),
         _case(
-            "ingest-described-stub-replaced",
+            "ingest-described-held-as-stub",
             "R2",
             "A bulk load brings a full description of a resource we only hold as a stub",
             "The stub's description is replaced and the incomplete marker is removed",
             "A placeholder we kept because another record pointed at it is "
             "replaced as soon as a record that really describes it arrives.",
             _ingest_described_stub_replaced,
+            answer=(Kind.WORK, Role.PRIMARY, Action.UPDATE),
+            check=lambda: _check_described(STUB),
         ),
         _case(
-            "ingest-described-reingest-kept",
+            "ingest-described-held-and-edited",
             "R2",
             "A bulk load brings a described resource we hold in full, and a cataloger has edited it",
             "The stored description is kept; its Other Resource links are rebuilt from the incoming record",
@@ -701,11 +892,13 @@ CASES.extend(
             "description is kept, but its subject and agent links are "
             "replaced with LC's.",
             _ingest_described_reingest_kept,
+            answer=(Kind.WORK, Role.PRIMARY, Action.KEEP),
+            check=lambda: _check_described(FULL),
             decision="inherited",
             follow_up="LC overlay policy",
         ),
         _case(
-            "ingest-stub-new-inserted-incomplete",
+            "ingest-stub-new",
             "R3",
             "A record points at a resource it doesn't describe, and we don't hold it",
             "A stub is inserted, marked incomplete rather than with the normal status",
@@ -713,36 +906,44 @@ CASES.extend(
             "placeholder and marked incomplete, so it can be told apart "
             "from a real description.",
             _ingest_stub_new_inserted_incomplete,
+            answer=(Kind.WORK, Role.STUB, Action.INSERT),
+            check=lambda: _check_stub(None),
         ),
         _case(
-            "ingest-stub-held-kept",
+            "ingest-stub-held",
             "R3",
             "A record points at a resource it doesn't describe, and we hold a full description",
             "The stored description is left exactly as it was",
             "A record that only mentions a resource never replaces a full "
             "description we already hold.",
             _ingest_stub_held_kept,
+            answer=(Kind.WORK, Role.STUB, Action.KEEP),
+            check=lambda: _check_stub(FULL),
         ),
         _case(
-            "ingest-stub-held-keeps-links",
+            "ingest-stub-held-with-links",
             "R3",
             "A record points at a resource it doesn't describe, and we hold it with links",
             "The resource keeps the links its own description gave it",
             "A record that only mentions a resource does not remove the "
             "agents and subjects already linked to it.",
             _ingest_stub_held_keeps_links,
+            answer=(Kind.WORK, Role.STUB, Action.KEEP),
+            check=lambda: _check_stub(FULL),
         ),
         _case(
-            "ingest-stub-new-gets-links",
+            "ingest-stub-new-citing-held-other",
             "R3",
             "A record's stub cites an Other Resource we already hold, by URI",
             "The new stub is linked to that Other Resource",
             "A placeholder created from a mention is still linked to the "
             "agents and subjects it cites, when we already hold them.",
             _ingest_stub_new_gets_links,
+            answer=(Kind.WORK, Role.STUB, Action.INSERT),
+            check=lambda: _check_stub(None),
         ),
         _case(
-            "ingest-no-admin-metadata-all-primary",
+            "ingest-no-admin-metadata",
             "R4",
             "A bulk-loaded record has URI Works and no adminMetadata anywhere",
             "Every Work is inserted as a full description, none marked incomplete",
@@ -750,121 +951,149 @@ CASES.extend(
             "can't tell which Works are placeholders, so all of them are "
             "treated as real descriptions.",
             _ingest_no_admin_metadata_all_primary,
+            answer=(Kind.WORK, Role.PRIMARY, Action.INSERT),
+            check=_check_no_admin_metadata,
         ),
         _case(
-            "ingest-other-new-inserted",
+            "ingest-other-new",
             "R5",
             "A bulk load cites a described Other Resource we don't hold",
             "The Other Resource is inserted with the payload's description",
             "A new agent, subject or other authority described in a loaded "
             "record is added with the label the record gives it.",
             _ingest_other_new_inserted,
+            answer=(Kind.OTHER, Role.REFERENCE, Action.INSERT),
+            check=lambda: _check_ingest_other(False, None),
         ),
         _case(
-            "ingest-other-held-updated",
+            "ingest-other-held-updating-others",
             "R5",
             "A bulk load describes an Other Resource we hold, and updating Other Resources is on",
             "The stored description is replaced by the new one",
             "By default, a loaded record's description of an agent or "
             "subject replaces the one we hold.",
             _ingest_other_held_updated,
+            answer=(Kind.OTHER, Role.PRIMARY, Action.UPDATE),
+            check=lambda: _check_ingest_other(True, ANY),
         ),
         _case(
-            "ingest-other-held-kept",
+            "ingest-other-held-not-updating-others",
             "R5",
             "A bulk load describes an Other Resource we hold, and updating Other Resources is off",
             "The stored description is unchanged",
             "When the loader is told not to update agents and subjects, "
             "the ones we hold keep their descriptions.",
             _ingest_other_held_kept,
+            answer=(Kind.OTHER, Role.REFERENCE, Action.KEEP),
+            check=lambda: _check_ingest_other(False, ANY),
         ),
         _case(
-            "write-root-blank-inserted",
+            "write-root-blank",
             "R6",
             "A save through the API has no URI on the resource being created",
             "A new record is created for it and its URI is reported as created",
             "When you create a new resource in the editor, it is given a "
             "new identifier and saved.",
             _write_root_blank_inserted,
+            answer=(Kind.WORK, Role.PRIMARY, Action.INSERT),
+            check=_check_root_blank,
         ),
         _case(
-            "write-uri-new-inserted",
+            "write-uri-new",
             "R7",
             "A save through the API names a resource of the saved kind by a new Bluecore URI",
             "A record is created at that URI",
             "Saving a Work under a Blue Core identifier we don't hold yet "
             "creates it under that identifier.",
             _write_uri_new_inserted,
+            answer=(Kind.WORK, Role.PRIMARY, Action.INSERT),
+            check=lambda: _check_write_uri(None),
         ),
         _case(
-            "write-uri-held-updated",
+            "write-uri-held",
             "R7",
             "A save through the API names a resource of the saved kind that we hold",
             "The stored description is replaced by the saved one",
             "Saving a resource from the editor replaces what we hold.",
             _write_uri_held_updated,
+            answer=(Kind.WORK, Role.PRIMARY, Action.UPDATE),
+            check=lambda: _check_write_uri(FULL),
         ),
         _case(
-            "write-other-blank-inline",
+            "write-nested-blank",
             "R8",
             "A save through the API has a nested Work with no URI",
             "No record is made for it; it stays inside its parent's data",
             "A description inside another one, with no identifier, stays "
             "part of the resource that holds it.",
             _write_other_blank_inline,
+            answer=(Kind.WORK, Role.INLINE, None),
+            check=_check_nested_blank_inline,
         ),
         _case(
-            "write-reference-new-inserted",
+            "write-reference-new",
             "R9",
             "A save through the API refers to a resource of another kind that we don't hold",
             "A record is created for it from what the payload says about it",
             "If you link to a resource we don't have yet, it is created "
             "with whatever the payload says about it.",
             _write_reference_new_inserted,
+            answer=(Kind.INSTANCE, Role.REFERENCE, Action.INSERT),
+            check=_check_reference_new,
         ),
         _case(
-            "write-reference-held-kept",
+            "write-reference-held",
             "R9",
             "A save through the API refers to a resource of another kind that we hold",
             "The stored description is unchanged",
             "Linking to an existing resource from another one never "
             "changes the linked resource's description.",
             _write_reference_held_kept,
+            answer=(Kind.WORK, Role.REFERENCE, Action.KEEP),
+            check=_check_reference_held,
         ),
         _case(
-            "write-reference-keeps-links",
+            "write-reference-held-with-links",
             "R9",
             "A save through the API refers to a held resource that has Other Resource links",
             "The referenced resource's links are unchanged",
             "Saving an Instance does not remove the agents and subjects "
             "linked to its Work.",
             _write_reference_keeps_links,
+            answer=(Kind.WORK, Role.REFERENCE, Action.KEEP),
+            check=_check_reference_held,
         ),
         _case(
-            "write-other-reference-kept",
+            "write-other-held",
             "R10",
             "A save through the API cites an Other Resource that we hold",
             "The stored description is unchanged",
             "Citing an agent or subject from a Work never shrinks the "
             "fuller description we already hold.",
             _write_other_reference_kept,
+            answer=(Kind.OTHER, Role.REFERENCE, Action.KEEP),
+            check=lambda: _check_write_other(Kind.WORK),
         ),
         _case(
-            "write-other-primary-updated",
+            "write-other-as-saved-kind",
             "R10",
             "A save through the API writes an Other Resource as the thing being saved",
             "The stored description is replaced by the saved one",
             "Saving an agent or subject on its own replaces what we hold for it.",
             _write_other_primary_updated,
+            answer=(Kind.OTHER, Role.PRIMARY, Action.UPDATE),
+            check=lambda: _check_write_other(Kind.OTHER),
         ),
         _case(
-            "write-clears-stub-marker",
+            "write-held-as-stub",
             "R11",
             "A save through the API writes a resource held as an incomplete stub",
             "The incomplete marker is removed and the normal status is set",
             "Once you save a placeholder from the editor, it counts as a "
             "real description and is no longer marked incomplete.",
             _write_clears_stub_marker,
+            answer=(Kind.WORK, Role.PRIMARY, Action.UPDATE),
+            check=_check_write_stub,
         ),
     ]
 )
@@ -1185,6 +1414,86 @@ def _reingest_links_follow_incoming(session_maker: sessionmaker) -> None:
         assert linked(session, row(session, Work, uri)) == [first]
 
 
+# What each link case's cited uri is, with no database.
+
+
+def _check_heading(describes: bool) -> Answer:
+    heading, work = _heading(), bc_uri("works")
+    g = _citing(work, BF.Work, heading, describes)
+    return citation_answer(g, work, BF.subject, heading)
+
+
+def _check_vocabulary_term() -> Answer:
+    work = bc_uri("works")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.content, BF.Text))
+    return citation_answer(g, work, BF.content, BF.Text)
+
+
+def _check_record_typed_in_payload() -> Answer:
+    cited, work = f"http://example.org/works/{uuid.uuid4().hex}", bc_uri("works")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.subject, URIRef(cited)))
+    g.add((URIRef(cited), RDF.type, BF.Work))
+    return citation_answer(g, work, BF.subject, cited)
+
+
+def _check_lc_resources_prefix() -> Answer:
+    held, work = ext_uri("hubs"), bc_uri("works")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.subject, URIRef(held)))
+    return citation_answer(g, work, BF.subject, held)
+
+
+def _check_admin_metadata(describe: bool) -> Answer:
+    status = f"http://id.loc.gov/vocabulary/mstatus/{uuid.uuid4().hex}"
+    g, work = _admin_metadata_work(status, describe)
+    admin_metadata = next(g.objects(URIRef(work), BF.adminMetadata))
+    return citation_answer(g, admin_metadata, BF.status, status)
+
+
+def _check_lc_item() -> Answer:
+    item, instance = ext_uri("items"), bc_uri("instances")
+    g = Graph()
+    g.add((URIRef(instance), RDF.type, BF.Instance))
+    g.add((URIRef(instance), BF.hasItem, URIRef(item)))
+    _describe(g, item, BF.Item, "An LC Item")
+    return citation_answer(g, instance, BF.hasItem, item)
+
+
+def _check_hub(typed: bool) -> Answer:
+    work, hub = bc_uri("works"), bc_uri("hubs")
+    g = Graph()
+    g.add((URIRef(work), RDF.type, BF.Work))
+    g.add((URIRef(work), BF.expressionOf, URIRef(hub)))
+    if typed:
+        g.add((URIRef(hub), RDF.type, BF.Hub))
+    return citation_answer(g, work, BF.expressionOf, hub)
+
+
+def _check_reingest() -> Answer:
+    source = ext_uri("works")
+    g = _lc_work(source, _heading())
+    return resource_answer(g, INGEST, source, Kind.WORK, FULL)
+
+
+def _check_excluded_predicate(predicate: URIRef, subject_class: URIRef) -> Any:
+    """What a held, untyped uri cited through predicate is, with no database."""
+
+    def check() -> Answer:
+        held = f"http://example.org/records/{uuid.uuid4().hex}"
+        subject = bc_uri("works" if subject_class == BF.Work else "instances")
+        g = Graph()
+        g.add((URIRef(subject), RDF.type, subject_class))
+        g.add((URIRef(subject), predicate, URIRef(held)))
+        return citation_answer(g, subject, predicate, held)
+
+    return check
+
+
 CASES.extend(
     [
         _case(
@@ -1194,6 +1503,9 @@ CASES.extend(
             "The Work is linked to that Other Resource",
             "A subject or agent you pick in the editor is linked to the record.",
             _link_described_in_payload,
+            answer=Citation.OTHER,
+            check=lambda: _check_heading(True),
+            via=BF.subject,
         ),
         _case(
             "link-held-by-uri",
@@ -1203,15 +1515,21 @@ CASES.extend(
             "Citing a subject or agent we already hold links it, even when "
             "the editor sends only its identifier.",
             _link_held_by_uri,
+            answer=Citation.OTHER,
+            check=lambda: _check_heading(False),
+            via=BF.subject,
         ),
         _case(
-            "link-unknown-uri-bare-reference",
+            "link-unknown-uri",
             "L2",
             "A Work cites a URI by identifier alone, and we hold nothing about it",
             "No Other Resource is made and no link is saved; the URI stays in the Work's data",
             "A subject or agent we know nothing about is kept as a plain "
             "reference, with no label and no link.",
             _link_unknown_uri_bare_reference,
+            answer=Citation.OTHER,
+            check=lambda: _check_heading(False),
+            via=BF.subject,
             decision="inherited",
             follow_up="#169 stub rows",
         ),
@@ -1223,6 +1541,9 @@ CASES.extend(
             "Terms from the BIBFRAME vocabulary, such as a content type, "
             "are never linked as Other Resources.",
             _link_vocabulary_term,
+            answer=Citation.VOCABULARY,
+            check=_check_vocabulary_term,
+            via=BF.content,
         ),
         _case(
             "link-record-typed-in-payload",
@@ -1232,6 +1553,9 @@ CASES.extend(
             "A resource that the record says is a Work is a record of its "
             "own, never an agent or subject link.",
             _link_record_typed_in_payload,
+            answer=Citation.RECORD,
+            check=_check_record_typed_in_payload,
+            via=BF.subject,
         ),
         _case(
             "link-lc-resources-prefix",
@@ -1241,6 +1565,9 @@ CASES.extend(
             "LC's Works, Instances, Hubs and Items are never linked as "
             "agents or subjects, however they are cited.",
             _link_lc_resources_prefix,
+            answer=Citation.EXCLUDED,
+            check=_check_lc_resources_prefix,
+            via=BF.subject,
         ),
         _case(
             "link-admin-metadata-only-held",
@@ -1250,6 +1577,9 @@ CASES.extend(
             "The status and other terms in a record's administrative "
             "information are not linked, or every record would link to them.",
             _link_admin_metadata_only_held,
+            answer=Citation.ADMIN_ONLY,
+            check=lambda: _check_admin_metadata(False),
+            via=BF.status,
         ),
         _case(
             "link-admin-metadata-described",
@@ -1259,6 +1589,9 @@ CASES.extend(
             "An administrative term is linked only when the record "
             "describes it itself.",
             _link_admin_metadata_described,
+            answer=Citation.ADMIN_ONLY,
+            check=lambda: _check_admin_metadata(True),
+            via=BF.status,
         ),
         _case(
             "link-lc-item",
@@ -1267,6 +1600,9 @@ CASES.extend(
             "The Item is stored as an Other Resource but the Instance is not linked to it",
             "An LC Item is kept, but is not linked to its Instance.",
             _link_lc_item,
+            answer=Citation.ITEM,
+            check=_check_lc_item,
+            via=BF.hasItem,
             decision="inherited",
             follow_up="Items, decided in Phase 3",
         ),
@@ -1277,6 +1613,9 @@ CASES.extend(
             "The Work is linked to the Hub",
             "A Work is attached to its Hub when the record describes that Hub.",
             _hub_link_described,
+            answer=Citation.RECORD,
+            check=lambda: _check_hub(typed=True),
+            via=BF.expressionOf,
         ),
         _case(
             "hub-link-not-described",
@@ -1286,6 +1625,9 @@ CASES.extend(
             "Pointing a Work at a Hub we already have fails to save unless "
             "the record also says that it is a Hub.",
             _hub_link_not_described,
+            answer=Citation.EXCLUDED,
+            check=lambda: _check_hub(typed=False),
+            via=BF.expressionOf,
             decision="inherited",
             follow_up="Hub labels and links",
         ),
@@ -1298,11 +1640,14 @@ CASES.extend(
             "saves the Hub's identifier as if it were an agent or subject, "
             "and doesn't attach the Work to it.",
             _hub_link_hub_not_stored,
+            answer=Citation.EXCLUDED,
+            check=lambda: _check_hub(typed=False),
+            via=BF.expressionOf,
             decision="inherited",
             follow_up="Hub labels and links",
         ),
         _case(
-            "reingest-links-follow-incoming",
+            "reingest-of-edited-record",
             "X2",
             "A bulk load brings again an LC record a cataloger has edited, and its subject differs",
             "The edited description is kept, and its Other Resource links are rebuilt from the incoming record",
@@ -1310,6 +1655,8 @@ CASES.extend(
             "description keeps your subject, but the subject link goes back "
             "to LC's.",
             _reingest_links_follow_incoming,
+            answer=(Kind.WORK, Role.PRIMARY, Action.KEEP),
+            check=_check_reingest,
             decision="inherited",
             follow_up="LC overlay policy",
         ),
@@ -1369,36 +1716,106 @@ for _predicate, _name, _class in (
         run = _excluded_predicate(_predicate, _class)
     CASES.append(
         _case(
-            f"link-excluded-{_name}",
+            f"link-through-{_name.lower()}",
             "L5",
             _situation,
             _outcome,
             L5_SENTENCES[_name],
             run,
+            # the two the save types as records are minted, the rest excluded
+            answer=Citation.RECORD if _name in INFERRED else Citation.EXCLUDED,
+            check=_check_excluded_predicate(_predicate, _class),
+            via=_predicate,
         )
     )
 
 
-def _cell(text: str) -> str:
-    return " ".join(text.split()).replace("|", "\\|")
+INTRODUCTION = (
+    "This is how `save_graph` treats each resource and each cited URI today.\n"
+    "\n"
+    "The policy is a set of rules, one to a section. A rule names a kind of "
+    "situation, and its id starts with a letter for what it covers:\n"
+    "\n"
+    "- **R**: what happens to each resource\n"
+    "- **L**: which cited URIs a Work or Instance is linked to\n"
+    "- **X**: questions that sit partly outside the save\n"
+    "\n"
+    "Under each rule are its cases, each headed by its id. A case is one "
+    "concrete situation the rule covers: what the save does in it today, "
+    "whether that has been decided, and what the code calls it. Every case is "
+    "also a test, run against a real database, so this document says what the "
+    "code does. A case marked *inherited* is what the code already did; nobody "
+    "has chosen it yet.\n"
+    "\n"
+    "A case's id is its name in `tests/policy_cases.py`, where it is defined, "
+    "and its test is `test_policy_case[<id>]` in `tests/test_save_policy.py`.\n"
+    "\n"
+    "This document is generated from the cases in `tests/policy_cases.py` by "
+    "`uv run python tests/policy_cases.py > docs/save-policy.md`; don't edit it "
+    "by hand."
+)
+
+CHANGING = (
+    "## Changing the policy\n"
+    "\n"
+    "Each change is its own pull request. It changes the cases in "
+    "`tests/policy_cases.py`, marks them *chosen*, changes the code to match, and "
+    "regenerates this document, whose diff then shows the change in plain words. "
+    "The pull request also says whether records saved under the old rule need "
+    "fixing.\n"
+    "\n"
+    "A case's id names its situation, not its outcome, so it stays the same when "
+    "the outcome changes. A removed case's id isn't reused."
+)
 
 
-def render_markdown(cases: list[PolicyCase]) -> str:
-    """One table of the cases, ordered by `ROWS` and then by the order given."""
-    order = {row_id: n for n, row_id in enumerate(ROWS)}
-    ordered = sorted(cases, key=lambda case: order[case.row])
-    lines = [
-        "| Row | Situation | Today | For catalogers | Decision |",
-        "| --- | --- | --- | --- | --- |",
+def _sentence(text: str) -> str:
+    """text on one line, ending with a full stop."""
+    text = " ".join(text.split())
+    return text if text.endswith(".") else text + "."
+
+
+def _in_the_code(answer: Answer) -> str:
+    if isinstance(answer, Citation):
+        names = [f"`Citation.{answer.name}`"]
+    else:
+        kind, role, action = answer
+        names = [f"`Kind.{kind.name}`", f"`Role.{role.name}`"]
+        if action is not None:
+            names.append(f"`Action.{action.name}`")
+    return "In the code: " + ", ".join(names) + "."
+
+
+def _paragraphs(case: PolicyCase) -> list[str]:
+    today = _sentence(case.outcome)
+    decision = f"*{case.decision}*"
+    if case.decision == "inherited" and case.follow_up:
+        decision += f", {case.follow_up}"
+    return [
+        f"**{_sentence(case.situation)}** {_sentence(case.sentence)}",
+        f"Today: {today[0].lower()}{today[1:]}",
+        _sentence(f"Decision: {decision}"),
+        _in_the_code(case.answer),
     ]
-    for case in ordered:
-        decision: str = case.decision
-        if case.decision == "inherited" and case.follow_up:
-            decision = f"inherited: {case.follow_up}"
-        cells = [case.row, case.situation, case.outcome, case.sentence, decision]
-        lines.append("| " + " | ".join(_cell(c) for c in cells) + " |")
-    return "\n".join(lines)
+
+
+def render_document(cases: list[PolicyCase]) -> str:
+    """
+    The cases as a document: a section for each rule of `RULES`, in order, with
+    the rule's cases under it in the order given, each headed by its id.
+    """
+    blocks = ["# Save Policy", INTRODUCTION]
+    for rule_id, rule_text in RULES.items():
+        in_rule = [case for case in cases if case.rule == rule_id]
+        if not in_rule:
+            continue
+        blocks.append(f"## {rule_id}: {rule_text}")
+        for case in in_rule:
+            blocks.append(f"### {case.id}")
+            blocks.extend(_paragraphs(case))
+    blocks.append(CHANGING)
+    return "\n\n".join(blocks) + "\n"
 
 
 if __name__ == "__main__":
-    sys.stdout.write(render_markdown(CASES) + "\n")
+    sys.stdout.write(render_document(CASES))

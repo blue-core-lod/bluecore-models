@@ -109,7 +109,7 @@ def _work_and_topic() -> Graph:
 def test_subjects_of_refuses_other_resources():
     # Kind.OTHER has no class, so this would otherwise match every typed subject
     with pytest.raises(BluecoreGraphError, match="Other Resources"):
-        BluecoreGraph(_work_and_topic())._subjects_of(Kind.OTHER)
+        BluecoreGraph(_work_and_topic())._subjects_of(Kind.OTHER, {})
 
 
 def test_mint_uri_refuses_other_resources():
