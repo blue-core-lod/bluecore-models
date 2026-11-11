@@ -1,9 +1,10 @@
 """
 Today's behaviour of `save_graph`, written down as a policy.
 
-Each row of the two policy tables in #213 (what happens to each resource, and
-which cited URIs become links) is a key of `ROWS`. Each `PolicyCase` is one
-outcome under one row: it sets up a record, saves it against a real database
+Each rule of the policy, a row of one of #213's tables (what happens to each
+resource, and which cited URIs become links), is a key of `RULES`. Each
+`PolicyCase` is one outcome under one rule: it sets up a record, saves it
+against a real database
 and asserts what the code does today. Each also says what the code decides (its
 `Answer`) and how to work that out with no database. `render_document` turns the
 cases into docs/save-policy.md; run this file to print it.
@@ -62,7 +63,7 @@ type Answer = tuple[Kind, Role, Action | None] | Citation
 @dataclass(frozen=True)
 class PolicyCase:
     id: str
-    row: str
+    rule: str
     situation: str
     outcome: str
     sentence: str
@@ -76,9 +77,9 @@ class PolicyCase:
     via: URIRef | None = None
 
 
-# Row id to the row's text in #213. R1-R11 are the resources table in order,
-# L1-L8 the links table in order, X1 and X2 the related questions.
-ROWS: dict[str, str] = {
+# Rule id to the rule's text, its row in #213. R1-R11 are the resources table in
+# order, L1-L8 the links table in order, X1 and X2 the related questions.
+RULES: dict[str, str] = {
     "R1": "ingest / blank Work / Instance / Hub",
     "R2": "ingest / URI resource with its own adminMetadata (not our stub marker)",
     "R3": "ingest / URI resource without adminMetadata, when the record uses adminMetadata at all",
@@ -808,7 +809,7 @@ def _check_write_stub() -> Answer:
 
 def _case(
     case_id: str,
-    row_id: str,
+    rule_id: str,
     situation: str,
     outcome: str,
     sentence: str,
@@ -822,7 +823,7 @@ def _case(
 ) -> PolicyCase:
     return PolicyCase(
         id=case_id,
-        row=row_id,
+        rule=rule_id,
         situation=situation,
         outcome=outcome,
         sentence=sentence,
@@ -838,7 +839,7 @@ def _case(
 CASES.extend(
     [
         _case(
-            "ingest-blank-record-stays-inline",
+            "ingest-blank-record",
             "R1",
             "A bulk load brings a Work, Instance or Hub with no URI",
             "No record is made for it; its description stays inside its parent's data",
@@ -850,7 +851,7 @@ CASES.extend(
             check=_check_blank_record_inline,
         ),
         _case(
-            "ingest-described-new-inserted",
+            "ingest-described-new",
             "R2",
             "A bulk load brings a described resource we don't hold",
             "It is inserted under a new Bluecore URI, with the normal status and a note of where it came from",
@@ -861,7 +862,7 @@ CASES.extend(
             check=lambda: _check_described(None),
         ),
         _case(
-            "ingest-described-ours-updated",
+            "ingest-described-ours",
             "R2",
             "A bulk load brings a described resource that already has a Bluecore URI",
             "The stored description is replaced by the incoming one",
@@ -872,7 +873,7 @@ CASES.extend(
             check=lambda: _check_described(FULL, bluecore=True),
         ),
         _case(
-            "ingest-described-stub-replaced",
+            "ingest-described-held-as-stub",
             "R2",
             "A bulk load brings a full description of a resource we only hold as a stub",
             "The stub's description is replaced and the incomplete marker is removed",
@@ -883,7 +884,7 @@ CASES.extend(
             check=lambda: _check_described(STUB),
         ),
         _case(
-            "ingest-described-reingest-kept",
+            "ingest-described-held-and-edited",
             "R2",
             "A bulk load brings a described resource we hold in full, and a cataloger has edited it",
             "The stored description is kept; its Other Resource links are rebuilt from the incoming record",
@@ -897,7 +898,7 @@ CASES.extend(
             follow_up="LC overlay policy",
         ),
         _case(
-            "ingest-stub-new-inserted-incomplete",
+            "ingest-stub-new",
             "R3",
             "A record points at a resource it doesn't describe, and we don't hold it",
             "A stub is inserted, marked incomplete rather than with the normal status",
@@ -909,7 +910,7 @@ CASES.extend(
             check=lambda: _check_stub(None),
         ),
         _case(
-            "ingest-stub-held-kept",
+            "ingest-stub-held",
             "R3",
             "A record points at a resource it doesn't describe, and we hold a full description",
             "The stored description is left exactly as it was",
@@ -920,7 +921,7 @@ CASES.extend(
             check=lambda: _check_stub(FULL),
         ),
         _case(
-            "ingest-stub-held-keeps-links",
+            "ingest-stub-held-with-links",
             "R3",
             "A record points at a resource it doesn't describe, and we hold it with links",
             "The resource keeps the links its own description gave it",
@@ -931,7 +932,7 @@ CASES.extend(
             check=lambda: _check_stub(FULL),
         ),
         _case(
-            "ingest-stub-new-gets-links",
+            "ingest-stub-new-citing-held-other",
             "R3",
             "A record's stub cites an Other Resource we already hold, by URI",
             "The new stub is linked to that Other Resource",
@@ -942,7 +943,7 @@ CASES.extend(
             check=lambda: _check_stub(None),
         ),
         _case(
-            "ingest-no-admin-metadata-all-primary",
+            "ingest-no-admin-metadata",
             "R4",
             "A bulk-loaded record has URI Works and no adminMetadata anywhere",
             "Every Work is inserted as a full description, none marked incomplete",
@@ -954,7 +955,7 @@ CASES.extend(
             check=_check_no_admin_metadata,
         ),
         _case(
-            "ingest-other-new-inserted",
+            "ingest-other-new",
             "R5",
             "A bulk load cites a described Other Resource we don't hold",
             "The Other Resource is inserted with the payload's description",
@@ -965,7 +966,7 @@ CASES.extend(
             check=lambda: _check_ingest_other(False, None),
         ),
         _case(
-            "ingest-other-held-updated",
+            "ingest-other-held-updating-others",
             "R5",
             "A bulk load describes an Other Resource we hold, and updating Other Resources is on",
             "The stored description is replaced by the new one",
@@ -976,7 +977,7 @@ CASES.extend(
             check=lambda: _check_ingest_other(True, ANY),
         ),
         _case(
-            "ingest-other-held-kept",
+            "ingest-other-held-not-updating-others",
             "R5",
             "A bulk load describes an Other Resource we hold, and updating Other Resources is off",
             "The stored description is unchanged",
@@ -987,7 +988,7 @@ CASES.extend(
             check=lambda: _check_ingest_other(False, ANY),
         ),
         _case(
-            "write-root-blank-inserted",
+            "write-root-blank",
             "R6",
             "A save through the API has no URI on the resource being created",
             "A new record is created for it and its URI is reported as created",
@@ -998,7 +999,7 @@ CASES.extend(
             check=_check_root_blank,
         ),
         _case(
-            "write-uri-new-inserted",
+            "write-uri-new",
             "R7",
             "A save through the API names a resource of the saved kind by a new Bluecore URI",
             "A record is created at that URI",
@@ -1009,7 +1010,7 @@ CASES.extend(
             check=lambda: _check_write_uri(None),
         ),
         _case(
-            "write-uri-held-updated",
+            "write-uri-held",
             "R7",
             "A save through the API names a resource of the saved kind that we hold",
             "The stored description is replaced by the saved one",
@@ -1019,7 +1020,7 @@ CASES.extend(
             check=lambda: _check_write_uri(FULL),
         ),
         _case(
-            "write-other-blank-inline",
+            "write-nested-blank",
             "R8",
             "A save through the API has a nested Work with no URI",
             "No record is made for it; it stays inside its parent's data",
@@ -1030,7 +1031,7 @@ CASES.extend(
             check=_check_nested_blank_inline,
         ),
         _case(
-            "write-reference-new-inserted",
+            "write-reference-new",
             "R9",
             "A save through the API refers to a resource of another kind that we don't hold",
             "A record is created for it from what the payload says about it",
@@ -1041,7 +1042,7 @@ CASES.extend(
             check=_check_reference_new,
         ),
         _case(
-            "write-reference-held-kept",
+            "write-reference-held",
             "R9",
             "A save through the API refers to a resource of another kind that we hold",
             "The stored description is unchanged",
@@ -1052,7 +1053,7 @@ CASES.extend(
             check=_check_reference_held,
         ),
         _case(
-            "write-reference-keeps-links",
+            "write-reference-held-with-links",
             "R9",
             "A save through the API refers to a held resource that has Other Resource links",
             "The referenced resource's links are unchanged",
@@ -1063,7 +1064,7 @@ CASES.extend(
             check=_check_reference_held,
         ),
         _case(
-            "write-other-reference-kept",
+            "write-other-held",
             "R10",
             "A save through the API cites an Other Resource that we hold",
             "The stored description is unchanged",
@@ -1074,7 +1075,7 @@ CASES.extend(
             check=lambda: _check_write_other(Kind.WORK),
         ),
         _case(
-            "write-other-primary-updated",
+            "write-other-as-saved-kind",
             "R10",
             "A save through the API writes an Other Resource as the thing being saved",
             "The stored description is replaced by the saved one",
@@ -1084,7 +1085,7 @@ CASES.extend(
             check=lambda: _check_write_other(Kind.OTHER),
         ),
         _case(
-            "write-clears-stub-marker",
+            "write-held-as-stub",
             "R11",
             "A save through the API writes a resource held as an incomplete stub",
             "The incomplete marker is removed and the normal status is set",
@@ -1519,7 +1520,7 @@ CASES.extend(
             via=BF.subject,
         ),
         _case(
-            "link-unknown-uri-bare-reference",
+            "link-unknown-uri",
             "L2",
             "A Work cites a URI by identifier alone, and we hold nothing about it",
             "No Other Resource is made and no link is saved; the URI stays in the Work's data",
@@ -1646,7 +1647,7 @@ CASES.extend(
             follow_up="Hub labels and links",
         ),
         _case(
-            "reingest-links-follow-incoming",
+            "reingest-of-edited-record",
             "X2",
             "A bulk load brings again an LC record a cataloger has edited, and its subject differs",
             "The edited description is kept, and its Other Resource links are rebuilt from the incoming record",
@@ -1715,7 +1716,7 @@ for _predicate, _name, _class in (
         run = _excluded_predicate(_predicate, _class)
     CASES.append(
         _case(
-            f"link-excluded-{_name}",
+            f"link-through-{_name.lower()}",
             "L5",
             _situation,
             _outcome,
@@ -1730,11 +1731,41 @@ for _predicate, _name, _class in (
 
 
 INTRODUCTION = (
-    "This is how `save_graph` treats each resource and each cited URI today. "
-    "It is generated from `tests/policy_cases.py` by "
+    "This is how `save_graph` treats each resource and each cited URI today.\n"
+    "\n"
+    "The policy is a set of rules, one to a section. A rule names a kind of "
+    "situation, and its id starts with a letter for what it covers:\n"
+    "\n"
+    "- **R**: what happens to each resource\n"
+    "- **L**: which cited URIs a Work or Instance is linked to\n"
+    "- **X**: questions that sit partly outside the save\n"
+    "\n"
+    "Under each rule are its cases, each headed by its id. A case is one "
+    "concrete situation the rule covers: what the save does in it today, "
+    "whether that has been decided, and what the code calls it. Every case is "
+    "also a test, run against a real database, so this document says what the "
+    "code does. A case marked *inherited* is what the code already did; nobody "
+    "has chosen it yet.\n"
+    "\n"
+    "A case's id is its name in `tests/policy_cases.py`, where it is defined, "
+    "and its test is `test_policy_case[<id>]` in `tests/test_save_policy.py`.\n"
+    "\n"
+    "This document is generated from the cases in `tests/policy_cases.py` by "
     "`uv run python tests/policy_cases.py > docs/save-policy.md`; don't edit it "
-    "by hand. A case marked *inherited* is what the code already did; nobody has "
-    "chosen it yet."
+    "by hand."
+)
+
+CHANGING = (
+    "## Changing the policy\n"
+    "\n"
+    "Each change is its own pull request. It changes the cases in "
+    "`tests/policy_cases.py`, marks them *chosen*, changes the code to match, and "
+    "regenerates this document, whose diff then shows the change in plain words. "
+    "The pull request also says whether records saved under the old rule need "
+    "fixing.\n"
+    "\n"
+    "A case's id names its situation, not its outcome, so it stays the same when "
+    "the outcome changes. A removed case's id isn't reused."
 )
 
 
@@ -1770,17 +1801,19 @@ def _paragraphs(case: PolicyCase) -> list[str]:
 
 def render_document(cases: list[PolicyCase]) -> str:
     """
-    The cases as a document: a section for each row of `ROWS`, in order, with
-    the row's cases under it in the order given.
+    The cases as a document: a section for each rule of `RULES`, in order, with
+    the rule's cases under it in the order given, each headed by its id.
     """
-    blocks = ["# What a save does", INTRODUCTION]
-    for row_id, row_text in ROWS.items():
-        in_row = [case for case in cases if case.row == row_id]
-        if not in_row:
+    blocks = ["# Save Policy", INTRODUCTION]
+    for rule_id, rule_text in RULES.items():
+        in_rule = [case for case in cases if case.rule == rule_id]
+        if not in_rule:
             continue
-        blocks.append(f"## {row_id}: {row_text}")
-        for case in in_row:
+        blocks.append(f"## {rule_id}: {rule_text}")
+        for case in in_rule:
+            blocks.append(f"### {case.id}")
             blocks.extend(_paragraphs(case))
+    blocks.append(CHANGING)
     return "\n\n".join(blocks) + "\n"
 
 

@@ -1,8 +1,9 @@
+import re
 from pathlib import Path
 from typing import Literal
 
 import pytest
-from policy_cases import CASES, ROWS, Answer, PolicyCase, render_document
+from policy_cases import CASES, RULES, Answer, PolicyCase, render_document
 from rdflib import BNode, URIRef
 from sqlalchemy.orm import sessionmaker
 
@@ -23,14 +24,14 @@ def _noop(session_maker: sessionmaker) -> None:
 
 def _case(
     case_id: str,
-    row: str,
+    rule: str,
     sentence: str,
     decision: Literal["chosen", "inherited", "undecided"],
     answer: Answer = Citation.OTHER,
 ) -> PolicyCase:
     return PolicyCase(
         id=case_id,
-        row=row,
+        rule=rule,
         situation=f"situation of {case_id}",
         outcome=f"outcome of {case_id}",
         sentence=sentence,
@@ -42,14 +43,14 @@ def _case(
     )
 
 
-def test_document_puts_each_case_under_its_row():
+def test_document_puts_each_case_under_its_rule():
     later = _case("a-resource", "R2", "A described resource is saved.", "chosen")
     earlier = _case("a-link", "L1", "A described citation is linked.", "inherited")
 
     doc = render_document([later, earlier])
 
-    # R rows come before L rows in ROWS, whatever order the cases are given in
-    assert list(ROWS).index("R2") < list(ROWS).index("L1")
+    # R rules come before L rules in RULES, whatever order the cases are given in
+    assert list(RULES).index("R2") < list(RULES).index("L1")
     assert (
         doc.index("## R2: ") < doc.index("A described resource") < doc.index("## L1: ")
     )
@@ -59,6 +60,49 @@ def test_document_puts_each_case_under_its_row():
     assert "Decision: *inherited*, #169." in doc
     assert "Decision: *chosen*." in doc
     assert doc.endswith(".\n") and not doc.endswith("\n\n")
+
+
+def test_document_heads_each_case_with_its_id():
+    case = _case("a-resource", "R2", "A described resource is saved.", "chosen")
+
+    doc = render_document([case])
+
+    assert "## R2: " in doc
+    assert "\n\n### a-resource\n\n**situation of a-resource.**" in doc
+
+
+def test_document_is_titled_save_policy():
+    doc = render_document([])
+
+    assert doc.startswith("# Save Policy\n\n")
+
+
+def test_document_explains_rules_and_cases_before_how_it_is_made():
+    doc = render_document([])
+
+    rules = doc.index("The policy is a set of rules")
+    key = doc.index("- **R**: what happens to each resource")
+    cases = doc.index("Under each rule are its cases")
+    generated = doc.index("don't edit it by hand")
+    assert rules < key < cases < generated
+    assert "- **L**: " in doc and "- **X**: " in doc
+
+
+def test_document_ends_by_saying_how_to_change_the_policy():
+    case = _case("a-resource", "R2", "A described resource is saved.", "chosen")
+
+    doc = render_document([case])
+
+    assert doc.index("A described resource") < doc.index("## Changing the policy")
+    assert "## " not in doc[doc.index("## Changing the policy") + 3 :]
+
+
+def test_document_names_the_test_each_case_id_runs_as():
+    doc = render_document([])
+
+    assert "`test_policy_case[<id>]` in `tests/test_save_policy.py`" in doc
+    # the test the document names is this module's
+    assert callable(globals().get("test_policy_case"))
 
 
 def test_document_says_what_the_code_does():
@@ -94,8 +138,17 @@ def test_case_ids_are_unique():
     assert len(ids) == len(set(ids))
 
 
-def test_every_table_row_has_a_case():
-    assert {case.row for case in CASES} == set(ROWS)
+def test_case_ids_are_their_own_link_anchors():
+    # GitHub links a heading by its lower-cased text, so these ids link as is
+    assert [
+        case.id
+        for case in CASES
+        if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", case.id)
+    ] == []
+
+
+def test_every_rule_has_a_case():
+    assert {case.rule for case in CASES} == set(RULES)
 
 
 def test_every_case_is_marked():
