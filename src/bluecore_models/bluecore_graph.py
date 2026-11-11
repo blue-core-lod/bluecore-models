@@ -354,6 +354,65 @@ def _stored_is_stub(existing: ResourceBase) -> bool:
     return False
 
 
+class Citation(Enum):
+    """What a uri a resource cites is, which decides whether it is stored and linked."""
+
+    VOCABULARY = "vocabulary"  # a BIBFRAME, MADS or RDF term
+    RECORD = "record"  # a Work, Instance or Hub in the payload, its own record
+    ITEM = "item"  # an Item: stored if described, never linked (inherited)
+    EXCLUDED = "excluded"  # a record's uri: stored if described, never linked
+    ADMIN_ONLY = "admin only"  # under bf:adminMetadata: linked only if described
+    OTHER = "other"  # an Other Resource: linked if described or held
+
+    @property
+    def stored(self) -> bool:
+        """Whether the save stores a description of it as an Other Resource."""
+        return self not in (Citation.VOCABULARY, Citation.RECORD)
+
+
+def _admin_nodes(g: Graph) -> set[Node]:
+    """The blank nodes under a resource's bf:adminMetadata, nested ones included."""
+    admin_nodes: set[Node] = set()
+    queue = list(g.objects(predicate=BF.adminMetadata))
+    while queue:
+        node = queue.pop()
+        if node in admin_nodes:
+            continue
+        admin_nodes.add(node)
+        queue.extend(o for o in g.objects(node) if isinstance(o, BNode))
+    return admin_nodes
+
+
+def _citation(
+    graph: Graph, s: Node, p: URIRef, o: URIRef, admin_nodes: set[Node]
+) -> Citation:
+    """
+    What the uri o is, cited by the triple (s, p, o) of a resource's subgraph.
+    graph is the whole payload, which says what o is typed as; admin_nodes are
+    the resource's adminMetadata nodes (see _admin_nodes).
+
+    The objects of RECORD_PREDICATES and the uris under LC_RESOURCES are Works,
+    Instances, Hubs or Items even when a row we hold says otherwise, so they are
+    never linked. A uri cited under bf:adminMetadata is linked only when the
+    payload describes it: _generate_admin_metadata puts the same few vocabulary
+    terms (and the derivedFrom source) on every resource it mints, so linking
+    them by uri alone would tie every record in the catalog to them.
+    """
+    if o in BF or o in MADS or o in RDF:
+        return Citation.VOCABULARY
+    if any((o, RDF.type, class_) in graph for class_ in RECORD_CLASSES):
+        return Citation.RECORD
+    if p in RECORD_PREDICATES or str(o).startswith(LC_RESOURCES):
+        if (o, RDF.type, BF.Item) in graph or str(o).startswith(
+            LC_RESOURCES + "items/"
+        ):
+            return Citation.ITEM
+        return Citation.EXCLUDED
+    if p == BF.adminMetadata or s in admin_nodes:
+        return Citation.ADMIN_ONLY
+    return Citation.OTHER
+
+
 def _is_retryable_pg_error(error: BaseException) -> bool:
     """
     A graph save is only retried when Postgres aborted the transaction with one
@@ -982,15 +1041,16 @@ class BluecoreGraph:
     def _cited_uris(self, g: Graph) -> set[URIRef]:
         """
         The uris a resource's subgraph cites that could be Other Resources: every
-        object uri, nested ones included, except terms from the Bibframe, MADS or
-        RDF vocabularies and Works, Instances or Hubs, each stored as its own record.
+        object uri, nested ones included, that the save would store a description
+        of (see Citation.stored).
         """
+        admin_nodes = _admin_nodes(g)
         return {
             o
-            for o in g.objects()
+            for s, p, o in g
             if isinstance(o, URIRef)
-            and not self._exclude_uri_from_other_resources(o)
-            and not self._is_bibframe_resource(o, self.graph)
+            and isinstance(p, URIRef)
+            and _citation(self.graph, s, p, o, admin_nodes).stored
         }
 
     def _linkable_uris(
@@ -998,33 +1058,21 @@ class BluecoreGraph:
     ) -> set[URIRef]:
         """
         The cited uris a Work or Instance may be linked to as Other Resources,
-        if we hold a row for them. Never linked are the objects of
-        RECORD_PREDICATES and uris in LC_RESOURCES, which are Works, Instances,
-        Hubs or Items even when a row we hold says otherwise.
-
-        A uri cited only under bf:adminMetadata is linked only when this payload
-        describes it. _generate_admin_metadata puts the same few vocabulary terms
-        (and the derivedFrom source) on every resource it mints, so linking them
-        by uri alone would tie every record in the catalog to them.
+        if we hold a row for them: those that one of its triples cites as an
+        Other Resource, or under bf:adminMetadata when this payload describes
+        them. See _citation.
         """
-        admin_nodes: set[Node] = set()
-        queue = list(g.objects(predicate=BF.adminMetadata))
-        while queue:
-            node = queue.pop()
-            if node in admin_nodes:
+        admin_nodes = _admin_nodes(g)
+        linkable = set()
+        for s, p, o in g:
+            if not (isinstance(o, URIRef) and isinstance(p, URIRef) and o in cited):
                 continue
-            admin_nodes.add(node)
-            queue.extend(o for o in g.objects(node) if isinstance(o, BNode))
-
-        return {
-            o
-            for s, p, o in g
-            if isinstance(o, URIRef)
-            and o in cited
-            and p not in RECORD_PREDICATES
-            and not str(o).startswith(LC_RESOURCES)
-            and (o in described or (p != BF.adminMetadata and s not in admin_nodes))
-        }
+            citation = _citation(self.graph, s, p, o, admin_nodes)
+            if citation == Citation.OTHER or (
+                citation == Citation.ADMIN_ONLY and o in described
+            ):
+                linkable.add(o)
+        return linkable
 
     def _generate_admin_metadata(
         self,
@@ -1257,19 +1305,6 @@ class BluecoreGraph:
                 derived_from,
                 stub=self._roles.get((derived_from, kind)) == Role.STUB,
             )
-
-    def _exclude_uri_from_other_resources(self, uri: Node) -> bool:
-        """Checks if uri is in the BF, MADS, or RDF namespaces"""
-        return uri in BF or uri in MADS or uri in RDF  # type: ignore
-
-    def _is_bibframe_resource(self, uri: Node, graph: Graph) -> bool:
-        """Checks if uri is a BIBFRAME Work, Instance or Hub"""
-        for class_ in graph.objects(subject=uri, predicate=RDF.type):
-            # In the future we may want to include Work, Instance and Hub subclasses
-            # maybe through inference?
-            if class_ in [BF.Work, BF.Instance, BF.Hub]:
-                return True
-        return False
 
     def _is_bluecore_uri(self, uri) -> bool:
         return uri in self.namespace

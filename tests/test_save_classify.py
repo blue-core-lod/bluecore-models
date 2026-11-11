@@ -7,12 +7,15 @@ from bluecore_models.bluecore_graph import (
     STUB_STATUS,
     Action,
     BluecoreGraph,
+    Citation,
     Entry,
     Ingest,
     Kind,
     Role,
     Write,
     _action,
+    _admin_nodes,
+    _citation,
     _classify,
     save_graph,
 )
@@ -312,3 +315,79 @@ def test_actions_are_recorded_afresh_on_a_retry(pg_session):
     stub_entry = next(e for e in works if e.role == Role.STUB)
     # (it is also linked to the stub status it carries, which the save describes)
     assert str(agent) in _linked(pg_session, stub_entry.subject)
+
+
+WORK = URIRef("https://bcld.info/works/7dbb7674-7373-473f-9014-b9a993a2dd03")
+
+
+def _cites(p: URIRef, o: URIRef, *extra: tuple) -> Citation:
+    """What o is, cited from WORK through p, in a graph with the extra triples."""
+    g = Graph()
+    g.add((WORK, RDF.type, BF.Work))
+    g.add((WORK, p, o))
+    for triple in extra:
+        g.add(triple)
+    return _citation(g, WORK, p, o, _admin_nodes(g))
+
+
+def test_citation_vocabulary_term():
+    assert _cites(BF.content, BF.Text) == Citation.VOCABULARY
+
+
+def test_citation_record_typed_in_payload():
+    other = _example("work")
+    assert _cites(BF.subject, other, (other, RDF.type, BF.Work)) == Citation.RECORD
+
+
+def test_citation_lc_item():
+    item = URIRef("http://id.loc.gov/resources/items/1")
+    assert _cites(BF.hasItem, item) == Citation.ITEM
+
+
+def test_citation_typed_item_under_record_predicate():
+    item = _example("item")
+    assert _cites(BF.itemOf, item, (item, RDF.type, BF.Item)) == Citation.ITEM
+
+
+def test_citation_excluded_predicate():
+    assert _cites(BF.relatedTo, _example("x")) == Citation.EXCLUDED
+
+
+def test_citation_lc_resources_prefix():
+    hub = URIRef("http://id.loc.gov/resources/hubs/1")
+    assert _cites(BF.subject, hub) == Citation.EXCLUDED
+
+
+def _in_admin_metadata(o: URIRef) -> Citation:
+    g = Graph()
+    admin_metadata = BNode()
+    g.add((WORK, RDF.type, BF.Work))
+    g.add((WORK, BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.status, o))
+    return _citation(g, admin_metadata, BF.status, o, _admin_nodes(g))
+
+
+def test_citation_admin_metadata():
+    status = URIRef("http://id.loc.gov/vocabulary/mstatus/n")
+    assert _in_admin_metadata(status) == Citation.ADMIN_ONLY
+
+
+def test_citation_other_resource():
+    assert _cites(BF.subject, _example("topic")) == Citation.OTHER
+
+
+def test_citation_item_through_plain_predicate_is_other():
+    item = _example("item")
+    assert _cites(BF.subject, item, (item, RDF.type, BF.Item)) == Citation.OTHER
+
+
+def test_citation_vocabulary_wins_over_admin_metadata():
+    assert _in_admin_metadata(BF.Text) == Citation.VOCABULARY
+
+
+def test_only_vocabulary_terms_and_records_are_never_stored():
+    assert {c for c in Citation if not c.stored} == {
+        Citation.VOCABULARY,
+        Citation.RECORD,
+    }
