@@ -106,7 +106,9 @@ def test_remove_oclc_number_identifiers():
     assert len(instances) == 1
     instance_graph = instances[0]
 
-    bg._remove_triples_by_type(instance_graph, BF.identifiedBy, BF.OclcNumber)
+    bluecore_graph._remove_triples_by_type(
+        instance_graph, BF.identifiedBy, BF.OclcNumber
+    )
 
     identifier_types = {
         identifier_type
@@ -1033,7 +1035,9 @@ def test_oclc_number_given_as_a_uri_is_not_stripped():
     assert len(instances) == 1
     instance_graph = instances[0]
 
-    bg._remove_triples_by_type(instance_graph, BF.identifiedBy, BF.OclcNumber)
+    bluecore_graph._remove_triples_by_type(
+        instance_graph, BF.identifiedBy, BF.OclcNumber
+    )
 
     instance = URIRef(
         "https://dev.bcld.info/instances/0ca0f64e-d086-4309-a3e7-22ed061ad7e8"

@@ -1,3 +1,4 @@
+import copy
 import datetime
 import json
 import logging
@@ -8,6 +9,7 @@ from uuid import uuid4
 
 from psycopg import errors as psycopg_errors
 from rdflib import XSD, BNode, Graph, IdentifiedNode, Literal, Namespace, Node, URIRef
+from rdflib.plugins.stores.memory import Memory
 from sqlalchemy import func, literal_column
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Query
@@ -477,105 +479,166 @@ def save_graph(
     return bg.graph
 
 
-class BluecoreGraph:
+def _remove_triples_by_type(graph: Graph, predicate: URIRef, type_: URIRef) -> None:
     """
-    The BluecoreGraph is instantiated using an existing rdflib Graph for a set
-    of Bibframe Hubs, Works, Instances and "Other" Resources, which are all available
-    using methods that return them as subgraphs. The save method is then used to
-    persist the graph to a given database. If you want to change the default
-    namespace that is used for the bluecore instance you can pass that in with
-    the namespace parameter.
+    Removes blank nodes reachable via predicate that are rdf:typed as
+    type_ (e.g. predicate=BF.identifiedBy, type_=BF.OclcNumber) from the
+    supplied graph, along with the predicate assertion that points to them.
+    """
+    for s, obj in list(graph.subject_objects(predicate=predicate)):
+        if not isinstance(obj, BNode):
+            continue
+        if (obj, RDF.type, type_) in graph:
+            remove_bnode(graph, obj)
+            graph.remove((s, predicate, obj))
 
-    The heuristic that BluecoreGraph uses for updating the database:
 
-    1. Infer any missing assertions in the data that we rely on (notably rdf:type).
-    2. Extract subgraphs for Hubs, Works, Instances and Other Resources in the larger
-       graph. Note: LC catalog data types Hubs as both bf:Hub and bf:Work; they are
-       extracted as Hubs and excluded from Works to avoid double-processing.
-    3. Examine each Hub, Work, Instance and Other Resource graph to see if it has a
-       Bluecore subject URI.
-    4. If it doesn't have a Bluecore subject URI mint one for it, update the graph
-       to use it, and preserve the original URI as a bibframe:derivedFrom assertion.
-    5. Save (or update) each Hub, Work, Instance and Other Resource to the database.
-    6. Save relationships between the Hubs, Works, Instances and Other Resources,
-       being careful to remove existing many-to-many relations with Other Resources
-       prior to adding new ones.
+# The fields of rdflib's in-memory store, which _copy_graph copies.
+_MEMORY_FIELDS = frozenset(
+    {
+        "_Store__node_pickler",
+        "dispatcher",
+        "identifier",
+        "_Memory__spo",
+        "_Memory__pos",
+        "_Memory__osp",
+        "_Memory__namespace",
+        "_Memory__prefix",
+        "_Memory__context_obj_map",
+        "_Memory__tripleContexts",
+        "_Memory__contextTriples",
+        "_Memory__all_contexts",
+        "_Memory__defaultContexts",
+    }
+)
 
-    Stubs: when the save has no primary_class (ingest mode) and the record
-    describes something with adminMetadata of its own, a Hub, Work or Instance
-    without adminMetadata is a stub: a placeholder for something described
-    elsewhere. It is marked mstatus/incmp when its Bluecore URI is minted.
 
-    References: when the save names a primary_class, resources of the other kinds
-    are created if they are absent and never overwritten.
+def _nested_copy(index: dict, depth: int) -> dict:
+    """A copy of index and of the dicts depth levels below it."""
+    if depth == 0:
+        return dict(index)
+    return {key: _nested_copy(value, depth - 1) for key, value in index.items()}
 
-    Inline blank nodes: anonymous Works, Instances and Hubs stay inside their
-    parent's record rather than getting a record of their own, except the one
-    resource an API save is creating.
 
-    The link rule: Other Resource links follow each Work's and Instance's own
-    data, leaving out the predicates in RECORD_PREDICATES and the URIs under
-    LC_RESOURCES, which are records rather than Other Resources.
+def _copy_graph(graph: Graph) -> Graph:
+    """
+    A copy of graph that changes on its own, and gives its resources in the
+    same order.
+
+    The save reads resources in the order the graph gives them (works(),
+    minting, inserts), which for rdflib's in-memory store is the order their
+    triples were added, kept in its indexes and nowhere else. Iterating a graph
+    yields its triples in hash order, so a copy made triple by triple would
+    order them differently in each process. So the copy takes the store's
+    indexes as they are, sharing the terms, which are immutable. That reaches
+    into the store's private fields: a graph whose store isn't laid out as
+    _MEMORY_FIELDS expects is deep-copied instead, which keeps the order too,
+    only more slowly.
+    """
+    store = graph.store
+    if (
+        type(graph) is not Graph
+        or type(store) is not Memory
+        or set(vars(store)) != _MEMORY_FIELDS
+    ):
+        return copy.deepcopy(graph)
+
+    fields = vars(store)
+    copied = Memory()
+    into = vars(copied)
+    for name in ("_Memory__spo", "_Memory__pos", "_Memory__osp"):
+        into[name] = _nested_copy(fields[name], 2)
+    for name in ("_Memory__namespace", "_Memory__prefix"):
+        into[name] = dict(fields[name])
+    # None until the store holds a triple
+    default = fields["_Memory__defaultContexts"]
+    into["_Memory__defaultContexts"] = None if default is None else dict(default)
+    into["_Memory__tripleContexts"] = _nested_copy(fields["_Memory__tripleContexts"], 1)
+    into["_Memory__contextTriples"] = {
+        key: set(triples) for key, triples in fields["_Memory__contextTriples"].items()
+    }
+    # The store maps each context back to its graph; the copy's is the copy.
+    graph_copy = Graph(store=copied, identifier=graph.identifier)
+    into["_Memory__context_obj_map"] = {
+        key: graph_copy for key in fields["_Memory__context_obj_map"]
+    }
+    into["_Memory__all_contexts"] = {graph_copy}
+    return graph_copy
+
+
+class SavePlan:
+    """
+    What a save is going to do, decided from the payload alone: the payload
+    copied and normalised, and the role of every resource in it (see
+    _classify). It reads no database. The caller's graph is copied first, so a
+    save never changes it.
     """
 
     def __init__(
-        self,
-        graph: Graph,
-        namespace: str = "https://bcld.info/",
-        source: str | None = None,
-    ):
-        """
-        Instantiate a BluecoreGraph using an rdflib Graph, and an optional
-        Bluecore Namespace URL: the default is https://bcld.info. source names where
-        the graph came from and is used only in log messages (see save_graph).
-        """
-        if not isinstance(namespace, str):
-            raise TypeError(f"default namespace cannot be {namespace}")
-        elif not namespace.startswith("http"):
-            raise BluecoreGraphError(
-                f"default namespace must be a URL, got {namespace}"
-            )
-        elif not namespace.endswith("/"):
-            namespace += "/"
-        self.namespace = Namespace(namespace)
-        self.graph = graph
+        self, graph: Graph, namespace: Namespace, source: str | None = None
+    ) -> None:
+        self.graph = _copy_graph(graph)
+        self.namespace = namespace
         self.source = source
-        # Each resource the save writes, by kind. Set by save() once minting is
-        # done; empty until then. See Entry.
-        self._entries: dict[Kind, list[Entry]] = {}
-        # Which resources arrived described, the role of each (see _classify),
-        # and what each minted uri was called beforehand. Set by _prepare and
-        # _switch_uris.
-        self._described: set[str] = set()
-        self._roles: Roles = {}
-        self._renamed: dict[str, IdentifiedNode] = {}
-        self._recorded_blank_nodes: set[BNode] = set()
-        self._minted_from: dict[str, IdentifiedNode] = {}
-        # What this save attempt did to each resource's row, by uri: one it
-        # inserted has no existing links to protect. See _action.
-        self._actions: dict[str, Action] = {}
-        # How save() is writing: an Ingest when the caller didn't name the kind
-        # of resource it was writing (the record loader never does), a Write of
-        # that kind when it did (the API routes always do). Set by _prepare; None
-        # until save() runs. See _mode.
-        self._mode: Mode | None = None
+        # How the save writes, and what it decides once it knows (see
+        # prepare): None and empty until then.
+        self.mode: Mode | None = None
+        self.described: set[str] = set()
+        self.roles: Roles = {}
+        self.root: BNode | None = None
+        self.recorded_blank_nodes: set[BNode] = set()
+        # What each Bluecore URI in the graph was called when it arrived, for a
+        # graph saved before (see _classify's arrived_as).
+        self.arrived_as: dict[str, IdentifiedNode] = {}
         # Work these out before _infer, which adds links back up (bf:instanceOf
         # for a bf:hasInstance) that would make a new resource look nested.
         #
         # The blank node a payload named with an empty @id, if any. See
         # _name_new_resource.
-        self._new_resource = self._name_new_resource()
+        self.new_resource = self._name_new_resource()
         # The blank node Works, Instances and Hubs no other one describes, which
         # are the only ones that can be the resource being created; and the
         # blank nodes nothing with a URI reaches. See _find_roots.
-        self._roots, self._unattached = self._find_roots()
-        # The one root a save() with a primary_class is creating, once save()
-        # has found it; every other blank node stays inline. See _find_root.
-        self._root: BNode | None = None
-        # The URI save() minted for that root, so a caller creating a resource
-        # knows which one it created. None when the save created nothing.
-        self.created_uri: URIRef | None = None
+        self.roots, self.unattached = self._find_roots()
         self._infer()
+
+    @classmethod
+    def from_graph(
+        cls,
+        graph: Graph,
+        namespace: Namespace,
+        mode: Mode,
+        source: str | None = None,
+    ) -> "SavePlan":
+        """The plan for saving graph under mode."""
+        plan = cls(graph, namespace, source)
+        plan.prepare(mode)
+        plan.normalise()
+        return plan
+
+    def normalise(self) -> None:
+        """
+        Clean the graph up for saving, once its roles are decided: drop the
+        values the payload duplicated, the stub marker of a resource an API
+        save really describes, and the triples we never persist.
+        """
+        # Strip blank node values the payload itself duplicated, before anything
+        # here has had a chance to alter the graph. A caller is answerable for what
+        # it sent us, not for what our own normalisation went on to do with it -- if
+        # a later step leaves two blank nodes identical, that is ours to fix rather
+        # than something to attribute to the payload in the log.
+        self._strip_duplicate_values()
+
+        # An explicit write from the API is a real description, so it isn't a
+        # stub any more.
+        if isinstance(self.mode, Write):
+            self._clear_stub_marker()
+
+        # Strip the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from the
+        # graph once, before any subgraph is extracted. Each entry's subgraph is
+        # then already clean, so _persist_resources can serialize it directly
+        # rather than copying it just to strip these out.
+        self._strip_excluded_triples()
 
     def _name_new_resource(self) -> BNode | None:
         """
@@ -664,8 +727,8 @@ class BluecoreGraph:
         unattached = blank.difference(
             *(r for record, r in reached.items() if isinstance(record, URIRef))
         )
-        if self._new_resource is not None:
-            return {self._new_resource}, unattached
+        if self.new_resource is not None:
+            return {self.new_resource}, unattached
         roots = {
             node
             for node in blank
@@ -694,12 +757,12 @@ class BluecoreGraph:
             return None
         primary_class = kind.bf_class
         name = str(primary_class).removeprefix(str(BF))
-        if self._new_resource is not None:
-            if (self._new_resource, RDF.type, primary_class) not in self.graph:
+        if self.new_resource is not None:
+            if (self.new_resource, RDF.type, primary_class) not in self.graph:
                 raise BluecoreGraphError(
                     f"The resource with an empty @id is not a {name}"
                 )
-            return self._new_resource
+            return self.new_resource
 
         nodes = {
             node
@@ -708,7 +771,7 @@ class BluecoreGraph:
             if not (primary_class == BF.Work and (node, RDF.type, BF.Hub) in self.graph)
         }
         blank = {node for node in nodes if isinstance(node, BNode)}
-        candidates = blank & self._unattached
+        candidates = blank & self.unattached
         if not candidates:
             if blank and nodes == blank:
                 raise BluecoreGraphError(
@@ -719,7 +782,7 @@ class BluecoreGraph:
             return None
         if len(candidates) == 1:
             return candidates.pop()
-        roots = candidates & self._roots
+        roots = candidates & self.roots
         if len(roots) == 1:
             return roots.pop()
         if roots:
@@ -733,7 +796,7 @@ class BluecoreGraph:
             "Give the one being created an empty @id."
         )
 
-    def _prepare(self, mode: Mode) -> None:
+    def prepare(self, mode: Mode) -> None:
         """
         Decide what this save does with each resource, before anything changes
         the graph: the mode, which resources arrived described, the resource an
@@ -747,53 +810,255 @@ class BluecoreGraph:
         # everything would look like a stub (see _classify).
         # A resource we previously wrote as a stub doesn't count as described
         # just because it comes back carrying the adminMetadata we gave it.
-        self._described = {
+        self.described = {
             str(s)
             for s in self.graph.subjects(BF.adminMetadata, None)
             if not self._marked_stub(s)
         }
-        self._mode = mode
-        # roles are keyed on what each resource is called now; minting renames
-        # them, and _switch_uris notes each rename here (see _classified_as)
-        self._renamed = {}
-        self._root = None
+        self.mode = mode
+        self.root = None
         try:
             if isinstance(mode, Write):
-                self._root = self._find_root(mode.kind)
+                self.root = self._find_root(mode.kind)
         finally:
             # classify even when _find_root refuses the payload, so the
             # accessors still read it under this mode, with nothing created
-            self._roles = _classify(
+            self.roles = _classify(
                 self.graph,
                 mode,
-                self._roots,
-                self._root,
-                self._described,
-                self._minted_from,
+                self.roots,
+                self.root,
+                self.described,
+                self.arrived_as,
             )
-            self._recorded_blank_nodes = {
+            self.recorded_blank_nodes = {
                 node
-                for (node, _), role in self._roles.items()
+                for (node, _), role in self.roles.items()
                 if isinstance(node, BNode) and role != Role.INLINE
             }
 
-    def _current_roles(self) -> Roles:
+    def current_roles(self) -> Roles:
         """
         The roles save() decided, or, before a save, the roles of the graph as it
         is, which the accessors read.
         """
-        if self._mode is None:
-            return _classify(self.graph, None, self._roots, None, set())
-        return self._roles
+        if self.mode is None:
+            return _classify(self.graph, None, self.roots, None, set())
+        return self.roles
 
-    def _role(self, roles: Roles, original: IdentifiedNode, kind: Kind) -> Role:
+    def role(self, roles: Roles, original: IdentifiedNode, kind: Kind) -> Role:
         """The role of the resource of this kind that arrived as original."""
         if kind == Kind.OTHER:
-            return _role_by_mode(self._mode, kind)
+            return _role_by_mode(self.mode, kind)
         role = roles.get((original, kind))
         if role is None:
             raise BluecoreGraphError(f"{original} was not classified as a {kind.value}")
         return role
+
+    def _infer(self) -> None:
+        """
+        Infer some triples that we rely on, and which may be missing.
+        """
+        # Create inverse properties, so a relationship is found whichever end the
+        # payload stated it from. BIBFRAME declares both pairs owl:inverseOf one
+        # another, which licenses the inverse whatever the ends turn out to be.
+        inverse_properties = [
+            (BF.hasInstance, BF.instanceOf),
+            (BF.hasExpression, BF.expressionOf),
+        ]
+        for pred1, pred2 in inverse_properties:
+            # add inverse of pred1
+            for s, o in self.graph.subject_objects(predicate=pred1):
+                self.graph.add((o, pred2, s))
+            # add inverse of pred2
+            for s, o in self.graph.subject_objects(predicate=pred2):
+                self.graph.add((o, pred1, s))
+
+        # now infer some resource types
+        type_rules = [
+            # (property, inferred Object type)
+            (BF.hasInstance, BF.Instance),
+            (BF.instanceOf, BF.Work),
+        ]
+        for predicate, object_type in type_rules:
+            for o in self.graph.objects(predicate=predicate):
+                self.graph.add((o, RDF.type, object_type))
+
+    def _strip_excluded_triples(self) -> None:
+        """
+        Remove the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from
+        self.graph. Called once from save() before subgraphs are extracted, so the
+        entries' subgraphs -- and the JSON-LD serialized from them in
+        _persist_resources -- never contain these triples, and _persist_resources
+        can serialize each one without copying it first.
+        """
+        for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
+            _remove_triples_by_type(self.graph, predicate, type_)
+
+    def _marked_stub(self, subject: Node) -> bool:
+        """Whether we recorded this resource as a stub the last time we saw it."""
+        return any(
+            (admin_metadata, BF.status, STUB_STATUS) in self.graph
+            for admin_metadata in self.graph.objects(subject, BF.adminMetadata)
+        )
+
+    def _clear_stub_marker(self) -> None:
+        """
+        Drop the "incomplete" status of a resource that is now really described.
+
+        Only adminMetadata carries our marker, so this is scoped to those nodes
+        rather than sweeping the graph for the term.
+        """
+        for admin_metadata in list(self.graph.subjects(BF.status, STUB_STATUS)):
+            if (admin_metadata, RDF.type, BF.AdminMetadata) not in self.graph:
+                continue
+            self.graph.remove((admin_metadata, BF.status, STUB_STATUS))
+            self.graph.add((admin_metadata, BF.status, DEFAULT_STATUS))
+
+    def _strip_duplicate_values(self) -> None:
+        """
+        Drop blank node values a resource carries more than once, keeping one of
+        each. See find_duplicate_bnode_values for what counts as a duplicate, and
+        for the kinds of repetition that are left alone.
+
+        Called first from save(), so it judges the graph as it was handed to us
+        rather than after our own normalisation has been over it.
+        See blue-core-lod/bluecore-models#170.
+        """
+        where = f"{self.source}: " if self.source else ""
+        for dup in strip_duplicate_bnode_values(self.graph):
+            value = f": {dup.label!r}" if dup.label else ""
+            logger.warning(
+                f"{where}duplicate value: <{dup.subject}> had {dup.copies} "
+                f"identical <{dup.predicate}> values{value}; "
+                f"stripped {dup.copies - 1}"
+            )
+
+
+class BluecoreGraph:
+    """
+    The BluecoreGraph is instantiated using an existing rdflib Graph for a set
+    of Bibframe Hubs, Works, Instances and "Other" Resources, which are all available
+    using methods that return them as subgraphs. The save method is then used to
+    persist the graph to a given database. If you want to change the default
+    namespace that is used for the bluecore instance you can pass that in with
+    the namespace parameter.
+
+    The heuristic that BluecoreGraph uses for updating the database:
+
+    1. Infer any missing assertions in the data that we rely on (notably rdf:type).
+    2. Extract subgraphs for Hubs, Works, Instances and Other Resources in the larger
+       graph. Note: LC catalog data types Hubs as both bf:Hub and bf:Work; they are
+       extracted as Hubs and excluded from Works to avoid double-processing.
+    3. Examine each Hub, Work, Instance and Other Resource graph to see if it has a
+       Bluecore subject URI.
+    4. If it doesn't have a Bluecore subject URI mint one for it, update the graph
+       to use it, and preserve the original URI as a bibframe:derivedFrom assertion.
+    5. Save (or update) each Hub, Work, Instance and Other Resource to the database.
+    6. Save relationships between the Hubs, Works, Instances and Other Resources,
+       being careful to remove existing many-to-many relations with Other Resources
+       prior to adding new ones.
+
+    Stubs: when the save has no primary_class (ingest mode) and the record
+    describes something with adminMetadata of its own, a Hub, Work or Instance
+    without adminMetadata is a stub: a placeholder for something described
+    elsewhere. It is marked mstatus/incmp when its Bluecore URI is minted.
+
+    References: when the save names a primary_class, resources of the other kinds
+    are created if they are absent and never overwritten.
+
+    Inline blank nodes: anonymous Works, Instances and Hubs stay inside their
+    parent's record rather than getting a record of their own, except the one
+    resource an API save is creating.
+
+    The link rule: Other Resource links follow each Work's and Instance's own
+    data, leaving out the predicates in RECORD_PREDICATES and the URIs under
+    LC_RESOURCES, which are records rather than Other Resources.
+    """
+
+    def __init__(
+        self,
+        graph: Graph,
+        namespace: str = "https://bcld.info/",
+        source: str | None = None,
+    ):
+        """
+        Instantiate a BluecoreGraph using an rdflib Graph, and an optional
+        Bluecore Namespace URL: the default is https://bcld.info. source names where
+        the graph came from and is used only in log messages (see save_graph).
+        """
+        if not isinstance(namespace, str):
+            raise TypeError(f"default namespace cannot be {namespace}")
+        elif not namespace.startswith("http"):
+            raise BluecoreGraphError(
+                f"default namespace must be a URL, got {namespace}"
+            )
+        elif not namespace.endswith("/"):
+            namespace += "/"
+        self.namespace = Namespace(namespace)
+        self.source = source
+        # The payload, copied, and what is decided from it alone. See SavePlan.
+        self._plan = SavePlan(graph, self.namespace, source)
+        # Each resource the save writes, by kind. Set by save() once minting is
+        # done; empty until then. See Entry.
+        self._entries: dict[Kind, list[Entry]] = {}
+        # What each minted uri was called before this save's minting renamed
+        # it. Set by _switch_uris.
+        self._renamed: dict[str, IdentifiedNode] = {}
+        # What this save attempt did to each resource's row, by uri: one it
+        # inserted has no existing links to protect. See _action.
+        self._actions: dict[str, Action] = {}
+        # The URI save() minted for the root it was creating, so a caller
+        # creating a resource knows which one it created. None when the save
+        # created nothing.
+        self.created_uri: URIRef | None = None
+
+    # What the plan decided, under the names the rest of the class reads.
+
+    @property
+    def graph(self) -> Graph:
+        return self._plan.graph
+
+    @property
+    def _mode(self) -> Mode | None:
+        return self._plan.mode
+
+    @property
+    def _roles(self) -> Roles:
+        return self._plan.roles
+
+    @property
+    def _root(self) -> BNode | None:
+        return self._plan.root
+
+    @property
+    def _new_resource(self) -> BNode | None:
+        return self._plan.new_resource
+
+    @property
+    def _recorded_blank_nodes(self) -> set[BNode]:
+        return self._plan.recorded_blank_nodes
+
+    @property
+    def _minted_from(self) -> dict[str, IdentifiedNode]:
+        # the plan classifies a graph saved before by these names
+        return self._plan.arrived_as
+
+    def _prepare(self, mode: Mode) -> None:
+        """Decide the roles under mode (see SavePlan.prepare)."""
+        # roles are keyed on what each resource is called now; minting renames
+        # them, and _switch_uris notes each rename here (see _classified_as)
+        self._renamed = {}
+        self._plan.prepare(mode)
+
+    def _find_root(self, kind: Kind | None) -> BNode | None:
+        return self._plan._find_root(kind)
+
+    def _current_roles(self) -> Roles:
+        return self._plan.current_roles()
+
+    def _role(self, roles: Roles, original: IdentifiedNode, kind: Kind) -> Role:
+        return self._plan.role(roles, original, kind)
 
     def _is_inline(self, node: Node) -> bool:
         """
@@ -863,23 +1128,7 @@ class BluecoreGraph:
 
         mode = _mode(primary_class, update_other_resources)
         self._prepare(mode)
-        # Strip blank node values the payload itself duplicated, before anything
-        # here has had a chance to alter the graph. A caller is answerable for what
-        # it sent us, not for what our own normalisation went on to do with it -- if
-        # a later step leaves two blank nodes identical, that is ours to fix rather
-        # than something to attribute to the payload in the log.
-        self._strip_duplicate_values()
-
-        # An explicit write from the API is a real description, so it isn't a
-        # stub any more.
-        if isinstance(mode, Write):
-            self._clear_stub_marker()
-
-        # Strip the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from the
-        # graph once, before any subgraph is extracted. Each entry's subgraph is
-        # then already clean, so _persist_resources can serialize it directly
-        # rather than copying it just to strip these out.
-        self._strip_excluded_triples()
+        self._plan.normalise()
 
         try:
             for attempt in Retrying(
@@ -935,35 +1184,6 @@ class BluecoreGraph:
         except (OperationalError, IntegrityError) as error:
             logger.error(f"Exceeded {max_attempts} attempts with error {error}")
             raise
-
-    def _infer(self) -> None:
-        """
-        Infer some triples that we rely on, and which may be missing.
-        """
-        # Create inverse properties, so a relationship is found whichever end the
-        # payload stated it from. BIBFRAME declares both pairs owl:inverseOf one
-        # another, which licenses the inverse whatever the ends turn out to be.
-        inverse_properties = [
-            (BF.hasInstance, BF.instanceOf),
-            (BF.hasExpression, BF.expressionOf),
-        ]
-        for pred1, pred2 in inverse_properties:
-            # add inverse of pred1
-            for s, o in self.graph.subject_objects(predicate=pred1):
-                self.graph.add((o, pred2, s))
-            # add inverse of pred2
-            for s, o in self.graph.subject_objects(predicate=pred2):
-                self.graph.add((o, pred1, s))
-
-        # now infer some resource types
-        type_rules = [
-            # (property, inferred Object type)
-            (BF.hasInstance, BF.Instance),
-            (BF.instanceOf, BF.Work),
-        ]
-        for predicate, object_type in type_rules:
-            for o in self.graph.objects(predicate=predicate):
-                self.graph.add((o, RDF.type, object_type))
 
     def _subjects_of(self, kind: Kind, roles: Roles) -> list[IdentifiedNode]:
         """
@@ -1187,21 +1407,6 @@ class BluecoreGraph:
             # remove the link from the resource to the AdminMetadata node
             graph.remove((s, BF.adminMetadata, admin_metadata))
 
-    def _remove_triples_by_type(
-        self, graph: Graph, predicate: URIRef, type_: URIRef
-    ) -> None:
-        """
-        Removes blank nodes reachable via predicate that are rdf:typed as
-        type_ (e.g. predicate=BF.identifiedBy, type_=BF.OclcNumber) from the
-        supplied graph, along with the predicate assertion that points to them.
-        """
-        for s, obj in list(graph.subject_objects(predicate=predicate)):
-            if not isinstance(obj, BNode):
-                continue
-            if (obj, RDF.type, type_) in graph:
-                remove_bnode(graph, obj)
-                graph.remove((s, predicate, obj))
-
     def _mint_all_uris(self, kind: Kind, session: Session) -> None:
         """
         Examine the Bibframe Hubs, Works or Instances (kind) in the graph, and
@@ -1337,37 +1542,6 @@ class BluecoreGraph:
     def _is_bluecore_uri(self, uri) -> bool:
         return uri in self.namespace
 
-    def _strip_excluded_triples(self) -> None:
-        """
-        Remove the triples we never persist (see EXCLUDED_TRIPLE_TYPES) from
-        self.graph. Called once from save() before subgraphs are extracted, so the
-        entries' subgraphs -- and the JSON-LD serialized from them in
-        _persist_resources -- never contain these triples, and _persist_resources
-        can serialize each one without copying it first.
-        """
-        for predicate, type_ in EXCLUDED_TRIPLE_TYPES:
-            self._remove_triples_by_type(self.graph, predicate, type_)
-
-    def _marked_stub(self, subject: Node) -> bool:
-        """Whether we recorded this resource as a stub the last time we saw it."""
-        return any(
-            (admin_metadata, BF.status, STUB_STATUS) in self.graph
-            for admin_metadata in self.graph.objects(subject, BF.adminMetadata)
-        )
-
-    def _clear_stub_marker(self) -> None:
-        """
-        Drop the "incomplete" status of a resource that is now really described.
-
-        Only adminMetadata carries our marker, so this is scoped to those nodes
-        rather than sweeping the graph for the term.
-        """
-        for admin_metadata in list(self.graph.subjects(BF.status, STUB_STATUS)):
-            if (admin_metadata, RDF.type, BF.AdminMetadata) not in self.graph:
-                continue
-            self.graph.remove((admin_metadata, BF.status, STUB_STATUS))
-            self.graph.add((admin_metadata, BF.status, DEFAULT_STATUS))
-
     def _keeps_own_links(self, entry: Entry) -> bool:
         """
         Whether this resource's existing links should be left alone: it is one we
@@ -1381,25 +1555,6 @@ class BluecoreGraph:
             entry.role in (Role.REFERENCE, Role.STUB)
             and self._actions.get(str(entry.subject)) != Action.INSERT
         )
-
-    def _strip_duplicate_values(self) -> None:
-        """
-        Drop blank node values a resource carries more than once, keeping one of
-        each. See find_duplicate_bnode_values for what counts as a duplicate, and
-        for the kinds of repetition that are left alone.
-
-        Called first from save(), so it judges the graph as it was handed to us
-        rather than after our own normalisation has been over it.
-        See blue-core-lod/bluecore-models#170.
-        """
-        where = f"{self.source}: " if self.source else ""
-        for dup in strip_duplicate_bnode_values(self.graph):
-            value = f": {dup.label!r}" if dup.label else ""
-            logger.warning(
-                f"{where}duplicate value: <{dup.subject}> had {dup.copies} "
-                f"identical <{dup.predicate}> values{value}; "
-                f"stripped {dup.copies - 1}"
-            )
 
     def _persist_resources(self, kind: Kind, session: Session, mode: Mode) -> None:
         """
