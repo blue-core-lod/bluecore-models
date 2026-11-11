@@ -836,6 +836,11 @@ class SavePlan(_GraphView):
                     if on_attempt is not None:
                         on_attempt(resolution)
                     resolution.fill(session)
+                    # rendering costs a line per resource, so only when wanted
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"saving {self.source or 'graph'}:\n{resolution.render()}"
+                        )
 
                     # Each entry's action decides what is written: see _action.
                     for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
@@ -1280,6 +1285,27 @@ class Resolution(_GraphView):
 
         for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
             self._decide_actions(kind, session)
+
+    def render(self) -> str:
+        """
+        What the save does, one line per resource, ordered by kind and then
+        subject: its kind, subject, role and action, and what it was called
+        when it arrived if minting renamed it.
+        """
+        lines = []
+        for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
+            for entry in sorted(
+                self.entries.get(kind, []), key=lambda e: str(e.subject)
+            ):
+                action = self.actions.get(str(entry.subject))
+                line = (
+                    f"{kind.value} {entry.subject} {entry.role.value} "
+                    f"{action.value if action is not None else 'unresolved'}"
+                )
+                if entry.original != entry.subject:
+                    line += f" from {entry.original}"
+                lines.append(line)
+        return "\n".join(lines)
 
     def _decide_actions(self, kind: Kind, session: Session) -> None:
         """

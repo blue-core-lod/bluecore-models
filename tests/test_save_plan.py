@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 import pytest
@@ -331,3 +332,38 @@ def test_uri_typed_both_fails_with_autoflush_disabled(engine, pg_session):
         save_graph(sessionmaker(bind=engine, autoflush=False), g)
 
     assert _works_derived_from(pg_session, both) == 0
+
+
+def test_render_is_one_stable_line_per_entry(pg_session):
+    plan = SavePlan.from_graph(_record_with_stub(), NS, INGEST)
+    with pg_session() as session:
+        resolution = plan.resolve(session)
+
+    text = resolution.render()
+
+    lines = text.splitlines()
+    assert len(lines) == sum(len(entries) for entries in resolution.entries.values())
+    assert resolution.render() == text
+    assert any(
+        line.startswith("work ")
+        and " stub insert from http://id.loc.gov/resources/works/" in line
+        for line in lines
+    )
+
+
+def test_save_logs_its_plan_at_debug(pg_session, caplog):
+    caplog.set_level(logging.DEBUG, logger="bluecore_models.bluecore_graph")
+
+    save_graph(pg_session, _record_with_stub())
+
+    assert any(" stub insert from " in record.getMessage() for record in caplog.records)
+
+
+def test_render_is_skipped_when_debug_is_off(pg_session, mocker, caplog):
+    # conftest logs everything at debug, so turn it off here
+    caplog.set_level(logging.INFO, logger="bluecore_models.bluecore_graph")
+    spy = mocker.spy(Resolution, "render")
+
+    save_graph(pg_session, _record_with_stub())
+
+    assert spy.call_count == 0
