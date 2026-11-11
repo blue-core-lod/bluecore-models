@@ -72,6 +72,8 @@ class PolicyCase:
     # the case's Answer, and how to work it out with no database
     answer: Answer
     check: Callable[[], Answer]
+    # for a case about a link, the predicate its cited uri is cited through
+    via: URIRef | None = None
 
 
 # Row id to the row's text in #213. R1-R11 are the resources table in order,
@@ -209,6 +211,7 @@ def resource_answer(
         role=role,
         graph=Graph(),
         original=node,
+        minted=subject != node,
         cited=frozenset(),
     )
     existing = None if stored is None else SimpleNamespace(data=stored)
@@ -813,6 +816,7 @@ def _case(
     *,
     answer: Answer,
     check: Callable[[], Answer],
+    via: URIRef | None = None,
     decision: Decision = "inherited",
     follow_up: str | None = REVIEW_BEFORE_RELOAD,
 ) -> PolicyCase:
@@ -827,6 +831,7 @@ def _case(
         run=run,
         answer=answer,
         check=check,
+        via=via,
     )
 
 
@@ -1499,6 +1504,7 @@ CASES.extend(
             _link_described_in_payload,
             answer=Citation.OTHER,
             check=lambda: _check_heading(True),
+            via=BF.subject,
         ),
         _case(
             "link-held-by-uri",
@@ -1510,6 +1516,7 @@ CASES.extend(
             _link_held_by_uri,
             answer=Citation.OTHER,
             check=lambda: _check_heading(False),
+            via=BF.subject,
         ),
         _case(
             "link-unknown-uri-bare-reference",
@@ -1521,6 +1528,7 @@ CASES.extend(
             _link_unknown_uri_bare_reference,
             answer=Citation.OTHER,
             check=lambda: _check_heading(False),
+            via=BF.subject,
             decision="inherited",
             follow_up="#169 stub rows",
         ),
@@ -1534,6 +1542,7 @@ CASES.extend(
             _link_vocabulary_term,
             answer=Citation.VOCABULARY,
             check=_check_vocabulary_term,
+            via=BF.content,
         ),
         _case(
             "link-record-typed-in-payload",
@@ -1545,6 +1554,7 @@ CASES.extend(
             _link_record_typed_in_payload,
             answer=Citation.RECORD,
             check=_check_record_typed_in_payload,
+            via=BF.subject,
         ),
         _case(
             "link-lc-resources-prefix",
@@ -1556,6 +1566,7 @@ CASES.extend(
             _link_lc_resources_prefix,
             answer=Citation.EXCLUDED,
             check=_check_lc_resources_prefix,
+            via=BF.subject,
         ),
         _case(
             "link-admin-metadata-only-held",
@@ -1567,6 +1578,7 @@ CASES.extend(
             _link_admin_metadata_only_held,
             answer=Citation.ADMIN_ONLY,
             check=lambda: _check_admin_metadata(False),
+            via=BF.status,
         ),
         _case(
             "link-admin-metadata-described",
@@ -1578,6 +1590,7 @@ CASES.extend(
             _link_admin_metadata_described,
             answer=Citation.ADMIN_ONLY,
             check=lambda: _check_admin_metadata(True),
+            via=BF.status,
         ),
         _case(
             "link-lc-item",
@@ -1588,6 +1601,7 @@ CASES.extend(
             _link_lc_item,
             answer=Citation.ITEM,
             check=_check_lc_item,
+            via=BF.hasItem,
             decision="inherited",
             follow_up="Items, decided in Phase 3",
         ),
@@ -1600,6 +1614,7 @@ CASES.extend(
             _hub_link_described,
             answer=Citation.RECORD,
             check=lambda: _check_hub(typed=True),
+            via=BF.expressionOf,
         ),
         _case(
             "hub-link-not-described",
@@ -1611,6 +1626,7 @@ CASES.extend(
             _hub_link_not_described,
             answer=Citation.EXCLUDED,
             check=lambda: _check_hub(typed=False),
+            via=BF.expressionOf,
             decision="inherited",
             follow_up="Hub labels and links",
         ),
@@ -1625,6 +1641,7 @@ CASES.extend(
             _hub_link_hub_not_stored,
             answer=Citation.EXCLUDED,
             check=lambda: _check_hub(typed=False),
+            via=BF.expressionOf,
             decision="inherited",
             follow_up="Hub labels and links",
         ),
@@ -1707,6 +1724,7 @@ for _predicate, _name, _class in (
             # the two the save types as records are minted, the rest excluded
             answer=Citation.RECORD if _name in INFERRED else Citation.EXCLUDED,
             check=_check_excluded_predicate(_predicate, _class),
+            via=_predicate,
         )
     )
 
