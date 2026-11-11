@@ -4,8 +4,9 @@ Today's behaviour of `save_graph`, written down as a policy.
 Each row of the two policy tables in #213 (what happens to each resource, and
 which cited URIs become links) is a key of `ROWS`. Each `PolicyCase` is one
 outcome under one row: it sets up a record, saves it against a real database
-and asserts what the code does today. `render_markdown` turns the cases into the
-table catalogers read. Run this file to print that table.
+and asserts what the code does today. Each also says what the code decides (its
+`Answer`) and how to work that out with no database. `render_document` turns the
+cases into docs/save-policy.md; run this file to print it.
 """
 
 import json
@@ -1710,26 +1711,60 @@ for _predicate, _name, _class in (
     )
 
 
-def _cell(text: str) -> str:
-    return " ".join(text.split()).replace("|", "\\|")
+INTRODUCTION = (
+    "This is how `save_graph` treats each resource and each cited URI today. "
+    "It is generated from `tests/policy_cases.py` by "
+    "`uv run python tests/policy_cases.py > docs/save-policy.md`; don't edit it "
+    "by hand. A case marked *inherited* is what the code already did; nobody has "
+    "chosen it yet."
+)
 
 
-def render_markdown(cases: list[PolicyCase]) -> str:
-    """One table of the cases, ordered by `ROWS` and then by the order given."""
-    order = {row_id: n for n, row_id in enumerate(ROWS)}
-    ordered = sorted(cases, key=lambda case: order[case.row])
-    lines = [
-        "| Row | Situation | Today | For catalogers | Decision |",
-        "| --- | --- | --- | --- | --- |",
+def _sentence(text: str) -> str:
+    """text on one line, ending with a full stop."""
+    text = " ".join(text.split())
+    return text if text.endswith(".") else text + "."
+
+
+def _in_the_code(answer: Answer) -> str:
+    if isinstance(answer, Citation):
+        names = [f"`Citation.{answer.name}`"]
+    else:
+        kind, role, action = answer
+        names = [f"`Kind.{kind.name}`", f"`Role.{role.name}`"]
+        if action is not None:
+            names.append(f"`Action.{action.name}`")
+    return "In the code: " + ", ".join(names) + "."
+
+
+def _paragraphs(case: PolicyCase) -> list[str]:
+    today = _sentence(case.outcome)
+    decision = f"*{case.decision}*"
+    if case.decision == "inherited" and case.follow_up:
+        decision += f", {case.follow_up}"
+    return [
+        f"**{_sentence(case.situation)}** {_sentence(case.sentence)}",
+        f"Today: {today[0].lower()}{today[1:]}",
+        _sentence(f"Decision: {decision}"),
+        _in_the_code(case.answer),
     ]
-    for case in ordered:
-        decision: str = case.decision
-        if case.decision == "inherited" and case.follow_up:
-            decision = f"inherited: {case.follow_up}"
-        cells = [case.row, case.situation, case.outcome, case.sentence, decision]
-        lines.append("| " + " | ".join(_cell(c) for c in cells) + " |")
-    return "\n".join(lines)
+
+
+def render_document(cases: list[PolicyCase]) -> str:
+    """
+    The cases as a document: a section for each row of `ROWS`, in order, with
+    the row's cases under it in the order given.
+    """
+    blocks = ["# What a save does", INTRODUCTION]
+    for row_id, row_text in ROWS.items():
+        in_row = [case for case in cases if case.row == row_id]
+        if not in_row:
+            continue
+        blocks.append(f"## {row_id}: {row_text}")
+        for case in in_row:
+            blocks.extend(_paragraphs(case))
+    return "\n\n".join(blocks) + "\n"
 
 
 if __name__ == "__main__":
-    sys.stdout.write(render_markdown(CASES) + "\n")
+    sys.stdout.write(render_document(CASES))

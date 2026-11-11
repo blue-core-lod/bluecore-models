@@ -1,11 +1,13 @@
+from pathlib import Path
 from typing import Literal
 
 import pytest
-from policy_cases import CASES, ROWS, Answer, PolicyCase, render_markdown
+from policy_cases import CASES, ROWS, Answer, PolicyCase, render_document
 from rdflib import BNode, URIRef
 from sqlalchemy.orm import sessionmaker
 
 from bluecore_models.bluecore_graph import (
+    Action,
     BluecoreGraph,
     Citation,
     Kind,
@@ -40,31 +42,51 @@ def _case(
     )
 
 
-def test_render_markdown_lists_each_case_under_its_row():
+def test_document_puts_each_case_under_its_row():
     later = _case("a-resource", "R2", "A described resource is saved.", "chosen")
     earlier = _case("a-link", "L1", "A described citation is linked.", "inherited")
 
-    table = render_markdown([later, earlier])
-    lines = table.splitlines()
+    doc = render_document([later, earlier])
 
-    assert lines[0].split("|")[1:-1] == [
-        " Row ",
-        " Situation ",
-        " Today ",
-        " For catalogers ",
-        " Decision ",
-    ]
-    assert "A described resource is saved." in table
-    assert "A described citation is linked." in table
     # R rows come before L rows in ROWS, whatever order the cases are given in
     assert list(ROWS).index("R2") < list(ROWS).index("L1")
-    assert table.index("A described resource") < table.index("A described citation")
-    inherited_line = next(line for line in lines if "A described citation" in line)
-    assert "inherited" in inherited_line
-    assert "#169" in inherited_line
-    chosen_line = next(line for line in lines if "A described resource" in line)
-    assert "chosen" in chosen_line
-    assert "inherited" not in chosen_line
+    assert (
+        doc.index("## R2: ") < doc.index("A described resource") < doc.index("## L1: ")
+    )
+    assert doc.index("## L1: ") < doc.index("A described citation")
+    assert "**situation of a-resource.** A described resource is saved." in doc
+    assert "Today: outcome of a-resource." in doc
+    assert "Decision: *inherited*, #169." in doc
+    assert "Decision: *chosen*." in doc
+    assert doc.endswith(".\n") and not doc.endswith("\n\n")
+
+
+def test_document_says_what_the_code_does():
+    resource = _case(
+        "a-stub",
+        "R3",
+        "A stub is saved.",
+        "chosen",
+        answer=(Kind.WORK, Role.STUB, Action.INSERT),
+    )
+    inline = _case(
+        "a-blank", "R1", "It stays inline.", "chosen", (Kind.WORK, Role.INLINE, None)
+    )
+    link = _case("a-link", "L1", "It is linked.", "chosen", Citation.OTHER)
+
+    doc = render_document([resource, inline, link])
+
+    assert "In the code: `Kind.WORK`, `Role.STUB`, `Action.INSERT`." in doc
+    assert "In the code: `Kind.WORK`, `Role.INLINE`." in doc
+    assert "In the code: `Citation.OTHER`." in doc
+
+
+def test_published_document_matches_the_cases():
+    published = (Path(__file__).parent.parent / "docs" / "save-policy.md").read_text()
+    assert published == render_document(CASES), (
+        "docs/save-policy.md is out of date: run "
+        "uv run python tests/policy_cases.py > docs/save-policy.md"
+    )
 
 
 def test_case_ids_are_unique():
