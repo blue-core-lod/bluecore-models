@@ -2844,6 +2844,191 @@ def test_derived_from_lookup_uses_type_and_derived_from_index(
 
 
 # ---------------------------------------------------------------------------
+# record_derived_from: a save can leave the original uris it minted from unrecorded
+# ---------------------------------------------------------------------------
+
+
+def _marc_import() -> tuple[Graph, URIRef, URIRef]:
+    """
+    A Work and Instance shaped the way marc2bibframe2 converts a MARC record,
+    under the placeholder uris it gives them by default. The record number is
+    unique, since pg_session keeps rows between tests.
+    """
+    record = f"http://example.org/in{uuid.uuid4().hex}"
+    work, instance = URIRef(f"{record}#Work"), URIRef(f"{record}#Instance")
+    g = Graph()
+    g.add((work, RDF.type, BF.Work))
+    g.add((work, RDFS.label, Literal("Imported Work")))
+    g.add((work, BF.hasInstance, instance))
+    g.add((instance, RDF.type, BF.Instance))
+    g.add((instance, RDFS.label, Literal("Imported Instance")))
+    g.add((instance, BF.instanceOf, work))
+    return g, work, instance
+
+
+def _instance(session, uri: str) -> Instance:
+    return session.query(Instance).where(Instance.uri == uri).one()
+
+
+def _admin_metadata(data: dict) -> list[dict]:
+    admin_metadata = data.get("adminMetadata", [])
+    return admin_metadata if isinstance(admin_metadata, list) else [admin_metadata]
+
+
+def test_minted_resources_record_derived_from_by_default(pg_session):
+    """
+    Without record_derived_from, a minted Work and Instance record the uris they
+    were minted from, in the returned graph and in the data we store: the record
+    loader finds them again by it.
+    """
+    g, work, instance = _marc_import()
+
+    graph = save_graph(pg_session, g, primary_class=BF.Work)
+
+    work_uri, instance_uri = _minted(graph, str(work)), _minted(graph, str(instance))
+    with pg_session() as session:
+        assert _derived_from_ids(_fetch(session, work_uri).data) == [str(work)]
+        assert _derived_from_ids(_instance(session, instance_uri).data) == [
+            str(instance)
+        ]
+
+
+def test_marc_import_without_derived_from(pg_session):
+    """
+    A MARC import's placeholder uris name nothing, so with record_derived_from
+    off the save mints Bluecore uris and saves the Instance as its own record
+    without recording the placeholders, and still generates the AdminMetadata.
+    """
+    g, work, instance = _marc_import()
+
+    graph = save_graph(pg_session, g, primary_class=BF.Work, record_derived_from=False)
+
+    assert not list(graph.triples((None, BF.derivedFrom, None)))
+    assert (work, None, None) not in graph
+    assert (instance, None, None) not in graph
+    [work_uri] = graph.subjects(RDF.type, BF.Work)
+    [instance_uri] = graph.subjects(RDF.type, BF.Instance)
+    assert str(work_uri).startswith("https://bcld.info/works/")
+    assert str(instance_uri).startswith("https://bcld.info/instances/")
+    assert (work_uri, BF.hasInstance, instance_uri) in graph
+
+    with pg_session() as session:
+        stored_work = _fetch(session, str(work_uri))
+        stored_instance = _instance(session, str(instance_uri))
+        assert stored_instance.work_id == stored_work.id
+        for stored in (stored_work, stored_instance):
+            assert _derived_from_ids(stored.data) == []
+            admin_metadata = _admin_metadata(stored.data)
+            assert len(admin_metadata) == 2
+            assert _statuses(stored.data) == [str(bluecore_graph.DEFAULT_STATUS)]
+            assert any("bflc:catalogerId" in block for block in admin_metadata)
+
+
+@pytest.mark.parametrize(
+    "types, primary_class, sqla_class",
+    [
+        ([BF.Work], BF.Work, Work),
+        ([BF.Instance], BF.Instance, Instance),
+        ([BF.Hub, BF.Work], BF.Hub, Hub),
+    ],
+)
+def test_minting_without_derived_from(pg_session, types, primary_class, sqla_class):
+    """
+    Turning record_derived_from off leaves out only the bf:derivedFrom triple:
+    Works, Instances and Hubs are still minted, remembered as minted from their
+    original uri, and given both AdminMetadata blocks.
+    """
+    source = URIRef(f"http://example.org/{uuid.uuid4().hex}")
+    g = Graph()
+    for type_ in types:
+        g.add((source, RDF.type, type_))
+    g.add((source, RDFS.label, Literal("Placeholder")))
+
+    bg = BluecoreGraph(g, record_derived_from=False)
+    bg.save(pg_session, primary_class=primary_class)
+
+    [(minted, minted_from)] = bg._minted_from.items()
+    assert minted_from == source
+    assert not list(bg.graph.triples((None, BF.derivedFrom, None)))
+    assert len(list(bg.graph.objects(URIRef(minted), BF.adminMetadata))) == 2
+    with pg_session() as session:
+        row = session.query(sqla_class).where(sqla_class.uri == minted).one()
+        assert _derived_from_ids(row.data) == []
+        assert len(_admin_metadata(row.data)) == 2
+
+
+def test_saving_a_placeholder_twice_without_derived_from_gives_two_records(
+    pg_session,
+):
+    """
+    Nothing records the placeholders, so saving the same MARC import again finds
+    nothing to update and creates new records.
+    """
+    g, _, _ = _marc_import()
+    again = Graph()
+    for triple in g:
+        again.add(triple)
+
+    one = save_graph(pg_session, g, primary_class=BF.Work, record_derived_from=False)
+    two = save_graph(
+        pg_session, again, primary_class=BF.Work, record_derived_from=False
+    )
+
+    [work_one], [work_two] = (
+        one.subjects(RDF.type, BF.Work),
+        two.subjects(RDF.type, BF.Work),
+    )
+    [instance_one], [instance_two] = (
+        one.subjects(RDF.type, BF.Instance),
+        two.subjects(RDF.type, BF.Instance),
+    )
+    assert work_one != work_two
+    assert instance_one != instance_two
+    with pg_session() as session:
+        assert _fetch(session, str(work_one)) is not None
+        assert _fetch(session, str(work_two)) is not None
+
+
+def test_without_derived_from_a_placeholder_still_finds_a_recorded_one(pg_session):
+    """
+    record_derived_from only stops the save recording uris; it still looks them
+    up. A placeholder an earlier save did record resolves to that record, which
+    the import updates.
+    """
+    g, work, _ = _marc_import()
+    recorded = Graph()
+    for triple in g:
+        recorded.add(triple)
+    work_uri = _minted(
+        save_graph(pg_session, recorded, primary_class=BF.Work), str(work)
+    )
+
+    graph = save_graph(pg_session, g, primary_class=BF.Work, record_derived_from=False)
+
+    assert list(graph.subjects(RDF.type, BF.Work)) == [URIRef(work_uri)]
+
+
+def test_without_derived_from_an_incoming_derived_from_is_kept(pg_session):
+    """
+    record_derived_from only affects what the save adds: a derivedFrom the
+    payload gives a resource it isn't minting is saved as it came.
+    """
+    work_uri = _new_uri("works")
+    source = URIRef(f"http://example.org/{uuid.uuid4().hex}")
+    g = Graph()
+    g.add((URIRef(work_uri), RDF.type, BF.Work))
+    admin_metadata = BNode()
+    g.add((URIRef(work_uri), BF.adminMetadata, admin_metadata))
+    g.add((admin_metadata, RDF.type, BF.AdminMetadata))
+    g.add((admin_metadata, BF.derivedFrom, source))
+
+    save_graph(pg_session, g, primary_class=BF.Work, record_derived_from=False)
+
+    with pg_session() as session:
+        assert _derived_from_ids(_fetch(session, work_uri).data) == [str(source)]
+
+
+# ---------------------------------------------------------------------------
 # Other Resource links follow the stored data, not the payload's shape (#169)
 # ---------------------------------------------------------------------------
 
