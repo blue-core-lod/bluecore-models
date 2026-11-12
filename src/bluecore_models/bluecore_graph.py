@@ -441,12 +441,14 @@ def save_graph(
     primary_class=None,
     update_other_resources: bool = True,
     source: str | None = None,
+    record_derived_from: bool = True,
 ) -> Graph:
     """
     Use the supplied database sessionmaker to create a database session and
     persist all the resources found in the Graph. The possibly modified graph is
     returned, which will contain any new URIs that were minted, as well as
-    bibframe:derivedFrom assertions for the original URIs.
+    (unless record_derived_from is False) bibframe:derivedFrom assertions for the
+    original URIs.
 
     primary_class marks which kind of resource the caller is authoritatively
     writing: BF.Work, BF.Instance, BF.Hub, or the OtherResource model class.
@@ -467,8 +469,15 @@ def save_graph(
     only used in log messages and errors, so that a rejected payload can be traced
     back to the thing that produced it. Worth passing when loading in bulk, where
     the resource URIs in a message may not identify the file they arrived in.
+
+    record_derived_from=False stops the save recording the original URI of each
+    Hub, Work or Instance it mints a Bluecore URI for, for a caller whose URIs
+    name nothing, such as the placeholders a MARC conversion gives them. See
+    BluecoreGraph.
     """
-    bg = BluecoreGraph(graph, namespace, source=source)
+    bg = BluecoreGraph(
+        graph, namespace, source=source, record_derived_from=record_derived_from
+    )
     bg.save(
         session_maker,
         primary_class=primary_class,
@@ -495,7 +504,8 @@ class BluecoreGraph:
     3. Examine each Hub, Work, Instance and Other Resource graph to see if it has a
        Bluecore subject URI.
     4. If it doesn't have a Bluecore subject URI mint one for it, update the graph
-       to use it, and preserve the original URI as a bibframe:derivedFrom assertion.
+       to use it, and preserve the original URI as a bibframe:derivedFrom assertion
+       (unless record_derived_from is False).
     5. Save (or update) each Hub, Work, Instance and Other Resource to the database.
     6. Save relationships between the Hubs, Works, Instances and Other Resources,
        being careful to remove existing many-to-many relations with Other Resources
@@ -516,6 +526,21 @@ class BluecoreGraph:
     The link rule: Other Resource links follow each Work's and Instance's own
     data, leaving out the predicates in RECORD_PREDICATES and the URIs under
     LC_RESOURCES, which are records rather than Other Resources.
+
+    Recording derivedFrom: by default each resource minted a Bluecore URI records
+    its original URI as a bf:derivedFrom on its AdminMetadata, which is how a later
+    save of the same record (the record loader's, say) finds it again. Pass
+    record_derived_from=False when the original URIs name nothing, such as the
+    placeholders a MARC conversion gives them (http://example.org/...#Work): the
+    save then mints, renames and generates the AdminMetadata as before, but adds
+    no bf:derivedFrom. Other Resources keep their URIs, so they record none either
+    way, and a bf:derivedFrom the payload itself carries is left as it is.
+
+    It only stops the save recording; it still looks them up. A URI that a
+    derivedFrom in the payload, or one already stored, records still resolves
+    to that Bluecore resource, which the save then updates. A placeholder
+    nothing records gets a new URI, so saving the same import twice creates two
+    records.
     """
 
     def __init__(
@@ -523,11 +548,14 @@ class BluecoreGraph:
         graph: Graph,
         namespace: str = "https://bcld.info/",
         source: str | None = None,
+        record_derived_from: bool = True,
     ):
         """
         Instantiate a BluecoreGraph using an rdflib Graph, and an optional
         Bluecore Namespace URL: the default is https://bcld.info. source names where
         the graph came from and is used only in log messages (see save_graph).
+        record_derived_from=False stops save() recording the original URIs of the
+        resources it mints (see above).
         """
         if not isinstance(namespace, str):
             raise TypeError(f"default namespace cannot be {namespace}")
@@ -540,6 +568,7 @@ class BluecoreGraph:
         self.namespace = Namespace(namespace)
         self.graph = graph
         self.source = source
+        self.record_derived_from = record_derived_from
         # Each resource the save writes, by kind. Set by save() once minting is
         # done; empty until then. See Entry.
         self._entries: dict[Kind, list[Entry]] = {}
@@ -1105,7 +1134,7 @@ class BluecoreGraph:
     def _generate_admin_metadata(
         self,
         bluecore_uri: URIRef,
-        source_uri: URIRef,
+        source_uri: URIRef | None,
         status: URIRef = DEFAULT_STATUS,
         agent: URIRef = DEFAULT_AGENT,
         desc_auth: URIRef = DEFAULT_DESC_AUTH,
@@ -1115,8 +1144,10 @@ class BluecoreGraph:
     ):
         """
         Generates two bf:AdminMetadata blank nodes for incoming RDF resources that are
-        derived from existing RDF resources. stub records that we hold only a
-        placeholder description of this resource.
+        derived from existing RDF resources, replacing any blank node ones the
+        resource arrived with. The first records source_uri as bf:derivedFrom; with
+        source_uri None it records none, and both are otherwise the same. stub
+        records that we hold only a placeholder description of this resource.
         """
 
         time_stamp = datetime.datetime.now(datetime.UTC)
@@ -1140,7 +1171,8 @@ class BluecoreGraph:
                 Literal(time_stamp.isoformat(), datatype=XSD.dateTime),
             )
         )
-        self.graph.add((first_admin_metadata, BF.derivedFrom, source_uri))
+        if source_uri is not None:
+            self.graph.add((first_admin_metadata, BF.derivedFrom, source_uri))
         self.graph.add((first_admin_metadata, BF.status, status))
 
         # Second bf:AdminMetadata
@@ -1207,7 +1239,8 @@ class BluecoreGraph:
         Examine the Bibframe Hubs, Works or Instances (kind) in the graph, and
         mint Bluecore URIs for them as needed. This method takes into account that
         a resource with a non-Bluecore URI may already be in the database under in
-        its derivedFrom URI.
+        its derivedFrom URI. It looks them up even when record_derived_from is
+        False, which only stops the save recording new ones.
         """
         # there's nothing to do for one that already has a bluecore URI
         uris = [
@@ -1318,8 +1351,10 @@ class BluecoreGraph:
         """
         Updates the supplied graph so that assertions involving the
         derived_from as the subject now use the bluecore_uri in its place.
-        A bibframe:derivedFrom assertion is added to record the relationship
-        if the derived_from is URIRef, marking a stub of kind as one.
+        If the derived_from is URIRef the AdminMetadata is generated, marking a
+        stub of kind as one, with a bibframe:derivedFrom assertion to record the
+        relationship unless record_derived_from is False. Either way the rename
+        is noted in _minted_from.
         """
         self._minted_from[str(bluecore_uri)] = derived_from
         self._renamed[str(bluecore_uri)] = derived_from
@@ -1330,7 +1365,7 @@ class BluecoreGraph:
         if isinstance(derived_from, URIRef):
             self._generate_admin_metadata(
                 bluecore_uri,
-                derived_from,
+                derived_from if self.record_derived_from else None,
                 stub=self._roles.get((derived_from, kind)) == Role.STUB,
             )
 
