@@ -20,11 +20,11 @@ from bluecore_models.bluecore_graph import (
     Resolution,
     Role,
     SavePlan,
-    _copy_graph,
-    _mode,
     save,
     save_graph,
 )
+from bluecore_models.bluecore_graph.policy import _mode
+from bluecore_models.bluecore_graph.save import _copy_graph
 from bluecore_models.models import Instance
 from bluecore_models.namespaces import BF, RDF, RDFS
 

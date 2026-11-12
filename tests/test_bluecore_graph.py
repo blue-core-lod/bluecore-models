@@ -17,10 +17,10 @@ from bluecore_models.bluecore_graph import (
     Role,
     SavePlan,
     Write,
-    _stored_is_stub,
     save,
     save_graph,
 )
+from bluecore_models.bluecore_graph.policy import _stored_is_stub
 from bluecore_models.models import (
     BibframeOtherResources,
     Hub,
