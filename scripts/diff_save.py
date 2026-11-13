@@ -2,9 +2,10 @@
 """Differential harness for ``save_graph``.
 
 Loads the same records with two versions of the code, takes a canonical
-snapshot of each database, and compares them. Later phases of the
-BluecoreGraph refactor (#215) must not change what ``save_graph`` writes; this
-is how they show it.
+snapshot of each database, and compares them, so a change to the save can show
+what it changes in what ``save_graph`` writes, or that it changes nothing.
+docs/checking-save-changes.md says when to run it and how; this docstring is
+the reference. It was written for the BluecoreGraph refactor (#213).
 
 Write the shared sample once (it's committed as tests/data/harness-sample.tar.gz).
 It holds the first 200 members of each batch, and its bytes are reproducible.
@@ -24,24 +25,26 @@ failure or Ctrl-C. Docker must be running. Two runs can go in parallel. If you
 bring your own empty database, pass ``--database-url`` instead (the harness
 then never touches Docker).
 
-The baseline run puts the 7f0064c code first on PYTHONPATH, and the script
-prints which ``bluecore_models`` it imported, so check that line:
+The baseline is the commit your branch started from (``<base>``, usually
+``git merge-base origin/main HEAD``). The baseline run puts that code first on
+PYTHONPATH, and the script prints which ``bluecore_models`` it imported, so
+check that line:
 
-    git worktree add ../bluecore-models-7f0064c 7f0064c
+    git worktree add ../bluecore-models-base <base>
     mkdir harness-out
-    PYTHONPATH=../bluecore-models-7f0064c/src uv run python scripts/diff_save.py run \\
+    PYTHONPATH=../bluecore-models-base/src uv run python scripts/diff_save.py run \\
         --docker --corpus tests/data/harness-sample.tar.gz --sequences \\
-        --out harness-out/a.json
+        --out harness-out/base.json
 
 Then run the branch, with no PYTHONPATH, and compare:
 
     uv run python scripts/diff_save.py run \\
         --docker --corpus tests/data/harness-sample.tar.gz --sequences \\
         --out harness-out/branch.json
-    uv run python scripts/diff_save.py compare harness-out/a.json harness-out/branch.json
+    uv run python scripts/diff_save.py compare harness-out/base.json harness-out/branch.json
 
 To check that the harness is deterministic, run the baseline twice and compare
-with ``compare harness-out/a.json harness-out/b.json --same-code``.
+with ``compare harness-out/base.json harness-out/base2.json --same-code``.
 
 A full run loads 7,000 records twice and takes about 45-50 minutes per side,
 whether or not two run in parallel. While working, use the quick check, which
@@ -49,24 +52,25 @@ takes the first 25 members of each batch. It needs both sides, a baseline
 snapshot and a branch snapshot, and ``compare`` refuses snapshots whose
 selections differ, so give both the same ``--per-batch``:
 
-    PYTHONPATH=../bluecore-models-7f0064c/src uv run python scripts/diff_save.py run \\
+    PYTHONPATH=../bluecore-models-base/src uv run python scripts/diff_save.py run \\
         --docker --per-batch 25 --corpus tests/data/harness-sample.tar.gz \\
-        --sequences --out harness-out/quick-a.json
+        --sequences --out harness-out/quick-base.json
     uv run python scripts/diff_save.py run \\
         --docker --per-batch 25 --corpus tests/data/harness-sample.tar.gz \\
         --sequences --out harness-out/quick.json
     uv run python scripts/diff_save.py compare \\
-        harness-out/quick-a.json harness-out/quick.json
+        harness-out/quick-base.json harness-out/quick.json
 
 The snapshots are large, about 60 MB each for a full run, and are never
 committed: harness-out/ is in .gitignore.
 
 Clean up when you are done:
 
-    git worktree remove ../bluecore-models-7f0064c
+    git worktree remove ../bluecore-models-base
 
-The script uses only the public API that exists at 7f0064c, so the same file
-runs against both.
+Both sides run this file, so it must use only public API that exists at the
+baseline. Today it runs against any commit from 7f0064c, the commit before
+the refactor, on.
 
 Bluecore URIs are minted from uuid4, and the saves stamp the time on the
 AdminMetadata they generate, so neither is comparable between runs. A snapshot

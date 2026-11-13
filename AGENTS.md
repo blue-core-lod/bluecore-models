@@ -19,18 +19,21 @@ uv run pytest
 
 The README has more on running tests, migrations and the benchmark.
 
-## The BluecoreGraph refactor
+## Changing what a save writes
 
-While the `BluecoreGraph` refactor
-([#213](https://github.com/blue-core-lod/bluecore-models/issues/213)) is in
-progress, a refactor phase must not change behaviour: `save_graph` has to write
-exactly what it wrote before. Before you open a PR for a phase, follow
-[docs/bluecoregraph-refactor-checks.md](docs/bluecoregraph-refactor-checks.md).
+Before you open a PR that changes how `save_graph` and `BluecoreGraph` save a
+graph, follow [docs/checking-save-changes.md](docs/checking-save-changes.md). It
+says which changes need the differential harness and the benchmark, and how to
+run them against the commit your branch started from.
+
+A change to what a save writes is a change to the policy: see
+[docs/save-policy.md](docs/save-policy.md#changing-the-policy).
 
 ## Where to find things
 
-- `docs/bluecoregraph.md`: the analysis the refactor started from. Where it
-  disagrees with #213, #213 is right.
-- `docs/bluecoregraph-refactor-checks.md`: the runbook for checking a phase.
-- `tests/policy_cases.py`: the policy cases, once Phase 0b lands.
-- #213: the plan and the phases.
+- `docs/save-policy.md`: what a save does with each resource, generated from
+  `tests/policy_cases.py`.
+- `docs/checking-save-changes.md`: how to check a change to the save.
+- `docs/bluecoregraph.md`: the analysis the `BluecoreGraph` refactor started
+  from. Where it disagrees with #213, #213 is right.
+- #213: the refactor's plan and phases, now finished.
