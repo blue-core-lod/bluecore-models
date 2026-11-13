@@ -1917,10 +1917,10 @@ def test_stub_keeps_the_links_its_description_gave_it(pg_session):
         assert agent in _linked_others(session, _fetch(session, uri))
 
 
-def test_saving_the_same_bluecore_graph_twice_gives_the_same_rows(pg_session):
+def test_saving_the_same_bluecore_graph_twice_raises(pg_session):
     """
-    Saving the same BluecoreGraph a second time must leave the rows it wrote
-    the first time unchanged, and the stub must stay marked incomplete.
+    A BluecoreGraph saves once. A second save must raise, write nothing, and
+    leave what the first save did readable.
     """
     described, stub = _ext_uri("works"), _ext_uri("works")
     bg = BluecoreGraph(_record(described, "Saved Twice", stub=stub))
@@ -1932,14 +1932,15 @@ def test_saving_the_same_bluecore_graph_twice_gives_the_same_rows(pg_session):
             uri: json.dumps(_fetch(session, uri).data, sort_keys=True) for uri in uris
         }
 
-    bg.save(pg_session)
+    with pytest.raises(BluecoreGraphError, match="saves once"):
+        bg.save(pg_session)
 
+    assert [_minted(bg.graph, described), _minted(bg.graph, stub)] == uris
     with pg_session() as session:
         second = {
             uri: json.dumps(_fetch(session, uri).data, sort_keys=True) for uri in uris
         }
         assert second == first
-        assert STUB_STATUS_ID in _statuses(_fetch(session, uris[1]).data)
 
 
 def test_reingesting_a_record_does_not_overwrite_edits(pg_session):

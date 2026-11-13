@@ -438,19 +438,12 @@ class SavePlan(_GraphView):
         # prepare): None and empty until then.
         self.mode: Mode | None = None
         self.described: set[str] = set()
-        # For a plan saving again what an earlier save saved, which resources
-        # arrived described the first time (see after); None for a payload.
-        self.carried_described: set[str] | None = None
         self.roles: Roles = {}
         self.root: BNode | None = None
         self.recorded_blank_nodes: set[BNode] = set()
-        # What each Bluecore URI in the graph was called when it arrived, for a
-        # graph saved before (see _classify's arrived_as).
-        self.arrived_as: dict[str, IdentifiedNode] = {}
-        # Nothing has been renamed before minting, and the names minted before
-        # are the ones it arrived with.
+        # Nothing is renamed or minted before a resolution mints.
         self.renamed = {}
-        self.minted_from = self.arrived_as
+        self.minted_from = {}
         # Work these out before _infer, which adds links back up (bf:instanceOf
         # for a bf:hasInstance) that would make a new resource look nested.
         #
@@ -556,35 +549,6 @@ class SavePlan(_GraphView):
             raise
         assert committed is not None
         return committed
-
-    def after(self, resolution: "Resolution") -> "SavePlan":
-        """
-        The plan for saving again what resolution saved: its graph, minted, with
-        what each Bluecore URI was called when it arrived. The resource being
-        created and the roots are the ones found when the payload arrived.
-        """
-        plan = SavePlan.__new__(SavePlan)
-        plan.graph = _copy_graph(resolution.graph)
-        plan.namespace = self.namespace
-        plan.source = self.source
-        plan.mode = None
-        plan.described = set()
-        # Judge stubs as the first save did: minting writes adminMetadata,
-        # and our stub marker, onto everything it mints.
-        plan.carried_described = (
-            self.carried_described
-            if self.carried_described is not None
-            else set(self.described)
-        )
-        plan.roles = {}
-        plan.root = None
-        plan.recorded_blank_nodes = set()
-        plan.arrived_as = dict(resolution.minted_from)
-        plan.renamed = {}
-        plan.minted_from = plan.arrived_as
-        plan.new_resource = self.new_resource
-        plan.roots, plan.unattached = self.roots, self.unattached
-        return plan
 
     @classmethod
     def from_graph(
@@ -794,15 +758,11 @@ class SavePlan(_GraphView):
         # everything would look like a stub (see _classify).
         # A resource we previously wrote as a stub doesn't count as described
         # just because it comes back carrying the adminMetadata we gave it.
-        if self.carried_described is not None:
-            # saving again: what arrived described, by the names it arrived with
-            self.described = set(self.carried_described)
-        else:
-            self.described = {
-                str(s)
-                for s in self.graph.subjects(BF.adminMetadata, None)
-                if not self._marked_stub(s)
-            }
+        self.described = {
+            str(s)
+            for s in self.graph.subjects(BF.adminMetadata, None)
+            if not self._marked_stub(s)
+        }
         self.mode = mode
         self.root = None
         try:
@@ -817,7 +777,6 @@ class SavePlan(_GraphView):
                 self.roots,
                 self.root,
                 self.described,
-                self.arrived_as,
             )
             self.recorded_blank_nodes = {
                 node
@@ -936,7 +895,7 @@ class Resolution(_GraphView):
         self.plan = plan
         self.namespace = plan.namespace
         self.graph = _copy_graph(plan.graph)
-        self.minted_from = dict(plan.arrived_as)
+        self.minted_from = {}
         self.renamed = {}
         # The URI minted for the root a Write is creating, so a caller creating
         # a resource knows which one it created. None when it creates nothing.
@@ -1525,6 +1484,8 @@ class BluecoreGraph:
         # The resolution of the last attempt to save, committed or not; None
         # before a save. See Resolution.
         self._resolution: Resolution | None = None
+        # Whether save() has been called: a BluecoreGraph saves once.
+        self._saved = False
 
     # What the plan decided and the last attempt resolved, under the names the
     # rest of the class reads.
@@ -1624,6 +1585,9 @@ class BluecoreGraph:
         aborted by Postgres with a deadlock or serialization failure. Since a
         graph save is self-contained and idempotent, we simply re-run the whole
         thing on a fresh session up to max_attempts times.
+
+        A BluecoreGraph saves once, whether or not that save succeeds. To save
+        the same graph again, make a new BluecoreGraph from it.
         """
 
         def log_retry(retry_state) -> None:
@@ -1633,11 +1597,12 @@ class BluecoreGraph:
                 f"(attempt {retry_state.attempt_number} of {max_attempts})"
             )
 
+        if self._saved:
+            raise BluecoreGraphError(
+                "A BluecoreGraph saves once; make a new one to save the graph again"
+            )
+        self._saved = True
         mode = _mode(primary_class, update_other_resources)
-        if self._resolution is not None:
-            # saving again what the last save saved
-            self._plan = self._plan.after(self._resolution)
-            self._resolution = None
         self._prepare(mode)
         self._plan.normalise()
         self._plan.apply(session_maker, max_attempts, on_attempt=self._attempted)
