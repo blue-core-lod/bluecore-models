@@ -1,6 +1,7 @@
 import pytest
 
-from bluecore_models.bluecore_graph import Ingest, Kind, Write, _mode
+from bluecore_models.bluecore_graph import Ingest, Kind, Write
+from bluecore_models.bluecore_graph.policy import _mode
 from bluecore_models.models import OtherResource
 from bluecore_models.namespaces import BF
 

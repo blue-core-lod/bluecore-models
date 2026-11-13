@@ -13,9 +13,8 @@ from bluecore_models.bluecore_graph import (
     Citation,
     Kind,
     Role,
-    _admin_nodes,
-    _citation,
 )
+from bluecore_models.bluecore_graph.policy import _admin_nodes, _citation
 
 
 def _noop(session_maker: sessionmaker) -> None:

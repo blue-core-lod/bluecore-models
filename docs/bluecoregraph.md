@@ -2,6 +2,8 @@
 
 Reviewed October 31, 2026 · [blue-core-lod/bluecore-models](https://github.com/blue-core-lod/bluecore-models)
 
+> **This is the analysis from before the refactor (#213).** For how the code works now, see the `bluecore_models.bluecore_graph` package docstring and [`docs/save-policy.md`](save-policy.md).
+
 > **How to read this, as of 6 November 2026.** This is the analysis the refactor started from. It was written away from the code, and the plan in [#213](https://github.com/blue-core-lod/bluecore-models/issues/213) corrects parts of it after checking against `bluecore_graph.py` and its callers. **Where the two disagree, #213 is right.** Passages that #213 corrects are marked *Update* below. Use #213 for the phases, the baseline commit, line numbers and the current API sketch, and this document for the reasoning and background.
 
 ## Verdict

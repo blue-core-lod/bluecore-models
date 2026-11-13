@@ -81,7 +81,7 @@ class BibframeOtherResources(Base):
 def create_version(mapper: Any, connection: Connection, target: OtherResource):
     """
     Creates a Version
-    BibframeOtherResources are updated by bluecore_graph.py::_link
+    BibframeOtherResources are updated by bluecore_graph's Resolution._link
     """
     add_version(connection, target)
 
@@ -90,6 +90,6 @@ def create_version(mapper: Any, connection: Connection, target: OtherResource):
 def update_version(mapper: Any, connection: Connection, target: OtherResource):
     """
     Updates a Version
-    BibframeOtherResources are updated by bluecore_graph.py::_link
+    BibframeOtherResources are updated by bluecore_graph's Resolution._link
     """
     add_version(connection, target)

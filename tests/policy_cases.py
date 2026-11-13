@@ -37,11 +37,9 @@ from bluecore_models.bluecore_graph import (
     Mode,
     Role,
     Write,
-    _action,
-    _admin_nodes,
-    _citation,
     save_graph,
 )
+from bluecore_models.bluecore_graph.policy import _action, _admin_nodes, _citation
 from bluecore_models.models import (
     BibframeOtherResources,
     Hub,

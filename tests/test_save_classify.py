@@ -15,11 +15,13 @@ from bluecore_models.bluecore_graph import (
     Kind,
     Role,
     Write,
+    save_graph,
+)
+from bluecore_models.bluecore_graph.policy import (
     _action,
     _admin_nodes,
     _citation,
     _classify,
-    save_graph,
 )
 from bluecore_models.models import BibframeOtherResources, Work
 from bluecore_models.namespaces import BF, RDF
