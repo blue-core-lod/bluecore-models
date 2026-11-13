@@ -292,22 +292,21 @@ def test_a_failed_save_shows_the_attempt_that_failed(pg_session):
     assert [e.subject for e in bg._entries[Kind.WORK]] == [bg.created_uri]
 
 
-def _shape_of(bg: BluecoreGraph) -> list[tuple[str, str, str]]:
-    return sorted(
-        (entry.kind.value, str(entry.original), entry.role.value)
-        for entries in bg._entries.values()
-        for entry in entries
-    )
+def test_saving_again_after_a_failed_save_raises(pg_session):
+    source = _lc("works")
+    bg = BluecoreGraph(_bare_record(source))
+    with pytest.raises(OperationalError):
+        bg.save(_FailingSessionMaker(pg_session))  # nothing committed
+    failed = bg.graph
 
+    # another load commits the same LC Work
+    save_graph(pg_session, _bare_record(source))
 
-def test_a_second_save_classifies_as_the_first(pg_session):
-    bg = BluecoreGraph(_record_with_stub())
-    bg.save(pg_session)
-    first = _shape_of(bg)
+    with pytest.raises(BluecoreGraphError, match="saves once"):
+        bg.save(pg_session)  # the caller tries again
 
-    bg.save(pg_session)
-
-    assert _shape_of(bg) == first
+    assert _works_derived_from(pg_session, source) == 1
+    assert set(bg.graph) == set(failed)
 
 
 def _new_instance_of_a_new_work() -> tuple[Graph, URIRef]:

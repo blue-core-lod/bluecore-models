@@ -159,6 +159,18 @@ All tests are located in the tests/ directory.
 
 ---
 
+## 🔍 Checking a change to the save
+
+A change to how `save_graph` and `BluecoreGraph` save a graph can be checked
+with a differential harness, `scripts/diff_save.py`. It loads the same sample of
+LC records with your branch and with the commit it started from, and compares
+what each wrote. [docs/checking-save-changes.md](docs/checking-save-changes.md)
+says which changes need it and how to run it, and how to run the benchmark
+below side by side. What a save does with each resource is written down in
+[docs/save-policy.md](docs/save-policy.md).
+
+---
+
 ## 📊 Benchmarking `save_graph`
 
 `benchmarks/save_graph_bench.py` persists a set of Bibframe graphs through the

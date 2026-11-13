@@ -144,13 +144,11 @@ def _classify(
     roots: set[BNode],
     root: BNode | None,
     described: set[str],
-    arrived_as: dict[str, IdentifiedNode] | None = None,
 ) -> Roles:
     """
     The role of every Hub, Work, Instance and Other Resource in graph, before
     minting. mode is None before save() has set one, when the accessors read the
-    graph as it is. arrived_as maps the uris an earlier save of the same graph
-    minted back to what they were called when they arrived.
+    graph as it is.
 
     A blank node has no identity of its own, so it stays inline in whatever
     describes it, except the one resource an API save is creating (root) or,
@@ -163,10 +161,8 @@ def _classify(
     A bulk-loaded record describes a few resources and carries only a stub of the
     ones it points at: described holds the ones with adminMetadata of their own
     (see SavePlan.prepare). When the record uses adminMetadata at all, any
-    other Hub, Work or Instance in it is a stub, judged by the name it arrived
-    with.
+    other Hub, Work or Instance in it is a stub.
     """
-    arrived_as = arrived_as or {}
     records = {
         (s, kind)
         for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE)
@@ -194,7 +190,7 @@ def _classify(
             kind != Kind.OTHER
             and isinstance(mode, Ingest)
             and described
-            and str(arrived_as.get(str(node), node)) not in described
+            and str(node) not in described
         ):
             return Role.STUB
         return _role_by_mode(mode, kind)
