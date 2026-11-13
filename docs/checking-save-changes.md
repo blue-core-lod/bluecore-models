@@ -131,27 +131,59 @@ harness, say why.
 
 ## When `compare` reports differences
 
-A difference means behaviour changed.
-
-- **If you didn't mean to change behaviour**, it's a regression: fix it.
-- **If you did**, every difference should be one you meant, and you should be
-  able to say which. Change the policy cases that pin the old behaviour as
-  [Changing the policy](save-policy.md#changing-the-policy) says (mark them
-  *chosen* and regenerate `docs/save-policy.md` with
-  `uv run python tests/policy_cases.py > docs/save-policy.md`), and summarise
-  the differences in the PR. A difference you can't explain is a regression,
-  even in a PR that changes behaviour on purpose.
+A difference means behaviour changed. If you didn't mean to change behaviour,
+it's a regression: fix it.
 
 The harness includes a step that is meant to be refused, so the comparison also
 covers error behaviour. A change that began accepting bad saves would show up
 there as a difference.
 
+## Changing what a save writes on purpose
+
+Some changes are meant to change what a save writes. The two checks then answer
+different questions:
+
+- **The policy cases** show that the new rule does what you meant, case by case.
+  They're the main check, and they cover API writes as well as ingest.
+- **The harness** shows that nothing else changed, and roughly how much data the
+  change touches.
+
+Work through it in this order:
+
+1. **Change the policy first.** Change the cases that pin the old behaviour as
+   [Changing the policy](save-policy.md#changing-the-policy) says: mark them
+   *chosen*, change the code to match, and regenerate `docs/save-policy.md`
+   (`uv run python tests/policy_cases.py > docs/save-policy.md`). Add a case
+   for any situation the change affects that no case covers yet.
+2. **Run the full check** against the commit your branch started from.
+3. **Account for every difference.** Each line `compare` prints names a
+   section (`rows`, `links`, `records`, `versions`, `bf_classes`, `types`,
+   `violations`) and the row, link or record that differs. Sort them into
+   kinds, and for each kind say which case explains it. A difference no case
+   explains is a regression, even in a PR that changes behaviour on purpose.
+   Save the output to a file: a change that touches many records prints a line
+   for each.
+4. **Say how much it touches.** Count each kind of difference. The sample is
+   7,000 LC records, so the counts suggest how much of a real load changes,
+   which answers the question "Changing the policy" asks: whether records saved
+   under the old rule need fixing.
+5. **Say what the harness can't see** (next section), and which of the
+   change's effects fall there. Those rest on the policy cases alone.
+
+Put the cases you changed, the kinds of difference with their counts, and
+anything the harness can't see in the PR description.
+
 ## What the harness can't see
 
 The list is in the [harness docstring](../scripts/diff_save.py) under "What the
-harness can't see". Read it before you trust a clean comparison. In particular,
-the default ingest path that re-describes Other Resources isn't exercised, and
-each record is saved by a new `BluecoreGraph`, once.
+harness can't see". Read it before you trust a clean comparison. In particular:
+
+- **API writes are barely exercised.** The corpus is LC records loaded by
+  ingest. Writes, the saves Sinopia and the API make with a `primary_class`,
+  appear only in the few `--sequences` steps. The policy tests cover the write
+  rules case by case, but at scale the harness checks ingest only.
+- The default ingest path that re-describes Other Resources isn't exercised.
+- Each record is saved by a new `BluecoreGraph`, once.
 
 ## If you need to regenerate the sample
 

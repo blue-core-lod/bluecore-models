@@ -80,6 +80,10 @@ masks the generated dates.
 
 What the harness can't see:
 
+- The corpus is loaded by ingest. Writes (saves with a ``primary_class``, as
+  the API makes for Sinopia) appear only in the ``--sequences`` steps, so at
+  scale only ingest is checked; the policy tests cover the write rules case by
+  case.
 - JSON-LD array order outside ``@list`` isn't compared.
 - ``load`` always passes ``update_other_resources=False``, so the default
   ingest path that re-describes Other Resources isn't exercised; only the
