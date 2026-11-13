@@ -34,6 +34,4 @@ A change to what a save writes is a change to the policy: see
 - `docs/save-policy.md`: what a save does with each resource, generated from
   `tests/policy_cases.py`.
 - `docs/checking-save-changes.md`: how to check a change to the save.
-- `docs/bluecoregraph.md`: the analysis the `BluecoreGraph` refactor started
-  from. Where it disagrees with #213, #213 is right.
-- #213: the refactor's plan and phases, now finished.
+- #213: the `BluecoreGraph` refactor's plan and phases, now finished.
