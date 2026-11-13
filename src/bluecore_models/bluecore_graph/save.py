@@ -953,6 +953,11 @@ class Resolution(_GraphView):
 
     def fill(self, session: Session) -> None:
         """Resolve on session: mint, find the entries and decide their actions."""
+        # Minting reads the roles that preparing decides, so check before it.
+        mode = self.plan.mode
+        if mode is None:
+            raise BluecoreGraphError("Only a plan prepared for a save resolves")
+
         # resolve URIs in the graph to their Bluecore equivalent or mint them as
         # appropriate. note: OtherResources keep their original URI
         self._mint_all_uris(Kind.HUB, session)
@@ -964,7 +969,7 @@ class Resolution(_GraphView):
         self.entries = self._extract_entries()
 
         for kind in (Kind.HUB, Kind.WORK, Kind.INSTANCE, Kind.OTHER):
-            self._decide_actions(kind, session)
+            self._decide_actions(kind, session, mode)
 
     def render(self) -> str:
         """
@@ -987,10 +992,10 @@ class Resolution(_GraphView):
                 lines.append(line)
         return "\n".join(lines)
 
-    def _decide_actions(self, kind: Kind, session: Session) -> None:
+    def _decide_actions(self, kind: Kind, session: Session, mode: Mode) -> None:
         """
         Fetch the rows we hold for the resources of kind, and decide from each
-        entry's role and row what the save does to it (see _action).
+        entry's role and row what the save under mode does to it (see _action).
         """
         entries = self.entries[kind]
         # A cited resource described only by triples generate_entity_graph
@@ -1002,9 +1007,6 @@ class Resolution(_GraphView):
         # Fetch the resources of this batch that already exist in a single query,
         # keyed by uri, rather than a SELECT per resource -- so re-saves and large
         # batches don't fan out into a round-trip each.
-        mode = self.plan.mode
-        if mode is None:
-            raise BluecoreGraphError("Only a plan prepared for a save resolves")
         sqla_class = _SQLA_CLASSES[kind]
         existing = {
             obj.uri: obj

@@ -179,6 +179,13 @@ def test_resolve_leaves_the_plan_alone(pg_session):
     assert first.graph is not second.graph
 
 
+def test_resolving_an_unprepared_plan_says_it_needs_preparing():
+    plan = SavePlan(_bare_record(_lc("works")), NS)
+
+    with pytest.raises(BluecoreGraphError, match="prepared"):
+        plan.resolve(None)  # fails before any query
+
+
 def _deadlock() -> OperationalError:
     return OperationalError(
         "UPDATE resource_base SET data=%(data)s::JSONB ...",
