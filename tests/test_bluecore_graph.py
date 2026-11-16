@@ -2951,7 +2951,7 @@ def test_minting_without_derived_from(pg_session, types, primary_class, sqla_cla
     bg = BluecoreGraph(g, record_derived_from=False)
     bg.save(pg_session, primary_class=primary_class)
 
-    [(minted, minted_from)] = bg._minted_from.items()
+    [(minted, minted_from)] = bg._view().minted_from.items()
     assert minted_from == source
     assert not list(bg.graph.triples((None, BF.derivedFrom, None)))
     assert len(list(bg.graph.objects(URIRef(minted), BF.adminMetadata))) == 2
